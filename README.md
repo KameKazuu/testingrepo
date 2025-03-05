@@ -12,6 +12,7 @@ Paperback extensions for websites with unique, non-generic/template layouts.
 - [MangaFire](https://mangafire.to)
 - [Manganelo](https://m.manganelo.com)
 - [MangaKatana](https://mangakatana.com)
+- [WeebCentral](https://weebcentral.com)
 
 ## Installation
 
