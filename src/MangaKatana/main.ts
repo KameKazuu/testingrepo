@@ -192,7 +192,8 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
 
     const request = {
       url: new URLBuilder(DOMAIN_NAME)
-        .addQuery("page", page.toString())
+        .addPath("page")
+        .addPath(page.toString())
         .build(),
       method: "GET",
     };
@@ -236,7 +237,7 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
     const nextPageHref = $("a.next.page-numbers").attr("href");
     let nextPage: number | undefined;
     if (nextPageHref) {
-      const pageMatch = nextPageHref.match(/page\/(\d+)/);
+      const pageMatch = nextPageHref.match(/\/page\/(\d+)/);
       if (pageMatch) {
         nextPage = parseInt(pageMatch[1], 10);
       } else {
@@ -261,7 +262,8 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
     const request = {
       url: new URLBuilder(DOMAIN_NAME)
         .addPath("new-manga")
-        .addQuery("page", String(page))
+        .addPath("page")
+        .addPath(page.toString())
         .build(),
       method: "GET",
     };
@@ -305,7 +307,7 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
     const nextPageHref = $("a.next.page-numbers").attr("href");
     let nextPage: number | undefined;
     if (nextPageHref) {
-      const pageMatch = nextPageHref.match(/page\/(\d+)/);
+      const pageMatch = nextPageHref.match(/\/page\/(\d+)/);
       if (pageMatch) {
         nextPage = parseInt(pageMatch[1], 10);
       } else {
