@@ -43,7 +43,7 @@ export const parseMangaDetails = (
   const arrayTags: Tag[] = [];
   for (const tag of $("li", "div.categories").toArray()) {
     const title = $(tag).text().trim();
-    const id = encodeURI($(tag).text().trim());
+    const id = title.replaceAll(" ", "_");
 
     if (!id || !title) continue;
     arrayTags.push({ id: id, title: title });
@@ -195,7 +195,7 @@ export const parseGenreTags = ($: CheerioAPI): TagSection[] => {
     const title = $(tag).attr("for") ?? "";
 
     if (!title) continue;
-    arrayTags.push({ id: title, title: title });
+    arrayTags.push({ id: title.replaceAll(" ", "_"), title: title });
   }
 
   const tagSections: TagSection[] = [
