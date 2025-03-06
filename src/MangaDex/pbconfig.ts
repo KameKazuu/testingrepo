@@ -3,7 +3,7 @@ import { ContentRating, SourceIntents } from "@paperback/types";
 export default {
   icon: "icon.png",
   name: "MangaDex",
-  version: "1.0.0-alpha.5",
+  version: "1.0.0-alpha.6",
   description: "Extension that pulls titles from mangadex.org.",
   contentRating: ContentRating.MATURE,
   developers: [

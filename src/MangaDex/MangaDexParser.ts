@@ -12,6 +12,13 @@ type MangaItemWithAdditionalInfo = MangaDex.MangaItem & {
   subtitle?: string;
 };
 
+const contentRatingMap: Record<string, ContentRating> = {
+  safe: ContentRating.EVERYONE,
+  suggestive: ContentRating.MATURE,
+  erotica: ContentRating.ADULT,
+  pornographic: ContentRating.ADULT,
+};
+
 export const parseMangaList = async (
   object: MangaDex.MangaItem[],
   COVER_BASE_URL: string,
@@ -132,7 +139,10 @@ export const parseMangaDetails = (
       synopsis: desc ?? "No Description",
       status,
       tagGroups: [{ id: "tags", title: "Tags", tags }],
-      contentRating: ContentRating.EVERYONE, //TODO: apply proper rating
+      contentRating:
+        contentRatingMap[
+          (mangaDetails.contentRating as string)?.toLowerCase() ?? ""
+        ] ?? ContentRating.EVERYONE,
       shareUrl: `${MANGADEX_DOMAIN}/title/${mangaId}`,
       rating,
     },
