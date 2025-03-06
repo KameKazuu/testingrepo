@@ -3,8 +3,8 @@ export function getFilterTagsBySection(
   tags: string[],
 ): string[] {
   return tags
-    ?.filter((x: string) => x.startsWith(`${section}:`))
+    ?.filter((x: string) => x.startsWith(`${section}_`))
     .map((x: string) => {
-      return x.replace(`${section}:`, "");
+      return x.replace(`${section}_`, "");
     });
 }

@@ -34,7 +34,7 @@ export const parseMangaDetails = async (
     const id = await getFilter(filterName);
 
     if (!id || !label) continue;
-    arrayTags.push({ id: `genres:${id}`, title: label });
+    arrayTags.push({ id: `genres_${id}`, title: label });
   }
   const tagSections: TagSection[] = [
     { id: "0", title: "genres", tags: arrayTags },
@@ -210,7 +210,7 @@ export const parseUpdateSection = async (
       title: load(title).text(),
       mangaId: id,
       subtitle: subtitle,
-      chapterId: subtitle,
+      chapterId: subtitle.split(" ")[1],
       type: "chapterUpdatesCarouselItem",
     });
   }
@@ -257,7 +257,7 @@ export const parseTags = (filters: Filters): TagSection[] => {
     prefix: string,
   ): Tag[] => {
     return filterItems.map((item: { id: number | string; name: string }) => ({
-      id: `${prefix}:${item.id ?? item.name}`,
+      id: `${prefix}_${item.id ?? item.name}`,
       title: item.name,
     }));
   };

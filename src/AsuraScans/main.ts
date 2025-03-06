@@ -139,7 +139,7 @@ export class AsuraScansExtension
             items.push({
               type: "genresCarouselItem",
               searchQuery: {
-                title: tag.title,
+                title: "",
                 filters: [{ id: tag.id, value: { [tag.id]: "included" } }],
               },
               name: tag.title,
@@ -154,7 +154,7 @@ export class AsuraScansExtension
             items.push({
               type: "genresCarouselItem",
               searchQuery: {
-                title: tag.title,
+                title: "",
                 filters: [{ id: tag.id, value: { [tag.id]: "included" } }],
               },
               name: tag.title,
@@ -169,7 +169,7 @@ export class AsuraScansExtension
             items.push({
               type: "genresCarouselItem",
               searchQuery: {
-                title: tag.title,
+                title: "",
                 filters: [{ id: tag.id, value: { [tag.id]: "included" } }],
               },
               name: tag.title,

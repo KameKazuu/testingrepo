@@ -1,4 +1,10 @@
-import { Form, LabelRow, Section, ToggleRow } from "@paperback/types";
+import {
+  ButtonRow,
+  Form,
+  LabelRow,
+  Section,
+  ToggleRow,
+} from "@paperback/types";
 
 function toBoolean(value: unknown): boolean {
   return (value ?? false) === "true";
@@ -20,23 +26,14 @@ export function setShowUpcomingChapters(value: boolean): void {
   Application.setState(value.toString(), "prerelease");
 }
 
+export function clearTags(): void {
+  Application.setState(undefined, "tags");
+}
+
 export class AsuraSettingForm extends Form {
   override getSections(): Application.FormSectionElement[] {
     return [
-      Section("Asura Settings", [
-        ToggleRow("hq_thumb", {
-          title: "HQ Thumbnails",
-          value: getHQthumb(),
-          onValueChange: Application.Selector(
-            this as AsuraSettingForm,
-            "hQthumbChange",
-          ),
-        }),
-        LabelRow("label", {
-          title: "",
-          subtitle:
-            "Enabling will show chapters that are only available to Asura+ members. ",
-        }),
+      Section("first", [
         ToggleRow("pre", {
           title: "Show Upcoming Chapters",
           value: getShowUpcomingChapters(),
@@ -51,6 +48,27 @@ export class AsuraSettingForm extends Form {
             "Enabling HQ thumbnails will use more bandwidth and will load thumbnails slightly slower.",
         }),
       ]),
+      Section("second", [
+        ButtonRow("clearTags", {
+          title: "Clear Cached Search Tags",
+          onSelect: Application.Selector(
+            this as AsuraSettingForm,
+            "tagsChange",
+          ),
+        }),
+        ButtonRow("resetState", {
+          title: "Reset All State",
+          onSelect: Application.Selector(
+            this as AsuraSettingForm,
+            "resetState",
+          ),
+        }),
+        LabelRow("resetStateLabel", {
+          title: "",
+          subtitle:
+            "Clicking this will reset all state for this extension. Do not click unless you know what you are doing.",
+        }),
+      ]),
     ];
   }
 
@@ -60,5 +78,13 @@ export class AsuraSettingForm extends Form {
 
   async preChange(value: boolean): Promise<void> {
     setShowUpcomingChapters(value);
+  }
+
+  async tagsChange(): Promise<void> {
+    clearTags();
+  }
+
+  async resetState(): Promise<void> {
+    Application.resetAllState();
   }
 }
