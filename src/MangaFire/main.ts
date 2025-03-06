@@ -346,7 +346,10 @@ export class MangaFireExtension implements MangaFireImplementation {
         id: "genres",
         title: "Genres",
         tags: genres.map((genre) => ({
-          id: genre.toLowerCase(),
+          id: genre
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, ""),
           title: genre,
         })),
       });
