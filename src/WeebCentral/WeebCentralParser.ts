@@ -10,7 +10,7 @@ import {
 import { CheerioAPI } from "cheerio";
 import { decodeHTML } from "entities";
 import { TagSectionId, TagSectionTitle } from "./WeebCentralEnums";
-import { getRating, getShareUrl } from "./WeebCentralHelper";
+import { formatTagId, getRating, getShareUrl } from "./WeebCentralHelper";
 
 export const parseMangaDetails = async (
   $: CheerioAPI,
@@ -20,8 +20,11 @@ export const parseMangaDetails = async (
   const image = $("picture > img").attr("src") ?? "";
   const description = decodeHTML($(".whitespace-pre-wrap").text().trim());
   const authors: string[] = [];
-  for (const authorObj of $('strong:contains("Author")').siblings().toArray()) {
+  for (const authorObj of $('strong:contains("Author")')
+    .siblings("span")
+    .toArray()) {
     const author = $("a", authorObj).text().trim();
+    if (!author) continue;
     authors.push(author);
   }
   const author = authors.join(", ");
@@ -49,7 +52,7 @@ export const parseMangaDetails = async (
     $('strong:contains("Tags(s)")').siblings(),
   ).toArray()) {
     const genre = $(genreObj).text().trim();
-    const id = encodeURI(genre);
+    const id = formatTagId(genre);
     genres.push({ id, title: genre });
   }
   const isAdultContent = $('strong:contains("Adult Content")')
@@ -58,8 +61,8 @@ export const parseMangaDetails = async (
     .trim();
   const tagSections: TagSection[] = [
     {
-      id: "0",
-      title: "genres",
+      id: TagSectionId.Genres,
+      title: TagSectionTitle.Genres,
       tags: genres,
     },
   ];
@@ -210,6 +213,12 @@ export const parseRecentSection = async (
         ?.replace(/\/$/, "")
         ?.split("/")
         .slice(-2)[0] ?? "";
+    const chapterId =
+      $("a.min-w-0", recentObj)
+        .attr("href")
+        ?.replace(/\/$/, "")
+        ?.split("/")
+        .slice(-2)[0] ?? "";
     const title = $("div.font-semibold", recentObj).text().trim() ?? "";
     const imageUrl =
       $("a img", recentObj).attr("src") ??
@@ -221,7 +230,7 @@ export const parseRecentSection = async (
       title: decodeHTML(title),
       mangaId: id,
       subtitle: decodeHTML(subtitle),
-      chapterId: subtitle,
+      chapterId: chapterId,
       type: "chapterUpdatesCarouselItem",
     });
   }
@@ -331,7 +340,8 @@ const parseIntoTagSection = (
   const elements = $(selector).next().children().toArray();
   for (const element of elements) {
     const title = $("span", element).first().text().trim();
-    const id = $("input", element).last().attr("value") ?? "";
+    let id = $("input", element).last().attr("value") ?? "";
+    id = formatTagId(id);
     tagSection.tags.push({ id, title });
   }
   return tagSection;

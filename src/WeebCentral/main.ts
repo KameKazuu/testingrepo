@@ -23,12 +23,14 @@ import * as cheerio from "cheerio";
 import { getState } from "../utils/state";
 import { URLBuilder } from "../utils/url-builder/array-query-variant";
 import { WeebCentralMetadata } from "./interfaces/WeebCentralInterfaces";
+import pbconfig from "./pbconfig";
 import { WC_DOMAIN } from "./WeebCentralConfig";
 import { TagSectionId } from "./WeebCentralEnums";
 import {
   getFilterTagsBySection,
   getShareUrl,
   getTagFromTagStore,
+  isInvalidTags,
 } from "./WeebCentralHelper";
 import { WeebCentralInterceptor } from "./WeebCentralInterceptor";
 import {
@@ -200,17 +202,19 @@ export class WeebCentralExtension
   async getGenres(): Promise<Tag[]> {
     let tags = getState<TagSection[]>("tags", []);
     if (tags.length == 0) {
-      await this.getSearchTags();
-    }
-    tags = getState<TagSection[]>("tags", []);
-    if (tags.length == 0) {
-      throw new Error("Tags not found");
+      tags = await this.getSearchTags();
+      if (tags.length == 0) {
+        throw new Error("Tags not found");
+      }
     }
     const genreTag = tags.find(
       (tag) => (tag.id as TagSectionId) === TagSectionId.Genres,
     );
     if (genreTag === undefined) {
       throw new Error("Genres tag section not found");
+    }
+    if (isInvalidTags(genreTag.tags)) {
+      throw new Error(`Please reset ${pbconfig.name} state in settings`);
     }
     return genreTag.tags;
   }

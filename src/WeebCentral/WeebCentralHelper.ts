@@ -1,4 +1,4 @@
-import { ContentRating, SearchQuery, TagSection } from "@paperback/types";
+import { ContentRating, SearchQuery, Tag, TagSection } from "@paperback/types";
 import { WC_DOMAIN } from "./WeebCentralConfig";
 import { TagSectionId } from "./WeebCentralEnums";
 
@@ -12,7 +12,19 @@ export function getFilterTagsBySection(
   }
   return Object.entries(values)
     .filter((x) => x[1] == "included")
-    .map((x) => x[0]);
+    .map((x) => parseTagId(x[0]));
+}
+
+export function formatTagId(tagId: string): string {
+  return tagId.replaceAll(" ", "_");
+}
+
+export function parseTagId(tagId: string): string {
+  return tagId.replace("_", " ");
+}
+
+export function isInvalidTags(tags: Tag[]): boolean {
+  return tags.some((tag) => !/^[a-zA-Z0-9._\-@()[\]]+$/.test(tag.id));
 }
 
 export function getTagFromTagStore(
