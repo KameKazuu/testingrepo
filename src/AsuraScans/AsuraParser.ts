@@ -24,7 +24,7 @@ export const parseMangaDetails = async (
   const description = $("span.font-medium.text-sm").text().trim() ?? "";
 
   const author = $('h3:contains("Author")').next().text().trim() ?? "";
-  const artist = $('h3:contains("Author")').next().text().trim() ?? "";
+  const artist = $('h3:contains("Artist")').next().text().trim() ?? "";
 
   const arrayTags: Tag[] = [];
   for (const tag of $("button", $('h3:contains("Genres")').next()).toArray()) {
@@ -71,8 +71,8 @@ export const parseMangaDetails = async (
       primaryTitle: titles.shift() as string,
       secondaryTitles: titles,
       status: status,
-      author: load(author).text(),
-      artist: load(artist).text(),
+      author: load(author).text() === "_" ? undefined : load(author).text(),
+      artist: load(artist).text() === "_" ? undefined : load(artist).text(),
       tagGroups: tagSections,
       synopsis: load(description).text(),
       thumbnailUrl: image,
