@@ -12,6 +12,7 @@ Paperback extensions for websites with unique, non-generic/template layouts.
 - [MangaPlus](https://mangaplus.shueisha.co.jp)
 - [Mgeko](https://mgeko.cc)
 - [RawKuma](https://rawkuma.com)
+- [ReaperScans](https://reaperscans.com)
 - [WeebCentral](https://weebcentral.com)
 
 ## Installation
