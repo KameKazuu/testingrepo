@@ -1,22 +1,23 @@
-import { ContentRating, SourceIntents } from "@paperback/types";
+import { ContentRating, SourceInfo, SourceIntents } from "@paperback/types";
 
 export default {
-  icon: "icon.png",
-  name: "Mgeko",
-  version: "1.0.0-alpha.4",
-  description: "The mgeko.cc (old domain: mcreader.net) extension.",
-  contentRating: ContentRating.MATURE,
-  developers: [
-    {
-      name: "Paperback Community",
-      website: "https://github.com/paperback-community",
-    },
-  ],
-  badges: [],
-  capabilities: [
-    SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
-    SourceIntents.DISCOVER_SECIONS,
-    SourceIntents.MANGA_CHAPTERS,
-    SourceIntents.MANGA_SEARCH,
-  ],
-};
+    name: "Mgeko",
+    description: "Extension that pulls content from mgeko.cc.",
+    version: "1.0.0-alpha.5",
+    icon: "icon.png",
+    language: "en",
+    contentRating: ContentRating.EVERYONE,
+    capabilities: [
+        SourceIntents.CLOUDFLARE_BYPASS_REQUIRED,
+        SourceIntents.DISCOVER_SECIONS,
+        SourceIntents.MANGA_CHAPTERS,
+        SourceIntents.MANGA_SEARCH,
+    ],
+    badges: [],
+    developers: [
+        {
+            name: "Paperback Community",
+            website: "https://github.com/paperback-community",
+        },
+    ],
+} satisfies SourceInfo;

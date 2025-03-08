@@ -1,22 +1,23 @@
-import { ContentRating, SourceIntents } from "@paperback/types";
+import { ContentRating, SourceInfo, SourceIntents } from "@paperback/types";
 
 export default {
-  icon: "icon.png",
-  name: "MangaPlus",
-  version: "1.0.0-alpha.1",
-  description: "Extension that pulls manga from Manga+ by Shueisha",
-  contentRating: ContentRating.EVERYONE,
-  developers: [
-    {
-      name: "Yves Pa",
-      github: "https://github.com/YvesPa",
-    },
-  ],
-  badges: [],
-  capabilities: [
-    SourceIntents.MANGA_CHAPTERS,
-    SourceIntents.HOMEPAGE_SECTIONS,
-    SourceIntents.SETTINGS_UI,
-    SourceIntents.MANGA_SEARCH,
-  ],
-};
+    name: "MangaPlus",
+    description: "Extension that pulls content from mangaplus.shueisha.co.jp.",
+    version: "1.0.0-alpha.2",
+    icon: "icon.png",
+    language: "en",
+    contentRating: ContentRating.EVERYONE,
+    capabilities: [
+        SourceIntents.MANGA_CHAPTERS,
+        SourceIntents.DISCOVER_SECIONS,
+        SourceIntents.SETTINGS_UI,
+        SourceIntents.MANGA_SEARCH,
+    ],
+    badges: [],
+    developers: [
+        {
+            name: "Yves Pa",
+            github: "https://github.com/YvesPa",
+        },
+    ],
+} satisfies SourceInfo;

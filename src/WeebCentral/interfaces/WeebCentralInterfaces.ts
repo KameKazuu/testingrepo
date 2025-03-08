@@ -1,4 +1,4 @@
 export interface WeebCentralMetadata {
-  page?: number; // For homepage sections
-  offset?: number; // For search results
+    page?: number; // For homepage sections
+    offset?: number; // For search results
 }

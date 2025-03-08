@@ -1,6 +1,6 @@
 # General Extensions
 
-Paperback extensions for websites with unique, non-generic/template layouts.
+Paperback extensions for websites with unique, non-generic themes.
 
 ## Available Extensions
 
@@ -9,26 +9,23 @@ Paperback extensions for websites with unique, non-generic/template layouts.
 - [MangaDex](https://mangadex.org)
 - [MangaFire](https://mangafire.to)
 - [MangaKatana](https://mangakatana.com)
-- [MangaPlus](https://mangaplus.shueisha.co.jp)
+- [Manga Plus](https://mangaplus.shueisha.co.jp)
 - [Mgeko](https://mgeko.cc)
-- [RawKuma](https://rawkuma.com)
-- [ReaperScans](https://reaperscans.com)
-- [WeebCentral](https://weebcentral.com)
+- [Reaper Scans](https://reaperscans.com)
+- [Weeb Central](https://weebcentral.com)
 
 ## Installation
 
-Add this repository to Paperback through [this link](https://paperback-community.github.io/general-extensions/0.9/stable).
+Add this repository to Paperback by visiting [this webpage][installation-webpage].
 
-## Contributing
+## Support Guidelines
 
-Follow these steps to contribute your own extension(s):
+Need help? Check out our [Support Guidelines][support-guidelines] for assistance.
 
-1. Fork this repository.
-2. Clone the forked repository.
-3. Run `npm i` ([Node.js](https://nodejs.org) and npm need to be installed).
-4. Add your extension(s) into the `src` directory.
-5. Ensure `npm test` passes successfully.
-6. Commit an push your changes to the remote fork.
-7. Make a pull request and notify a repository maintainer.
+## Contributing Guidelines
 
-We’ll review and work on adding your extension as quickly as possible!
+Want to contribute? Read our [Contributing Guidelines][contributing-guidelines] to get started.
+
+[installation-webpage]: https://paperback-community.github.io/general-extensions/0.9/stable
+[support-guidelines]: https://github.com/paperback-community/general-extensions/blob/0.9/stable/.github/SUPPORT.md
+[contributing-guidelines]: https://github.com/paperback-community/general-extensions/blob/0.9/stable/.github/CONTRIBUTING.md
