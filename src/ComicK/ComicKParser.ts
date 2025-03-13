@@ -52,10 +52,7 @@ export const parseMangaDetails = (
         synopsis: comic.desc ? Application.decodeHTMLEntities(comic.desc) : "",
         primaryTitle: titles[0],
         secondaryTitles: titles,
-        contentRating: parseContentRating(
-            comic.content_rating,
-            comic.matureContent,
-        ),
+        contentRating: parseContentRating(comic.content_rating),
         status: parseComicStatus(comic.status),
         author: authors.map((author: ComicK.Item) => author.name).join(","),
         artist: artists.map((artists: ComicK.Item) => artists.name).join(","),
@@ -157,16 +154,17 @@ export function parseTags(
 
 export function parseSearch(data: ComicK.SearchData[]): SearchResultItem[] {
     return data
-        .filter((manga) => manga.hid)
-        .map((manga) => ({
-            imageUrl: manga.cover_url,
-            title: Application.decodeHTMLEntities(manga.title),
-            mangaId: manga.hid,
+        .filter((comic) => comic.hid)
+        .map((comic) => ({
+            imageUrl: comic.cover_url,
+            title: Application.decodeHTMLEntities(comic.title),
+            mangaId: comic.hid,
             subtitle: Application.decodeHTMLEntities(
-                manga.last_chapter
-                    ? `Chapter ${manga.last_chapter}`
-                    : manga.title,
+                comic.last_chapter
+                    ? `Chapter ${comic.last_chapter}`
+                    : comic.title,
             ),
+            contentRating: parseContentRating(comic.content_rating),
         }));
 }
 
@@ -175,12 +173,13 @@ export function parseDiscoverSection(
     type: DiscoverSectionType,
 ): DiscoverSectionItem[] {
     return data
-        .filter((manga) => manga.hid)
-        .map((manga) => {
+        .filter((comic) => comic.hid)
+        .map((comic) => {
             const baseItem = {
-                imageUrl: manga.cover_url,
-                title: Application.decodeHTMLEntities(manga.title),
-                mangaId: manga.hid,
+                imageUrl: comic.cover_url,
+                title: Application.decodeHTMLEntities(comic.title),
+                mangaId: comic.hid,
+                contentRating: parseContentRating(comic.content_rating),
             };
 
             switch (type) {
@@ -192,9 +191,9 @@ export function parseDiscoverSection(
                     return {
                         ...baseItem,
                         subtitle: Application.decodeHTMLEntities(
-                            manga.last_chapter
-                                ? `Chapter ${manga.last_chapter}`
-                                : manga.title,
+                            comic.last_chapter
+                                ? `Chapter ${comic.last_chapter}`
+                                : comic.title,
                         ),
                         type: "simpleCarouselItem",
                     };
@@ -248,15 +247,12 @@ export function parseComicTypeFilters() {
     ];
 }
 
-function parseContentRating(
-    content_rating: string,
-    matureContent: boolean,
-): ContentRating {
+function parseContentRating(content_rating: string): ContentRating {
     if (content_rating === "erotica") {
         return ContentRating.ADULT;
     }
 
-    if (content_rating === "safe" && matureContent) {
+    if (content_rating === "suggestive") {
         return ContentRating.MATURE;
     }
 

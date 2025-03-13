@@ -10,7 +10,6 @@ declare namespace ComicK {
         title: string;
         status: number;
         content_rating: string;
-        matureContent: boolean;
         desc: string;
         slug: string;
         country: string;
@@ -68,6 +67,7 @@ declare namespace ComicK {
             hid: string;
             last_chapter: string;
         };
+        content_rating: string;
     };
 
     type ChapterFilter = {
