@@ -76,7 +76,7 @@ export const parseMangaDetails = (
             synopsis: description[1] ? description[1] : description.join(""),
             primaryTitle: primaryTitle,
             secondaryTitles: secondaryTitles,
-            contentRating: ContentRating.MATURE,
+            contentRating: ContentRating.EVERYONE,
             status: status,
             author: author,
             tagGroups: tagSections,
@@ -187,6 +187,7 @@ export const parseViewMore = ($: CheerioAPI): DiscoverSectionItem[] => {
             title: Application.decodeHTMLEntities(title),
             imageUrl: image,
             subtitle: Application.decodeHTMLEntities(subtitle),
+            contentRating: ContentRating.EVERYONE,
         });
         collectedIds.push(id);
     }
@@ -237,6 +238,7 @@ export const parseSearch = (
             title: Application.decodeHTMLEntities(title),
             imageUrl: image,
             subtitle: Application.decodeHTMLEntities(subtitle),
+            contentRating: ContentRating.EVERYONE,
         });
     }
     return mangas;
