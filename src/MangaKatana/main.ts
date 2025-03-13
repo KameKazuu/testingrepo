@@ -20,13 +20,13 @@ import {
     SearchResultsProviding,
     SourceManga,
     TagSection,
-    URL,
 } from "@paperback/types";
 import * as cheerio from "cheerio";
 import { CheerioAPI } from "cheerio";
 import { URLBuilder } from "../utils/url-builder/base";
 import { genreOptions } from "./genreOptions";
 import { genres } from "./genres";
+import { isLastPage, parseSearch, parseTags } from "./MangaKatanaParser";
 
 const DOMAIN_NAME = "https://mangakatana.com/";
 
@@ -397,37 +397,57 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
         return filters;
     }
 
-    // Populates search
+    async getSearchTags(): Promise<TagSection[]> {
+        const request = {
+            url: `${DOMAIN_NAME}/genres`,
+            method: "GET",
+        };
+
+        const $ = await this.fetchCheerio(request);
+        return parseTags($);
+    }
+
+    // Add this property to the class
+    private currentSearchQuery: string = "";
+    private searchInProgress: boolean = false;
+
     async getSearchResults(
         query: SearchQuery,
-        metadata?: { page?: number },
+        metadata: Katana.Metadata | undefined,
     ): Promise<PagedResults<SearchResultItem>> {
-        const page = metadata?.page ?? 1;
+        const page = (metadata as { page?: number } | undefined)?.page ?? 1;
 
-        if (query.title && query.title.length < 3) {
+        // Skip search for single character queries
+        if (query.title && query.title.length === 1) {
             return { items: [], metadata: undefined };
         }
 
-        let searchUrl: URLBuilder;
+        // Update current search query
+        this.currentSearchQuery = query.title || "";
 
-        const selectedGenres = query.filters?.find((f) => f.id === "genres")
-            ?.value as Record<string, "included" | "excluded"> | undefined;
+        // Set up request
+        let request;
+        if (query.title) {
+            request = {
+                url: new URLBuilder(DOMAIN_NAME)
+                    .addPath("page")
+                    .addPath(String(page))
+                    .addQuery("search", encodeURIComponent(query.title))
+                    .addQuery("search_by", "book_name")
+                    .build(),
+                method: "GET",
+            };
+        } else {
+            // Extract the genre ID from the filters
+            const genreFilter = query.filters?.find((f) => f.id === "genres");
+            const genreValue = genreFilter?.value;
 
-        const isGenreOnlySearch =
-            selectedGenres &&
-            Object.keys(selectedGenres).length > 0 &&
-            !query.title;
-
-        if (isGenreOnlySearch) {
-            searchUrl = new URLBuilder(DOMAIN_NAME)
-                .addPath("manga")
-                .addPath("page")
-                .addPath(String(page));
-
-            const includedGenreIds = Object.entries(selectedGenres)
-                .filter(([, inclusion]) => inclusion === "included")
+            // Get all included genre IDs
+            const includedGenreIds = Object.entries(genreValue || {})
+                .filter(([, value]) => value === "included")
                 .map(([id]) => id);
 
+            // Map genre IDs to their values
             const includedGenreValues = includedGenreIds
                 .map((id) => {
                     const genreOption = genreOptions.find(
@@ -435,160 +455,108 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
                     );
                     return genreOption
                         ? genreOption.value.toLowerCase().replace(/ /g, "_")
-                        : null;
+                        : "";
                 })
-                .filter((value) => value !== null);
+                .filter(Boolean);
 
+            // Join multiple genres with underscores
             const includeValue = includedGenreValues.join("_");
 
-            searchUrl
-                .addQuery("filter", "1")
-                .addQuery("include", includeValue)
-                .addQuery("include_mode", "and")
-                .addQuery("bookmark_opts", "off")
-                .addQuery("chapters", "1");
-        } else {
-            searchUrl = new URLBuilder(DOMAIN_NAME)
-                .addPath("page")
-                .addPath(String(page));
-
-            if (query.title) {
-                searchUrl.addQuery("search", encodeURIComponent(query.title));
-            }
-
-            if (selectedGenres) {
-                Object.entries(selectedGenres).forEach(
-                    ([genreId, inclusion]) => {
-                        const prefix = inclusion === "excluded" ? "-" : "";
-                        searchUrl.addQuery("genres[]", `${prefix}${genreId}`);
-                    },
-                );
-            }
+            request = {
+                url: new URLBuilder(DOMAIN_NAME)
+                    .addPath("genres")
+                    .addPath("page")
+                    .addPath(String(page))
+                    .addQuery("filter", "1")
+                    .addQuery("include", includeValue)
+                    .addQuery("include_mode", "and")
+                    .addQuery("bookmark_opts", "off")
+                    .addQuery("chapters", "1")
+                    .build(),
+                method: "GET",
+            };
         }
 
-        const MAX_RETRIES = 3;
+        // Use retry logic for queries with 2+ characters
+        const MAX_RETRIES = 20;
         let retryCount = 0;
 
         while (retryCount < MAX_RETRIES) {
             try {
-                const request = {
-                    url: searchUrl.build(),
-                    method: "GET",
-                };
+                // Mark search as in progress
+                this.searchInProgress = true;
 
-                const [response, data] =
-                    await Application.scheduleRequest(request);
-                this.checkCloudflareStatus(response.status);
+                // Execute the request
+                const $ = await this.fetchCheerio(request);
+                const manga = parseSearch($);
 
-                const $ = cheerio.load(
-                    Application.arrayBufferToUTF8String(data),
+                // Check if we need to retry (empty results and valid query)
+                if (
+                    query.title &&
+                    query.title.length > 1 &&
+                    manga.length === 0 &&
+                    retryCount < MAX_RETRIES - 1
+                ) {
+                    // If user has updated the query while we were searching, stop retrying
+                    if (this.currentSearchQuery !== query.title) {
+                        console.log(
+                            "Query changed during search, aborting retry",
+                        );
+                        return { items: [], metadata: undefined };
+                    }
+
+                    retryCount++;
+                    console.log(
+                        `Search returned no results, retrying (${retryCount}/${MAX_RETRIES})`,
+                    );
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, 1000 * retryCount),
+                    );
+                    continue;
+                }
+
+                // Search complete, update status
+                this.searchInProgress = false;
+
+                // Return results
+                const nextPageMeta = !isLastPage($)
+                    ? { page: page + 1 }
+                    : undefined;
+
+                console.log(
+                    `This is the nextPageMeta: ${JSON.stringify(nextPageMeta)}`,
                 );
-                const finalUrl = new URL(response.url);
-
-                if (finalUrl.pathname.startsWith("/manga/")) {
-                    const mangaId = finalUrl.pathname
-                        .split("/manga/")[1]
-                        .split("/")[0];
-                    const title = $("h1.heading").text().trim();
-                    const image = $(".cover img").attr("src") || "";
-                    const latestChapterText = $(".update_time")
-                        .first()
-                        .text()
-                        .trim();
-                    const latestChapterMatch =
-                        latestChapterText.match(/Chapter (\d+)/);
-                    const subtitle = latestChapterMatch
-                        ? `Ch. ${latestChapterMatch[1]}`
-                        : undefined;
-
-                    if (mangaId && title && image) {
-                        return {
-                            items: [
-                                {
-                                    mangaId: decodeURIComponent(mangaId)
-                                        .replace(/[^\w@.]/g, "_")
-                                        .trim(),
-                                    imageUrl: image,
-                                    title,
-                                    subtitle,
-                                    metadata: undefined,
-                                },
-                            ],
-                            metadata: undefined,
-                        };
-                    }
-                }
-
-                const searchResults: SearchResultItem[] = [];
-                $(".item").each((_, element) => {
-                    const unit = $(element);
-                    const titleLink = unit.find("h3.title a").first();
-                    const title = titleLink.text().trim();
-                    const href = titleLink.attr("href") || "";
-
-                    const mangaIdParts = href.split("/manga/")[1]?.split("/");
-                    let mangaId = mangaIdParts ? mangaIdParts[0] : "";
-
-                    if (!mangaId) return;
-
-                    mangaId = decodeURIComponent(mangaId)
-                        .replace(/[^\w@.]/g, "_")
-                        .trim();
-
-                    const image = unit.find(".wrap_img img").attr("src") || "";
-                    const latestChapterText = unit
-                        .find("h3.title span")
-                        .text()
-                        .trim();
-                    const latestChapterMatch =
-                        latestChapterText.match(/Chapter (\d+)/);
-                    const subtitle = latestChapterMatch
-                        ? `Ch. ${latestChapterMatch[1]}`
-                        : undefined;
-
-                    if (title && mangaId && image) {
-                        searchResults.push({
-                            mangaId,
-                            imageUrl: image,
-                            title,
-                            subtitle,
-                            metadata: undefined,
-                        });
-                    }
-                });
-
-                const nextPageHref = $("a.next.page-numbers").attr("href");
-                let nextPage: number | undefined;
-                if (nextPageHref) {
-                    const pageMatch = nextPageHref.match(/page\/(\d+)/);
-                    nextPage = pageMatch
-                        ? parseInt(pageMatch[1], 10)
-                        : page + 1;
-                }
 
                 return {
-                    items: searchResults,
-                    metadata: nextPage ? { page: nextPage } : undefined,
+                    items: manga,
+                    metadata: nextPageMeta,
                 };
             } catch (error) {
                 console.error(
-                    `Search attempt ${retryCount + 1} failed:`,
+                    `Search error (attempt ${retryCount + 1}):`,
                     error,
                 );
-                retryCount++;
 
-                if (retryCount < MAX_RETRIES) {
-                    const RETRY_DELAY = 1000 * retryCount;
-                    await new Promise((resolve) =>
-                        setTimeout(resolve, RETRY_DELAY),
+                // If user has updated the query while we were searching, stop retrying
+                if (this.currentSearchQuery !== query.title) {
+                    console.log(
+                        "Query changed during search, aborting retry after error",
                     );
+                    this.searchInProgress = false;
+                    return { items: [], metadata: undefined };
                 }
+
+                retryCount++;
             }
         }
 
-        return { items: [], metadata: undefined };
+        // Search complete (after max retries)
+        this.searchInProgress = false;
+        return {
+            items: [],
+            metadata: undefined,
+        };
     }
-
     // Populates the chapter list
     async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
         const request = {
