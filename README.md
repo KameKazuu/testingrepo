@@ -12,6 +12,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [Manga Plus](https://mangaplus.shueisha.co.jp)
 - [Mgeko](https://mgeko.cc)
 - [Reaper Scans](https://reaperscans.com)
+- [Webtoon](https://webtoons.com)
 - [Weeb Central](https://weebcentral.com)
 
 ## Installation
