@@ -3,6 +3,7 @@ import {
     Chapter,
     ChapterDetails,
     ChapterProviding,
+    ContentRating,
     DiscoverSection,
     DiscoverSectionItem,
     DiscoverSectionProviding,
@@ -185,6 +186,7 @@ export class MangaPlusExtension
                 title: title,
                 subtitle: author,
                 imageUrl: image,
+                contentRating: ContentRating.EVERYONE,
             });
         }
 
@@ -231,6 +233,7 @@ export class MangaPlusExtension
                 title: title,
                 subtitle: author,
                 imageUrl: image,
+                contentRating: ContentRating.EVERYONE,
             });
         }
 
@@ -280,6 +283,7 @@ export class MangaPlusExtension
                 title: title,
                 subtitle: author,
                 imageUrl: image,
+                contentRating: ContentRating.EVERYONE,
             });
         }
 
@@ -356,6 +360,7 @@ export class MangaPlusExtension
                 title: title,
                 subtitle: author,
                 imageUrl: image,
+                contentRating: ContentRating.EVERYONE,
             });
         }
 
