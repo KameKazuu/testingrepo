@@ -350,7 +350,8 @@ export abstract class WebtoonParser extends WebtoonSettings {
             .replaceAll("/", "--SLASH--")
             .replaceAll("?", "--QUESTION--")
             .replaceAll("=", "--EQUALS--")
-            .replaceAll("&", "--AND--");
+            .replaceAll("&", "--AND--")
+            .replaceAll("%", "--PERCENT--");
     }
 
     parseIdToSource(id: string): string {
@@ -358,7 +359,8 @@ export abstract class WebtoonParser extends WebtoonSettings {
             .replaceAll("--SLASH--", "/")
             .replaceAll("--QUESTION--", "?")
             .replaceAll("--EQUALS--", "=")
-            .replaceAll("--AND--", "&");
+            .replaceAll("--AND--", "&")
+            .replaceAll("--PERCENT--", "%");
     }
 
     languageFromId(id: string): Language {
