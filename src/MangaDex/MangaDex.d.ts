@@ -339,22 +339,71 @@ declare namespace MangaDex {
     }
 
     interface AuthResponse {
-        result: string;
-        token: {
-            session: string;
-            refresh: string;
-        };
-        message: string;
+        access_token: string;
+        expires_in: number;
+        id_token: string;
+        "not-before-policy": number;
+        refresh_expires_in: number;
+        refresh_token: string;
+        scope: string;
+        session_state: string;
+        token_type: string;
     }
 
     interface AuthError {
+        error: string;
+        error_description: string;
+    }
+
+    interface ScanlationGroupResponse {
         result: string;
-        errors: Array<{
-            id: string;
-            status: number;
-            title: string;
-            detail: string;
-            context: string;
-        }>;
+        response: string;
+        data: ScanlationGroupItem[];
+        limit: number;
+        offset: number;
+        total: number;
+        errors?: [
+            {
+                id: string;
+                status: number;
+                title: string;
+                detail: string;
+                context: string;
+            },
+        ];
+    }
+
+    interface ScanlationGroupItem {
+        id: string;
+        type: string;
+        attributes: ScanlationGroupAttributes;
+        relationships: ScanlationGroupRelationship[];
+    }
+
+    interface ScanlationGroupAttributes {
+        name: string;
+        altNames: Array<Record<string, string>>;
+        locked: boolean;
+        website: string | null;
+        ircServer: string | null;
+        ircChannel: string | null;
+        discord: string | null;
+        contactEmail: string | null;
+        description: string | null;
+        twitter: string | null;
+        mangaUpdates: string | null;
+        focusedLanguages: string[];
+        official: boolean;
+        verified: boolean;
+        inactive: boolean;
+        publishDelay: number | null;
+        createdAt: string;
+        updatedAt: string;
+        version: number;
+    }
+
+    interface ScanlationGroupRelationship {
+        id: string;
+        type: string;
     }
 }

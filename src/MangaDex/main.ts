@@ -1,4 +1,3 @@
-// TODO: Rewrite
 import {
     BasicRateLimiter,
     Chapter,
@@ -36,8 +35,10 @@ import {
 } from "./MangaDexParser";
 import {
     getAccessToken,
+    getBlockedGroups,
     getDataSaver,
     getForcePort443,
+    getGroupBlockingEnabled,
     getHomepageThumbnail,
     getLanguages,
     getRatings,
@@ -84,22 +85,31 @@ class MangaDexInterceptor extends PaperbackInterceptor {
 
         if (Number(accessToken.tokenBody.exp) <= Date.now() / 1000 - 60) {
             try {
-                const [_, buffer] = await Application.scheduleRequest({
+                const [response, buffer] = await Application.scheduleRequest({
                     url: "https://auth.mangadex.org/realms/mangadex/protocol/openid-connect/token",
-                    method: "post",
+                    method: "POST",
                     headers: {
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
                     body: {
                         grant_type: "refresh_token",
                         refresh_token: accessToken.refreshToken,
-                        client_id: "thirdparty-oauth-client",
+                        client_id: "paperback",
                     },
                 });
 
-                const data = Application.arrayBufferToUTF8String(buffer);
-                const json = JSON.parse(data) as MangaDex.TokenResponse;
+                if (response.status > 399) {
+                    return request;
+                }
 
+                const data = Application.arrayBufferToUTF8String(buffer);
+                const json = JSON.parse(data) as
+                    | MangaDex.AuthResponse
+                    | MangaDex.AuthError;
+
+                if ("error" in json) {
+                    return request;
+                }
                 accessToken = saveAccessToken(
                     json.access_token,
                     json.refresh_token,
@@ -107,8 +117,7 @@ class MangaDexInterceptor extends PaperbackInterceptor {
                 if (!accessToken) {
                     return request;
                 }
-            } catch (e) {
-                console.log(e);
+            } catch {
                 return request;
             }
         }
@@ -362,6 +371,10 @@ export class MangaDexExtension implements MangaDexImplementation {
         const languages: string[] = getLanguages();
         const skipSameChapter = getSkipSameChapter();
         const ratings: string[] = getRatings();
+        const groupBlockingEnabled = getGroupBlockingEnabled();
+        const blockedGroups = groupBlockingEnabled
+            ? Object.keys(getBlockedGroups() || {})
+            : [];
         const collectedChapters = new Set<string>();
         const chapters: Chapter[] = [];
 
@@ -378,6 +391,10 @@ export class MangaDexExtension implements MangaDexImplementation {
                     .addQuery("limit", 500)
                     .addQuery("offset", offset)
                     .addQuery("includes", ["scanlation_group"])
+                    .addQuery(
+                        "excludedGroups",
+                        blockedGroups.length > 0 ? blockedGroups : [],
+                    )
                     .addQuery("translatedLanguage", languages)
                     .addQuery("order", {
                         volume: "desc",
