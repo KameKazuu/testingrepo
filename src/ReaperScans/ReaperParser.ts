@@ -133,11 +133,13 @@ export const parseNewSection = (
 ): DiscoverSectionItem[] => {
     const items: DiscoverSectionItem[] = [];
     for (const item of queryResult.data) {
+        if (item.series_type != "Comic") continue;
         items.push({
             type: "simpleCarouselItem",
             mangaId: item.series_slug,
             imageUrl: item.thumbnail,
             title: item.title,
+            contentRating: pbconfig.contentRating,
         });
     }
     return items;
@@ -156,6 +158,7 @@ export const parseUpdatesSection = (
             item.free_chapters && item.free_chapters.length > 0
                 ? item.free_chapters[0].chapter_name
                 : " ";
+        if (item.series_type != "Comic") continue;
         items.push({
             type: "chapterUpdatesCarouselItem",
             mangaId: item.series_slug,
@@ -163,6 +166,7 @@ export const parseUpdatesSection = (
             title: item.title,
             chapterId: latestChapterSlug,
             subtitle: latestChapterName,
+            contentRating: pbconfig.contentRating,
         });
     }
     return items;
@@ -178,6 +182,7 @@ export const parseDailySection = (
             mangaId: item.series_slug,
             imageUrl: checkImage(item.thumbnail),
             title: item.title,
+            contentRating: pbconfig.contentRating,
         });
     }
     return items;

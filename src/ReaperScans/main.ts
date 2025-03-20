@@ -27,6 +27,7 @@ import {
     ReaperQueryResultData,
     ReaperSearchMetadata,
 } from "./interfaces/ReaperScansInterfaces";
+import pbconfig from "./pbconfig";
 import { RS_API_DOMAIN, RS_DOMAIN } from "./ReaperConfig";
 import { ReaperInterceptor } from "./ReaperInterceptor";
 import {
@@ -116,6 +117,7 @@ export class ReaperScansExtension
                 title: item.title ?? "",
                 imageUrl: checkImage(item.thumbnail),
                 subtitle: latestChapter,
+                contentRating: pbconfig.contentRating,
             });
         }
 
@@ -240,7 +242,7 @@ export class ReaperScansExtension
                     const request = {
                         url: new URLBuilder(RS_API_DOMAIN)
                             .addPath("query")
-                            .addQuery("series_type", "Comic")
+                            // .addQuery("series_type", "Comic")
                             .addQuery("perPage", "15")
                             .addQuery("order", "desc")
                             .addQuery("orderBy", "created_at")
@@ -273,7 +275,7 @@ export class ReaperScansExtension
                     const request = {
                         url: new URLBuilder(RS_API_DOMAIN)
                             .addPath("query")
-                            .addQuery("series_type", "Comic")
+                            // .addQuery("series_type", "Comic")
                             .addQuery("perPage", "15")
                             .addQuery("order", "desc")
                             .addQuery("orderBy", "updated_at")
