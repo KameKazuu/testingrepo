@@ -14,6 +14,7 @@ import { AS_DOMAIN } from "./AsuraConfig";
 import { getShowUpcomingChapters } from "./AsuraSettings";
 import { getFilter, getMangaId } from "./AsuraUtils";
 import { Filters } from "./interfaces/AsuraScansInterfaces";
+import pbconfig from "./pbconfig";
 
 export const parseMangaDetails = async (
     $: CheerioAPI,
@@ -188,6 +189,7 @@ export const parseFeaturedSection = async (
             title: load(title).text(),
             mangaId: id,
             type: "featuredCarouselItem",
+            contentRating: pbconfig.contentRating,
         });
     }
     return featuredSection_Array;
@@ -218,6 +220,7 @@ export const parseUpdateSection = async (
             subtitle: subtitle,
             chapterId: subtitle.split(" ")[1],
             type: "chapterUpdatesCarouselItem",
+            contentRating: pbconfig.contentRating,
         });
     }
 
@@ -249,6 +252,7 @@ export const parsePopularSection = async (
             subtitle: load(subtitle).text(),
             mangaId: id,
             type: "simpleCarouselItem",
+            contentRating: pbconfig.contentRating,
         });
     }
     return popularSection_Array;
@@ -330,6 +334,7 @@ export const parseSearch = async (
             title: load(title).text(),
             mangaId: id,
             subtitle: subtitle,
+            contentRating: pbconfig.contentRating,
         });
 
         collectedIds.push(id);
