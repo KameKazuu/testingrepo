@@ -331,14 +331,14 @@ class MDContentRatingClass {
 
 export const MDRatings = new MDContentRatingClass();
 
-interface HomePageSection {
+interface DiscoverSection {
     name: string;
     enum: string;
     default?: true;
 }
 
-class MDHomepageSectionsClass {
-    Sections: HomePageSection[] = [
+class MDDiscoverSectionsClass {
+    Sections: DiscoverSection[] = [
         {
             name: "Seasonal",
             enum: "seasonal",
@@ -374,7 +374,7 @@ class MDHomepageSectionsClass {
     }
 }
 
-export const MDHomepageSections = new MDHomepageSectionsClass();
+export const MDDiscoverSections = new MDDiscoverSectionsClass();
 
 interface ImageQuality {
     name: string;
@@ -389,7 +389,7 @@ class MDImageQualityClass {
             name: "Source (Original/Best)",
             enum: "source",
             ending: "",
-            default: ["manga"],
+            default: ["manga", "discover", "search"],
         },
         {
             name: "<= 512px",
@@ -400,7 +400,6 @@ class MDImageQualityClass {
             name: "<= 256px",
             enum: "256",
             ending: ".256.jpg",
-            default: ["homepage", "search"],
         },
     ];
 

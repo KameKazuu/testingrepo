@@ -1,0 +1,188 @@
+import {
+    PagedResults,
+    SearchFilter,
+    SearchQuery,
+    SearchResultItem,
+    TagSection,
+    URL,
+} from "@paperback/types";
+import tagJSON from "../external/tag.json";
+import { parseMangaList } from "../MangaDexParser";
+import {
+    getLanguages,
+    getRatings,
+    getSearchSortOrder,
+    getSearchThumbnail,
+} from "../MangaDexSettings";
+import { fetchJSON, MANGADEX_API } from "../utils/CommonUtil";
+
+/**
+ * Handles manga search functionality and filters
+ */
+export class SearchProvider {
+    /**
+     * Returns tag sections for manga search filters
+     */
+    getSearchTags(): TagSection[] {
+        const sections: Record<string, TagSection> = {};
+
+        for (const tag of tagJSON) {
+            const group = tag.data.attributes.group;
+
+            if (sections[group] == null) {
+                sections[group] = {
+                    id: group,
+                    title: group.charAt(0).toUpperCase() + group.slice(1),
+                    tags: [],
+                };
+            }
+
+            const tagObject = {
+                id: tag.data.id,
+                title: tag.data.attributes.name.en,
+            };
+            sections[group].tags = [
+                ...(sections[group]?.tags ?? []),
+                tagObject,
+            ];
+        }
+
+        return Object.values(sections);
+    }
+
+    /**
+     * Builds search filter UI components
+     */
+    async getSearchFilters(): Promise<SearchFilter[]> {
+        const filters: SearchFilter[] = [];
+
+        filters.push({
+            id: "includeOperator",
+            type: "dropdown",
+            options: [
+                { id: "AND", value: "AND" },
+                { id: "OR", value: "OR" },
+            ],
+            value: "AND",
+            title: "Include Operator",
+        });
+
+        filters.push({
+            id: "excludeOperator",
+            type: "dropdown",
+            options: [
+                { id: "AND", value: "AND" },
+                { id: "OR", value: "OR" },
+            ],
+            value: "OR",
+            title: "Exclude Operator",
+        });
+
+        const tags = this.getSearchTags();
+        for (const tag of tags) {
+            filters.push({
+                type: "multiselect",
+                options: tag.tags.map((x) => ({ id: x.id, value: x.title })),
+                id: "tags-" + tag.id,
+                allowExclusion: true,
+                title: tag.title,
+                value: {},
+                allowEmptySelection: true,
+                maximum: undefined,
+            });
+        }
+
+        return filters;
+    }
+
+    /**
+     * Executes manga search with filters and returns results
+     */
+    async getSearchResults(
+        query: SearchQuery,
+        metadata: MangaDex.Metadata,
+    ): Promise<PagedResults<SearchResultItem>> {
+        const ratings: string[] = getRatings();
+        const languages: string[] = getLanguages();
+        const offset: number = metadata?.offset ?? 0;
+        let results: SearchResultItem[] = [];
+
+        const searchType = query.title?.match(
+            /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+        )
+            ? "ids[]"
+            : "title";
+        const url = new URL(MANGADEX_API)
+            .addPathComponent("manga")
+            .setQueryItem(searchType, query?.title?.replace(/ /g, "+") || "")
+            .setQueryItem("limit", "100")
+            .setQueryItem("hasAvailableChapters", "true")
+            .setQueryItem("availableTranslatedLanguage[]", languages)
+            .setQueryItem("offset", offset.toString())
+            .setQueryItem("contentRating[]", ratings)
+            .setQueryItem("includes[]", "cover_art");
+
+        const sortOrder = getSearchSortOrder();
+        if (sortOrder) {
+            const [key, value] = sortOrder.split("-");
+            if (key && value) {
+                url.setQueryItem(key, value);
+            }
+        }
+
+        const includedTags = [];
+        const excludedTags = [];
+        for (const filter of query.filters) {
+            if (filter.id.startsWith("tags")) {
+                const tags = (filter.value ?? {}) as Record<
+                    string,
+                    "included" | "excluded"
+                >;
+                for (const tag of Object.entries(tags)) {
+                    switch (tag[1]) {
+                        case "excluded":
+                            excludedTags.push(tag[0]);
+                            break;
+                        case "included":
+                            includedTags.push(tag[0]);
+                            break;
+                    }
+                }
+            }
+
+            if (filter.id == "includeOperator") {
+                url.setQueryItem(
+                    "includedTagsMode",
+                    (filter.value as string) ?? "and",
+                );
+            }
+
+            if (filter.id == "excludeOperator") {
+                url.setQueryItem(
+                    "excludedTagsMode",
+                    (filter.value as string) ?? "or",
+                );
+            }
+        }
+
+        const request = {
+            url: url
+                .setQueryItem("includedTags[]", includedTags)
+                .setQueryItem("excludedTags[]", excludedTags)
+                .toString(),
+            method: "GET",
+        };
+        const json = await fetchJSON<MangaDex.SearchResponse>(request);
+        if (json.data === undefined) {
+            throw new Error(
+                `Failed to create search results, check MangaDex status and your search query`,
+            );
+        }
+
+        results = await parseMangaList(json.data, getSearchThumbnail, query);
+        const nextMetadata: MangaDex.Metadata | undefined =
+            results.length < 100 ? undefined : { offset: offset + 100 };
+
+        return { items: results, metadata: nextMetadata };
+    }
+}

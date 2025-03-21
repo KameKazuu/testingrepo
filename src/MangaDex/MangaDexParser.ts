@@ -1,10 +1,19 @@
 import { ContentRating, SearchQuery, SourceManga, Tag } from "@paperback/types";
 import { relevanceScore } from "../utils/titleRelevanceScore";
 import { MDImageQuality } from "./MangaDexHelper";
-import { getMangaThumbnail } from "./MangaDexSettings";
+import {
+    getCustomCoversEnabled,
+    getMangaThumbnail,
+    getRelevanceScoringEnabled,
+    getSelectedCover,
+    getShowChapter,
+    getShowRatingIcons,
+    getShowStatusIcons,
+    getShowVolume,
+} from "./MangaDexSettings";
+import { COVER_BASE_URL, MANGADEX_DOMAIN } from "./utils/CommonUtil";
 
-const MANGADEX_DOMAIN = "https://mangadex.org";
-
+// Type for manga item with additional processing
 type MangaItemWithAdditionalInfo = MangaDex.MangaItem & {
     mangaId: string;
     title: string;
@@ -12,6 +21,7 @@ type MangaItemWithAdditionalInfo = MangaDex.MangaItem & {
     subtitle?: string;
 };
 
+// Maps MangaDex content ratings to Paperback content ratings
 const contentRatingMap: Record<string, ContentRating> = {
     safe: ContentRating.EVERYONE,
     suggestive: ContentRating.MATURE,
@@ -19,9 +29,28 @@ const contentRatingMap: Record<string, ContentRating> = {
     pornographic: ContentRating.ADULT,
 };
 
+// Icons for manga status display
+const statusIconMap: Record<string, string> = {
+    completed: "✅",
+    ongoing: "▶️",
+    hiatus: "⏸️",
+    cancelled: "❌",
+};
+
+// Icons for content rating display
+const ratingIconMap: Record<string, string> = {
+    safe: "🟢",
+    suggestive: "🟡",
+    erotica: "🟠",
+    pornographic: "🔞",
+};
+
+/**
+ * Parses manga list from API response and formats for display
+ * Handles relevance sorting and thumbnail formatting
+ */
 export const parseMangaList = async (
     object: MangaDex.MangaItem[],
-    COVER_BASE_URL: string,
     thumbnailSelector: () => string,
     query?: SearchQuery,
 ): Promise<MangaItemWithAdditionalInfo[]> => {
@@ -29,6 +58,7 @@ export const parseMangaList = async (
         [];
 
     const thumbnailQuality = thumbnailSelector();
+    const useCustomCovers = getCustomCoversEnabled();
 
     for (const manga of object) {
         const mangaId = manga.id;
@@ -46,23 +76,46 @@ export const parseMangaList = async (
                                 t !== undefined,
                         ),
             ) ?? "Unknown Title";
-        const coverFileName = manga.relationships
+
+        let coverFileName = manga.relationships
             .filter(
                 (x): x is MangaDex.Relationship =>
                     x.type.valueOf() === "cover_art",
             )
             .map((x) => x.attributes?.fileName)[0];
+
+        if (useCustomCovers) {
+            const customCover = getSelectedCover(mangaId);
+            if (customCover?.fileName) {
+                coverFileName = customCover.fileName;
+            }
+        }
+
         const image = coverFileName
             ? `${COVER_BASE_URL}/${mangaId}/${coverFileName}${MDImageQuality.getEnding(thumbnailQuality)}`
             : `${MANGADEX_DOMAIN}/_nuxt/img/cover-placeholder.d12c3c5.jpg`;
-        const subtitle = parseChapterTitle({
+
+        const showStatusIcons = getShowStatusIcons();
+        const showRatingIcons = getShowRatingIcons();
+
+        const statusIcon = showStatusIcons
+            ? statusIconMap[mangaDetails.status.toLowerCase()] || ""
+            : "";
+        const ratingIcon = showRatingIcons
+            ? ratingIconMap[mangaDetails.contentRating.toLowerCase()] || ""
+            : "";
+
+        const chapterInfo = parseChapterTitle({
             title: undefined,
             volume: mangaDetails.lastVolume,
             chapter: mangaDetails.lastChapter,
         });
 
+        const subtitle =
+            `${ratingIcon}${statusIcon}${statusIcon || ratingIcon ? " " : ""}${chapterInfo}`.trim();
+
         let relevance = 0;
-        if (query?.title) {
+        if (query?.title && getRelevanceScoringEnabled()) {
             relevance = relevanceScore(title, query.title);
         }
 
@@ -78,15 +131,17 @@ export const parseMangaList = async (
         });
     }
 
-    if (query?.title) {
+    if (query?.title && getRelevanceScoringEnabled()) {
         results.sort((a, b) => b.relevance - a.relevance);
     }
     return results.map((r) => r.manga);
 };
 
+/**
+ * Parses detailed manga information from API response
+ */
 export const parseMangaDetails = (
     mangaId: string,
-    COVER_BASE_URL: string,
     json: MangaDex.MangaDetailsResponse,
     ratingJson?: MangaDex.StatisticsResponse,
 ): SourceManga => {
@@ -104,14 +159,12 @@ export const parseMangaDetails = (
 
     const status = mangaDetails.status;
 
-    const tags: Tag[] = [];
-    for (const tag of mangaDetails.tags) {
-        const tagName = tag.attributes.name.en;
-        tags.push({
+    const tags: Tag[] = mangaDetails.tags
+        .map((tag) => ({
             id: tag.id,
-            title: tagName ?? "Unknown",
-        });
-    }
+            title: tag.attributes.name.en ?? "Unknown",
+        }))
+        .sort((a, b) => a.title.localeCompare(b.title));
 
     const author = json.data.relationships
         .filter(
@@ -129,11 +182,20 @@ export const parseMangaDetails = (
         .join(", ");
 
     let image = "";
-    const coverFileName = json.data.relationships
+
+    let coverFileName = json.data.relationships
         .filter(
             (x): x is MangaDex.Relationship => x.type.valueOf() === "cover_art",
         )
         .map((x) => x.attributes?.fileName)[0];
+
+    if (getCustomCoversEnabled()) {
+        const customCover = getSelectedCover(mangaId);
+        if (customCover?.fileName) {
+            coverFileName = customCover.fileName;
+        }
+    }
+
     if (coverFileName) {
         image = `${COVER_BASE_URL}/${mangaId}/${coverFileName}${MDImageQuality.getEnding(getMangaThumbnail())}`;
     }
@@ -163,11 +225,20 @@ export const parseMangaDetails = (
     };
 };
 
+/**
+ * Formats chapter title with volume and chapter numbers based on settings
+ */
 export function parseChapterTitle(
     attributes: Partial<MangaDex.ChapterAttributes>,
 ): string {
     const title = attributes.title?.trim() || "";
-    const volume = attributes.volume ? `Vol. ${attributes.volume} ` : "";
-    const chapter = attributes.chapter ? `Ch. ${attributes.chapter}` : "";
+    const showVolume = getShowVolume();
+    const showChapter = getShowChapter();
+
+    const volume =
+        showVolume && attributes.volume ? `Vol. ${attributes.volume} ` : "";
+    const chapter =
+        showChapter && attributes.chapter ? `Ch. ${attributes.chapter}` : "";
+
     return `${volume}${chapter}${title ? ` - ${title}` : ""}`.trim();
 }

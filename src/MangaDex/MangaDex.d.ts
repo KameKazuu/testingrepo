@@ -1,4 +1,12 @@
 declare namespace MangaDex {
+    interface MangaDexError {
+        id: string;
+        status: number;
+        title: string;
+        detail: string;
+        context: string;
+    }
+
     interface SearchResponse {
         result: string;
         response: string;
@@ -6,15 +14,7 @@ declare namespace MangaDex {
         limit: number;
         offset: number;
         total: number;
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
     }
 
     interface MangaItem {
@@ -121,6 +121,8 @@ declare namespace MangaDex {
     enum Status {
         Completed = "completed",
         Ongoing = "ongoing",
+        Hiatus = "hiatus",
+        Cancelled = "cancelled",
     }
 
     interface Tag {
@@ -206,30 +208,14 @@ declare namespace MangaDex {
         result: string;
         response: string;
         data: MangaItem;
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
     }
 
     interface MangaDetailsResponse {
         result: string;
         response: string;
         data: MangaItem;
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
     }
 
     interface ChapterDetailsResponse {
@@ -240,15 +226,7 @@ declare namespace MangaDex {
             data: string[];
             dataSaver: string[];
         };
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
     }
 
     interface ChapterRelationship {
@@ -287,29 +265,41 @@ declare namespace MangaDex {
         limit: number;
         offset: number;
         total: number;
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
     }
 
     interface MangaStatusResponse {
         result: string;
         statuses: Record<string, string>;
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
+    }
+
+    interface MangaReadResponse {
+        result: string;
+        data: string[];
+        errors?: MangaDexError[];
+    }
+
+    interface MangaReadUpdateResponse {
+        result: string;
+        errors?: MangaDexError[];
+    }
+
+    interface MangaStatusGetResponse {
+        result: string;
+        status: string | null;
+        errors?: MangaDexError[];
+    }
+
+    interface MangaStatusUpdateResponse {
+        result: string;
+        errors?: MangaDexError[];
+    }
+
+    interface MangaStatusResponse {
+        result: string;
+        statuses: Record<string, string>;
+        errors?: MangaDexError[];
     }
 
     interface TokenResponse {
@@ -362,15 +352,7 @@ declare namespace MangaDex {
         limit: number;
         offset: number;
         total: number;
-        errors?: [
-            {
-                id: string;
-                status: number;
-                title: string;
-                detail: string;
-                context: string;
-            },
-        ];
+        errors?: MangaDexError[];
     }
 
     interface ScanlationGroupItem {
@@ -405,5 +387,49 @@ declare namespace MangaDex {
     interface ScanlationGroupRelationship {
         id: string;
         type: string;
+    }
+
+    interface MangaRatingResponse {
+        result: string;
+        ratings: Record<
+            string,
+            {
+                rating: number;
+                createdAt: string;
+            }
+        >;
+        errors?: MangaDexError[];
+    }
+
+    interface MangaRatingUpdateResponse {
+        result: string;
+        errors?: MangaDexError[];
+    }
+
+    interface CoverArtResponse {
+        result: string;
+        response: string;
+        data: CoverArtItem[];
+        limit: number;
+        offset: number;
+        total: number;
+        errors?: MangaDexError[];
+    }
+
+    interface CoverArtItem {
+        id: string;
+        type: RelationshipType;
+        attributes: CoverArtAttributes;
+        relationships: Relationship[];
+    }
+
+    interface CoverArtAttributes {
+        description: string;
+        volume: string | null;
+        fileName: string;
+        locale: string;
+        createdAt: string;
+        updatedAt: string;
+        version: number;
     }
 }
