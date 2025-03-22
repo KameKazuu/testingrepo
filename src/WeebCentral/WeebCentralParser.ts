@@ -73,7 +73,6 @@ export const parseMangaDetails = async (
             secondaryTitles: [title],
             status: status,
             author: author,
-            artist: "",
             tagGroups: tagSections,
             synopsis: description,
             thumbnailUrl: image,
@@ -208,7 +207,7 @@ export const parseRecentSection = async (
     const recentSectionArray: DiscoverSectionItem[] = [];
     for (const recentObj of $(
         "article",
-        "section.cols-span-1.rounded",
+        "section.bg-base-200.rounded-sm",
     ).toArray()) {
         const id =
             $("a.aspect-square", recentObj)
