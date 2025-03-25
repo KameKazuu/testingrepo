@@ -1,7 +1,7 @@
 import { ContentRating, SourceInfo, SourceIntents } from "@paperback/types";
 
 export default {
-    name: "Manga Pill",
+    name: "Mangapill",
     description: "Extension that pulls content from mangapill.com.",
     version: "1.0.0-alpha.1",
     icon: "icon.png",

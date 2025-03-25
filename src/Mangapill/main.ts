@@ -21,9 +21,9 @@ import {
 } from "@paperback/types";
 import * as cheerio from "cheerio";
 import { URLBuilder } from "../utils/url-builder/array-query-variant";
-import { MANGA_PILL_DOMAIN } from "./MangaPillConfig";
-import { getFilterTagsBySection, getShareUrl } from "./MangaPillHelper";
-import { MangaPillInterceptor } from "./MangaPillInterceptor";
+import { MANGA_PILL_DOMAIN } from "./MangapillConfig";
+import { getFilterTagsBySection, getShareUrl } from "./MangapillHelper";
+import { MangapillInterceptor } from "./MangapillInterceptor";
 import {
     parseChapterDetails,
     parseChapters,
@@ -32,9 +32,9 @@ import {
     parseSearch,
     parseTags,
     parseTrendingSection,
-} from "./MangaPillParser";
+} from "./MangapillParser";
 
-export class MangaPillExtension
+export class MangapillExtension
     implements
         Extension,
         SearchResultsProviding,
@@ -48,7 +48,7 @@ export class MangaPillExtension
         ignoreImages: true,
     });
 
-    requestManager = new MangaPillInterceptor("main");
+    requestManager = new MangapillInterceptor("main");
 
     async initialise(): Promise<void> {
         this.globalRateLimiter.registerInterceptor();
@@ -249,4 +249,4 @@ export class MangaPillExtension
     }
 }
 
-export const MangaPill = new MangaPillExtension();
+export const Mangapill = new MangapillExtension();

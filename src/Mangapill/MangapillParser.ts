@@ -9,7 +9,7 @@ import {
 } from "@paperback/types";
 import { CheerioAPI } from "cheerio";
 import { decodeHTML } from "entities";
-import { formatTagId, getShareUrl } from "./MangaPillHelper";
+import { formatTagId, getShareUrl } from "./MangapillHelper";
 import pbconfig from "./pbconfig";
 
 export const parseMangaDetails = async (

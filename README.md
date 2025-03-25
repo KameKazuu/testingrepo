@@ -15,6 +15,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [Reaper Scans](https://reaperscans.com)
 - [Webtoon](https://webtoons.com)
 - [Weeb Central](https://weebcentral.com)
+- [Mangapill](https://mangapill.com)
 
 ## Installation
 

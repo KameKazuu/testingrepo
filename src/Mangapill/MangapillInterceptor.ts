@@ -1,7 +1,7 @@
 import { PaperbackInterceptor, Request, Response } from "@paperback/types";
-import { MANGA_PILL_DOMAIN } from "./MangaPillConfig";
+import { MANGA_PILL_DOMAIN } from "./MangapillConfig";
 
-export class MangaPillInterceptor extends PaperbackInterceptor {
+export class MangapillInterceptor extends PaperbackInterceptor {
     override async interceptRequest(request: Request): Promise<Request> {
         request.headers = {
             ...request.headers,
