@@ -110,12 +110,11 @@ export abstract class WebtoonParser extends WebtoonSettings {
 
     parseChapter(elem: CheerioElement, sourceManga: SourceManga): Chapter {
         return {
-            chapterId: this.parseIdToPaperback(
+            chapterId:
                 elem
                     .find("a")
                     .attr("href")
                     ?.replace(this.MOBILE_URL + "/", "") ?? "",
-            ),
             sourceManga: sourceManga,
             langCode: this.languageFromId(sourceManga.mangaId),
             title: elem
@@ -228,12 +227,11 @@ export abstract class WebtoonParser extends WebtoonSettings {
     }
 
     parseCanvasFromRecommendedElement(elem: CheerioElement): SearchResultItem {
-        const mangaId = this.parseIdToPaperback(
+        const mangaId =
             elem
                 .find("a")
                 .attr("href")
-                ?.replace(this.BASE_URL + "/", "") ?? "",
-        );
+                ?.replace(this.BASE_URL + "/", "") ?? "";
         const subtitle =
             "Canvas" +
             (this.languages.length > 1
@@ -257,9 +255,8 @@ export abstract class WebtoonParser extends WebtoonSettings {
     }
 
     parseMangaFromElement(elem: CheerioElement): SearchResultItem {
-        const mangaId = this.parseIdToPaperback(
-            elem.attr("href")?.replace(this.BASE_URL + "/", "") ?? "",
-        );
+        const mangaId =
+            elem.attr("href")?.replace(this.BASE_URL + "/", "") ?? "";
         const subtitle =
             this.languages.length > 1 ? this.languageTitleFromId(mangaId) : "";
         console.log("subtitle " + subtitle);
@@ -273,9 +270,8 @@ export abstract class WebtoonParser extends WebtoonSettings {
     }
 
     parseCanvasFromElement(elem: CheerioElement): SearchResultItem {
-        const mangaId = this.parseIdToPaperback(
-            elem.attr("href")?.replace(this.BASE_URL + "/", "") ?? "",
-        );
+        const mangaId =
+            elem.attr("href")?.replace(this.BASE_URL + "/", "") ?? "";
         const subtitle =
             "Canvas" +
             (this.languages.length > 1
@@ -345,26 +341,8 @@ export abstract class WebtoonParser extends WebtoonSettings {
         };
     }
 
-    parseIdToPaperback(id: string): string {
-        return id
-            .replaceAll("/", "--SLASH--")
-            .replaceAll("?", "--QUESTION--")
-            .replaceAll("=", "--EQUALS--")
-            .replaceAll("&", "--AND--")
-            .replaceAll("%", "--PERCENT--");
-    }
-
-    parseIdToSource(id: string): string {
-        return id
-            .replaceAll("--SLASH--", "/")
-            .replaceAll("--QUESTION--", "?")
-            .replaceAll("--EQUALS--", "=")
-            .replaceAll("--AND--", "&")
-            .replaceAll("--PERCENT--", "%");
-    }
-
     languageFromId(id: string): Language {
-        return id.split("--SLASH--")[0] as Language;
+        return id.split("/")[0] as Language;
     }
 
     languageTitleFromId(id: string): string | undefined {
