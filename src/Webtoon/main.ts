@@ -209,9 +209,6 @@ export class WebtoonExtention
         const [languagestr, sectionId] = section.id.split("-_-");
         const language = languagestr as Language;
 
-        console.log(
-            `get discover section items: ${section.id} ${language} ${sectionId}`,
-        );
         switch (sectionId) {
             case "popular":
                 result = await this.getPopularTitles(language);
@@ -247,7 +244,6 @@ export class WebtoonExtention
         this.languages.forEach((language) => {
             result.push(...this.getLanguageDiscoverSections(language));
         });
-        console.log("result " + JSON.stringify(result));
         return Promise.resolve(result);
     }
 

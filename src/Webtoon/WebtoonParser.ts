@@ -51,8 +51,6 @@ export abstract class WebtoonParser extends WebtoonSettings {
                   detailElement.find("h1").text().trim(),
               ];
 
-        console.log("image: " + image);
-
         return {
             mangaId: mangaId,
             mangaInfo: {
@@ -237,7 +235,6 @@ export abstract class WebtoonParser extends WebtoonSettings {
             (this.languages.length > 1
                 ? " - " + this.languageTitleFromId(mangaId)
                 : "");
-        console.log("subtitle " + subtitle);
         return {
             mangaId: mangaId,
             title: elem.find("p.subj").text(),
@@ -259,7 +256,6 @@ export abstract class WebtoonParser extends WebtoonSettings {
             elem.attr("href")?.replace(this.BASE_URL + "/", "") ?? "";
         const subtitle =
             this.languages.length > 1 ? this.languageTitleFromId(mangaId) : "";
-        console.log("subtitle " + subtitle);
         return {
             mangaId: mangaId,
             title: elem.find("p.subj").text(),
@@ -277,7 +273,6 @@ export abstract class WebtoonParser extends WebtoonSettings {
             (this.languages.length > 1
                 ? " - " + this.languageTitleFromId(mangaId)
                 : "");
-        console.log("subtitle " + subtitle);
         return {
             mangaId: mangaId,
             title: elem.find("p.subj").text(),

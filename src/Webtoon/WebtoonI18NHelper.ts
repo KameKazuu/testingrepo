@@ -36,7 +36,6 @@ export const LanguagesOptions = [
 ];
 
 export const getLanguagesTitle = (language: Language) => {
-    console.log("ici " + language);
     return LanguagesOptions.find((option) => option.id === language)?.title;
 };
 
