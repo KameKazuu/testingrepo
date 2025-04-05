@@ -20,7 +20,8 @@ export const parseMangaDetails = async (
     $: CheerioAPI,
     mangaId: string,
 ): Promise<SourceManga> => {
-    const title = $(".text-center > .text-xl.font-bold").text().trim() ?? "";
+    const title =
+        $("h3.hover\\:text-themecolor:nth-child(3)").text().trim() ?? "";
     const image = $('img[alt="poster"]').attr("src") ?? "";
     const description = $("span.font-medium.text-sm").text().trim() ?? "";
 
