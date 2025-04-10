@@ -347,6 +347,7 @@ export class DiscoverProvider {
                             x.relationships.find((x) => x.type == "manga")!.id,
                     ),
                 )
+                .setQueryItem("limit", "100")
                 .setQueryItem("includes[]", "cover_art")
                 .toString(),
             method: "GET",
@@ -367,7 +368,7 @@ export class DiscoverProvider {
         }
 
         const nextMetadata: MangaDex.Metadata | undefined =
-            items.length < 100
+            chapters.data.length < 100
                 ? undefined
                 : { offset: offset + 100, collectedIds };
         return {

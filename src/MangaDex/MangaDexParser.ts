@@ -144,6 +144,7 @@ export const parseMangaDetails = (
     mangaId: string,
     json: MangaDex.MangaDetailsResponse,
     ratingJson?: MangaDex.StatisticsResponse,
+    coversJson?: MangaDex.CoverArtResponse,
 ): SourceManga => {
     const mangaDetails: MangaDex.DatumAttributes = json.data.attributes;
 
@@ -204,6 +205,17 @@ export const parseMangaDetails = (
         ? ratingJson.statistics[mangaId].rating.average / 10
         : undefined;
 
+    const artworkUrls: string[] = [];
+    if (coversJson?.result === "ok" && coversJson.data) {
+        for (const cover of coversJson.data) {
+            if (cover.attributes.fileName) {
+                artworkUrls.push(
+                    `${COVER_BASE_URL}/${mangaId}/${cover.attributes.fileName}`,
+                );
+            }
+        }
+    }
+
     return {
         mangaId: mangaId,
         mangaInfo: {
@@ -221,6 +233,7 @@ export const parseMangaDetails = (
                 ] ?? ContentRating.EVERYONE,
             shareUrl: `${MANGADEX_DOMAIN}/title/${mangaId}`,
             rating,
+            artworkUrls: artworkUrls.length > 0 ? artworkUrls : undefined,
         },
     };
 };

@@ -176,6 +176,18 @@ export function setCustomCoversEnabled(enabled: boolean): void {
     Application.setState(enabled, "custom_covers_enabled");
 }
 
+export function getCoverArtworkEnabled(): boolean {
+    return (
+        (Application.getState("cover_artwork_enabled") as
+            | boolean
+            | undefined) ?? false
+    );
+}
+
+export function setCoverArtworkEnabled(enabled: boolean): void {
+    Application.setState(enabled, "cover_artwork_enabled");
+}
+
 // ============================
 // Authentication & User Settings
 // ============================

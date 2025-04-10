@@ -1,6 +1,7 @@
 import { Form, Section, SelectRow, ToggleRow } from "@paperback/types";
 import { MDImageQuality, MDLanguages, MDRatings } from "../MangaDexHelper";
 import {
+    getCoverArtworkEnabled,
     getCustomCoversEnabled,
     getDataSaver,
     getDiscoverThumbnail,
@@ -27,6 +28,7 @@ export class ContentSettingsForm extends Form {
     private dataSaverState: State<boolean>;
     private skipSameChapterState: State<boolean>;
     private forcePortState: State<boolean>;
+    private coverArtworkState: State<boolean>;
     private customCoversState: State<boolean>;
     private discoverThumbState: State<string>;
     private searchThumbState: State<string>;
@@ -54,6 +56,11 @@ export class ContentSettingsForm extends Form {
             this,
             "force_port_443",
             getForcePort443(),
+        );
+        this.coverArtworkState = new State<boolean>(
+            this,
+            "cover_artwork_enabled",
+            getCoverArtworkEnabled(),
         );
         this.customCoversState = new State<boolean>(
             this,
@@ -119,6 +126,13 @@ export class ContentSettingsForm extends Form {
                     title: "Force Port 443",
                     value: this.forcePortState.value,
                     onValueChange: this.forcePortState.selector,
+                }),
+                ToggleRow("cover_artwork", {
+                    title: "Enable Cover Artwork in Manga Description",
+                    subtitle:
+                        "Show all available volume covers in manga details page",
+                    value: this.coverArtworkState.value,
+                    onValueChange: this.coverArtworkState.selector,
                 }),
                 ToggleRow("custom_covers", {
                     title: "Use User Selected Cover Artwork",

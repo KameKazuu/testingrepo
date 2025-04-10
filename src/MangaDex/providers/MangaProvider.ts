@@ -1,5 +1,6 @@
 import { SourceManga, URL } from "@paperback/types";
 import { parseMangaDetails } from "../MangaDexParser";
+import { getCoverArtworkEnabled } from "../MangaDexSettings";
 import { checkId, fetchJSON, MANGADEX_API } from "../utils/CommonUtil";
 
 /**
@@ -36,6 +37,24 @@ export class MangaProvider {
 
         const ratingJson =
             await fetchJSON<MangaDex.StatisticsResponse>(request);
-        return parseMangaDetails(mangaId, json, ratingJson);
+
+        let coversJson: MangaDex.CoverArtResponse | undefined;
+
+        if (getCoverArtworkEnabled()) {
+            request = {
+                url: new URL(MANGADEX_API)
+                    .addPathComponent("cover")
+                    .setQueryItem("manga[]", mangaId)
+                    .setQueryItem("limit", "100")
+                    .setQueryItem("order[volume]", "desc")
+                    .setQueryItem("order[createdAt]", "desc")
+                    .toString(),
+                method: "GET",
+            };
+
+            coversJson = await fetchJSON<MangaDex.CoverArtResponse>(request);
+        }
+
+        return parseMangaDetails(mangaId, json, ratingJson, coversJson);
     }
 }
