@@ -9,6 +9,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [ComicK](https://comick.io)
 - [MangaDex](https://mangadex.org)
 - [MangaFire](https://mangafire.to)
+- [MangaFox](https://fanfox.net)
 - [MangaKatana](https://mangakatana.com)
 - [Manga Plus](https://mangaplus.shueisha.co.jp)
 - [Mgeko](https://mgeko.cc)

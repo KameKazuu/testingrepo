@@ -1,9 +1,9 @@
 import { ContentRating, SourceInfo, SourceIntents } from "@paperback/types";
 
 export default {
-    name: "MangaKatana",
-    description: "Extension that pulls content from mangakatana.com.",
-    version: "1.0.0-alpha.5",
+    name: "MangaFox",
+    description: "Extension that pulls content from fanfox.net.",
+    version: "1.0.0-alpha.1",
     icon: "icon.png",
     language: "en",
     contentRating: ContentRating.MATURE,

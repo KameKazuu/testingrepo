@@ -407,10 +407,6 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
         return parseTags($);
     }
 
-    // Add this property to the class
-    private currentSearchQuery: string = "";
-    private searchInProgress: boolean = false;
-
     async getSearchResults(
         query: SearchQuery,
         metadata: Katana.Metadata | undefined,
@@ -421,9 +417,6 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
         if (query.title && query.title.length === 1) {
             return { items: [], metadata: undefined };
         }
-
-        // Update current search query
-        this.currentSearchQuery = query.title || "";
 
         // Set up request
         let request;
@@ -477,86 +470,33 @@ export class MangaKatanaExtension implements MangaKatanaImplementation {
             };
         }
 
-        // Use retry logic for queries with 2+ characters
-        const MAX_RETRIES = 20;
-        let retryCount = 0;
+        try {
+            // Execute the request
+            const $ = await this.fetchCheerio(request);
 
-        while (retryCount < MAX_RETRIES) {
-            try {
-                // Mark search as in progress
-                this.searchInProgress = true;
+            const manga = parseSearch($);
 
-                // Execute the request
-                const $ = await this.fetchCheerio(request);
-                const manga = parseSearch($);
+            console.log(`\n\n It failed from here \n\n`);
 
-                // Check if we need to retry (empty results and valid query)
-                if (
-                    query.title &&
-                    query.title.length > 1 &&
-                    manga.length === 0 &&
-                    retryCount < MAX_RETRIES - 1
-                ) {
-                    // If user has updated the query while we were searching, stop retrying
-                    if (this.currentSearchQuery !== query.title) {
-                        console.log(
-                            "Query changed during search, aborting retry",
-                        );
-                        return { items: [], metadata: undefined };
-                    }
+            // Return results
+            const nextPageMeta = !isLastPage($)
+                ? { page: page + 1 }
+                : undefined;
 
-                    retryCount++;
-                    console.log(
-                        `Search returned no results, retrying (${retryCount}/${MAX_RETRIES})`,
-                    );
-                    await new Promise((resolve) =>
-                        setTimeout(resolve, 1000 * retryCount),
-                    );
-                    continue;
-                }
+            console.log(
+                `\n\nThe Mangas Length: ${manga.length} , the page: ${page} and nextPageMeta: ${JSON.stringify(nextPageMeta)}\n\n`,
+            );
 
-                // Search complete, update status
-                this.searchInProgress = false;
-
-                // Return results
-                const nextPageMeta = !isLastPage($)
-                    ? { page: page + 1 }
-                    : undefined;
-
-                console.log(
-                    `This is the nextPageMeta: ${JSON.stringify(nextPageMeta)}`,
-                );
-
-                return {
-                    items: manga,
-                    metadata: nextPageMeta,
-                };
-            } catch (error) {
-                console.error(
-                    `Search error (attempt ${retryCount + 1}):`,
-                    error,
-                );
-
-                // If user has updated the query while we were searching, stop retrying
-                if (this.currentSearchQuery !== query.title) {
-                    console.log(
-                        "Query changed during search, aborting retry after error",
-                    );
-                    this.searchInProgress = false;
-                    return { items: [], metadata: undefined };
-                }
-
-                retryCount++;
-            }
+            return {
+                items: manga,
+                metadata: nextPageMeta,
+            };
+        } catch (error) {
+            console.error(`Error fetching search results: `, error);
+            throw new Error("Tap to retry search");
         }
-
-        // Search complete (after max retries)
-        this.searchInProgress = false;
-        return {
-            items: [],
-            metadata: undefined,
-        };
     }
+
     // Populates the chapter list
     async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
         const request = {
