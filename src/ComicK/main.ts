@@ -363,8 +363,8 @@ export class ComicKExtension implements ComicKImplementation {
         const builder = new URLBuilder(COMICK_API)
             .addPath("v1.0")
             .addPath("search")
-            .addQuery("page", page.toString())
-            .addQuery("limit", LIMIT.toString())
+            .addQuery("page", page)
+            .addQuery("limit", LIMIT)
             .addQuery("tachiyomi", "true");
 
         const getFilterValue = (id: string) =>
@@ -489,8 +489,8 @@ export class ComicKExtension implements ComicKImplementation {
                 .addPath("v1.0")
                 .addPath("search")
                 .addQuery("sort", sort)
-                .addQuery("limit", limit.toString())
-                .addQuery("page", "1")
+                .addQuery("limit", limit)
+                .addQuery("page", page)
                 .addQuery("tachiyomi", "true")
                 .build(),
             method: "GET",
