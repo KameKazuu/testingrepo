@@ -249,12 +249,12 @@ export function parseComicTypeFilters() {
     ];
 }
 
-function parseContentRating(content_rating: string): ContentRating {
-    if (content_rating === "erotica") {
+function parseContentRating(contentRating: string): ContentRating {
+    if (contentRating === "erotica") {
         return ContentRating.ADULT;
     }
 
-    if (content_rating === "suggestive") {
+    if (contentRating === "suggestive") {
         return ContentRating.MATURE;
     }
 
