@@ -9,7 +9,7 @@ import { MANGADEX_DOMAIN } from "./utils/CommonUtil";
 export class MangaDexInterceptor extends PaperbackInterceptor {
     // Regex to identify image requests
     private readonly imageRegex = new RegExp(
-        /\.(png|gif|jpeg|jpg|webp)(\?|$)/gi,
+        /\.(png|gif|jpeg|jpg|webp)(\?|$)/i,
     );
 
     /**
