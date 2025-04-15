@@ -75,8 +75,8 @@ export function parseChapters(
     sourceManga: SourceManga,
     filter: ComicK.ChapterFilter,
 ): Chapter[] {
-    let chapterCount = 0;
     const chaptersData = filterChapters(data.chapters, filter);
+    let sortingIndex = chaptersData.length;
 
     return chaptersData.map((chapter) => {
         const chapNum = Number(chapter.chap);
@@ -88,7 +88,7 @@ export function parseChapters(
             sourceManga,
             title: formatChapterTitle(chapter, filter.showTitle),
             chapNum: !isNaN(chapNum) ? chapNum : 0,
-            sortingIndex: ++chapterCount,
+            sortingIndex: sortingIndex--,
             volume: filter.showVol && !isNaN(volume) ? volume : undefined,
             publishDate: new Date(chapter.created_at),
             version: groups.join(","),
