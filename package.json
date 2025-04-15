@@ -22,14 +22,17 @@
         "@paperback/toolchain": "^1.0.0-alpha.46",
         "@paperback/types": "^1.0.0-alpha.46",
         "@types/eslint": "^9.6.1",
+        "@types/upng-js": "^2.1.5",
         "cheerio": "^1.0.0",
         "eslint": "^9.24.0",
         "fastest-levenshtein": "^1.0.16",
         "husky": "^9.1.7",
+        "jpeg-js": "^0.4.4",
         "moment": "^2.30.1",
         "prettier": "^3.5.3",
         "stemmer": "^2.0.1",
         "typescript": "^5.8.3",
-        "typescript-eslint": "^8.30.0"
+        "typescript-eslint": "^8.30.0",
+        "upng-js": "^2.1.0"
     }
 }

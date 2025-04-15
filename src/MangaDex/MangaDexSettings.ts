@@ -188,6 +188,17 @@ export function setCoverArtworkEnabled(enabled: boolean): void {
     Application.setState(enabled, "cover_artwork_enabled");
 }
 
+export function getCropImagesEnabled(): boolean {
+    return (
+        (Application.getState("crop_images_enabled") as boolean | undefined) ??
+        false
+    );
+}
+
+export function saveCropImagesEnabled(enabled: boolean): void {
+    Application.setState(enabled, "crop_images_enabled");
+}
+
 // ============================
 // Authentication & User Settings
 // ============================

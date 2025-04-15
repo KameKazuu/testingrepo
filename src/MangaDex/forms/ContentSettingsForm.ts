@@ -2,6 +2,7 @@ import { Form, Section, SelectRow, ToggleRow } from "@paperback/types";
 import { MDImageQuality, MDLanguages, MDRatings } from "../MangaDexHelper";
 import {
     getCoverArtworkEnabled,
+    getCropImagesEnabled,
     getCustomCoversEnabled,
     getDataSaver,
     getDiscoverThumbnail,
@@ -33,6 +34,7 @@ export class ContentSettingsForm extends Form {
     private discoverThumbState: State<string>;
     private searchThumbState: State<string>;
     private mangaThumbState: State<string>;
+    private cropImagesState: State<boolean>;
 
     constructor() {
         super();
@@ -81,6 +83,11 @@ export class ContentSettingsForm extends Form {
             this,
             "manga_thumbnail",
             getMangaThumbnail(),
+        );
+        this.cropImagesState = new State<boolean>(
+            this,
+            "crop_images_enabled",
+            getCropImagesEnabled(),
         );
     }
 
@@ -140,6 +147,13 @@ export class ContentSettingsForm extends Form {
                         "Load and choose covers from the tracker (envelope icon)",
                     value: this.customCoversState.value,
                     onValueChange: this.customCoversState.selector,
+                }),
+                ToggleRow("crop_images", {
+                    title: "Enable Image Cropping",
+                    subtitle:
+                        "Automatically removes whitespace borders from images. Will noticeably increase loading time. Works best with Data Saver enabled.",
+                    value: this.cropImagesState.value,
+                    onValueChange: this.cropImagesState.selector,
                 }),
             ]),
             Section("thumbnail_settings", [

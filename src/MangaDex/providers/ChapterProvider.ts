@@ -5,7 +5,6 @@ import {
     UpdateManager,
     URL,
 } from "@paperback/types";
-import { relevanceScore } from "../../utils/titleRelevanceScore";
 import { MDLanguages } from "../MangaDexHelper";
 import {
     getBlockedGroups,
@@ -24,6 +23,7 @@ import {
     getUpdateBatchSize,
 } from "../MangaDexSettings";
 import { checkId, fetchJSON, MANGADEX_API } from "../utils/CommonUtil";
+import { relevanceScore } from "../utils/titleRelevanceScore";
 import { MangaProvider } from "./MangaProvider";
 
 /**

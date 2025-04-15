@@ -1,5 +1,4 @@
 import { ContentRating, SearchQuery, SourceManga, Tag } from "@paperback/types";
-import { relevanceScore } from "../utils/titleRelevanceScore";
 import { MDImageQuality } from "./MangaDexHelper";
 import {
     getCustomCoversEnabled,
@@ -12,6 +11,7 @@ import {
     getShowVolume,
 } from "./MangaDexSettings";
 import { COVER_BASE_URL, MANGADEX_DOMAIN } from "./utils/CommonUtil";
+import { relevanceScore } from "./utils/titleRelevanceScore";
 
 // Type for manga item with additional processing
 type MangaItemWithAdditionalInfo = MangaDex.MangaItem & {
