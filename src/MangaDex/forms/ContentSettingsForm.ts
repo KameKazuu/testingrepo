@@ -96,6 +96,13 @@ export class ContentSettingsForm extends Form {
             Section("generalContent", [
                 SelectRow("languages", {
                     title: "Languages",
+                    subtitle: (() => {
+                        const selectedLangCodes = this.languagesState.value;
+                        const selectedLangNames = selectedLangCodes
+                            .map((langCode) => MDLanguages.getName(langCode))
+                            .sort((a, b) => a.localeCompare(b));
+                        return selectedLangNames.join(", ");
+                    })(),
                     value: this.languagesState.value,
                     minItemCount: 1,
                     maxItemCount: 100,
@@ -107,9 +114,21 @@ export class ContentSettingsForm extends Form {
                 }),
                 SelectRow("ratings", {
                     title: "Content Rating",
-                    subtitle: this.ratingsState.value
-                        .map((rating) => MDRatings.getName(rating))
-                        .join(", "),
+                    subtitle: (() => {
+                        const selectedRatings = this.ratingsState.value;
+                        const desiredOrder = [
+                            "safe",
+                            "suggestive",
+                            "erotica",
+                            "pornographic",
+                        ];
+                        const orderedSelected = desiredOrder
+                            .filter((ratingId) =>
+                                selectedRatings.includes(ratingId),
+                            )
+                            .map((ratingId) => MDRatings.getName(ratingId));
+                        return orderedSelected.join(", ");
+                    })(),
                     value: this.ratingsState.value,
                     minItemCount: 1,
                     maxItemCount: 4,

@@ -205,12 +205,20 @@ export class ProgressProvider {
     async processChapterReadActionQueue(
         actions: TrackedMangaChapterReadAction[],
     ): Promise<ChapterReadActionQueueProcessingResult> {
+        // Ensure chapter IDs are GUID format to handle errors
+        const guidRegex =
+            /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
         if (!getAccessToken()) {
             return {
                 successfulItems: [],
-                failedItems: actions.map(
-                    (action) => action.readChapter.chapterId,
-                ),
+                failedItems: actions
+                    .filter(
+                        (action) =>
+                            action.readChapter?.chapterId &&
+                            guidRegex.test(action.readChapter.chapterId),
+                    )
+                    .map((action) => action.readChapter.chapterId),
             };
         }
 
@@ -221,9 +229,13 @@ export class ProgressProvider {
         if (!trackingEnabled) {
             return {
                 successfulItems: [],
-                failedItems: actions.map(
-                    (action) => action.readChapter.chapterId,
-                ),
+                failedItems: actions
+                    .filter(
+                        (action) =>
+                            action.readChapter?.chapterId &&
+                            guidRegex.test(action.readChapter.chapterId),
+                    )
+                    .map((action) => action.readChapter.chapterId),
             };
         }
 
@@ -257,8 +269,15 @@ export class ProgressProvider {
         > = {};
 
         for (const action of actions) {
+            const chapterId = action.readChapter?.chapterId;
+            if (!chapterId || !guidRegex.test(chapterId)) {
+                console.warn(
+                    `Skipping chapter read action due to invalid or missing chapterId ('${chapterId ?? "undefined"}') for manga: ${action.sourceManga.mangaId}`,
+                );
+                continue;
+            }
+
             const mangaId = action.sourceManga.mangaId;
-            const chapterId = action.readChapter.chapterId;
             const contentRating = action.sourceManga.mangaInfo?.contentRating;
 
             if (contentRating) {

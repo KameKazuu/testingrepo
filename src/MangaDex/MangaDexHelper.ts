@@ -293,20 +293,20 @@ interface Rating {
 class MDContentRatingClass {
     Ratings: Rating[] = [
         {
-            name: "Safe",
+            name: "Safe (EVERYONE)",
             enum: "safe",
             default: true,
         },
         {
-            name: "Suggestive",
+            name: "Suggestive (MATURE)",
             enum: "suggestive",
         },
         {
-            name: "Erotica",
+            name: "Erotica (ADULT)",
             enum: "erotica",
         },
         {
-            name: "Pornographic",
+            name: "Pornographic (ADULT)",
             enum: "pornographic",
         },
     ];

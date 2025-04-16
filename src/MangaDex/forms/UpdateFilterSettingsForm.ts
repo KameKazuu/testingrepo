@@ -71,9 +71,9 @@ export class UpdateFilterSettingsForm extends Form {
                         ),
                     }),
                     ToggleRow("metadata_updater", {
-                        title: "Enable Metadata Updater",
+                        title: "Enable Forced Metadata Updater",
                         subtitle:
-                            "Manga description, cover, title, author, and statuses are updated during chapter updates (opening manga/library updates)",
+                            "Manga description, cover, title, author, and statuses are forcefully updated during chapter updates (opening manga/library updates)",
                         value: this.metadataUpdaterState.value,
                         onValueChange: Application.Selector(
                             this as UpdateFilterSettingsForm,

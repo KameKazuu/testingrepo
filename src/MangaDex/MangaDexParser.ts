@@ -154,9 +154,10 @@ export const parseMangaDetails = (
     const primaryTitle: string =
         mangaDetails.title.en ??
         (Object.values(mangaDetails.title) as string[])[0];
-    const desc = Application.decodeHTMLEntities(
-        mangaDetails.description.en ?? "",
-    )?.replace(/\[\/?[bus]]/g, ""); // Get rid of BBcode tags
+    const desc = (mangaDetails.description.en ?? "")?.replace(
+        /\[\/?[bus]]/g,
+        "",
+    );
 
     const status = mangaDetails.status;
 

@@ -1,5 +1,4 @@
 import {
-    BasicRateLimiter,
     Chapter,
     ChapterDetails,
     ChapterProviding,
@@ -35,6 +34,7 @@ import { MangaProvider } from "./providers/MangaProvider";
 import { ProgressProvider } from "./providers/ProgressProvider";
 import { SearchProvider } from "./providers/SearchProvider";
 import { SettingsProvider } from "./providers/SettingsProvider";
+import { BasicRateLimiter } from "./utils/BasicRateLimiter";
 
 /**
  * Interface defining all the capabilities this extension implements

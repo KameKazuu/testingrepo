@@ -26,6 +26,20 @@ export class MangaProvider {
 
         const json = await fetchJSON<MangaDex.MangaDetailsResponse>(request);
 
+        // Handle MangaDex API error responses with proper typing
+        if (
+            json.result === "error" &&
+            Array.isArray(json.errors) &&
+            json.errors.length === 1
+        ) {
+            const err = json.errors[0];
+            if (err.status === 404) {
+                throw new Error(
+                    `MangaDex API Error: [${err.status}] ${err.detail}. You may need to re-add this manga`,
+                );
+            }
+        }
+
         request = {
             url: new URL(MANGADEX_API)
                 .addPathComponent("statistics")

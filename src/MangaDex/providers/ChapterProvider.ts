@@ -1,6 +1,7 @@
 import {
     Chapter,
     ChapterDetails,
+    ContentRating,
     SourceManga,
     UpdateManager,
     URL,
@@ -48,7 +49,12 @@ export class ChapterProvider {
 
         const metadataUpdaterEnabled =
             !skipMetadataUpdate && getMetadataUpdater();
-        if (metadataUpdaterEnabled) {
+        if (
+            metadataUpdaterEnabled ||
+            !sourceManga.mangaInfo ||
+            !sourceManga.mangaInfo.status ||
+            !sourceManga.mangaInfo.rating
+        ) {
             const updatedManga =
                 await this.mangaProvider.getMangaDetails(mangaId);
             sourceManga.mangaInfo = updatedManga.mangaInfo;
@@ -57,6 +63,25 @@ export class ChapterProvider {
         const languages: string[] = getLanguages();
         const skipSameChapter = getSkipSameChapter();
         const ratings: string[] = getRatings();
+
+        // Inverse mapping: Paperback ContentRating -> MangaDex rating strings
+        const paperbackToMangaDexRatings: Record<ContentRating, string[]> = {
+            [ContentRating.EVERYONE]: ["safe"],
+            [ContentRating.MATURE]: ["suggestive"],
+            [ContentRating.ADULT]: ["erotica", "pornographic"],
+        };
+
+        const mangaPbRating = sourceManga.mangaInfo.contentRating;
+        const mangaMdRatings = paperbackToMangaDexRatings[mangaPbRating] ?? [];
+        const isRatingAllowed = mangaMdRatings.some((mdRating) =>
+            ratings.includes(mdRating),
+        );
+        if (!isRatingAllowed) {
+            throw new Error(
+                `If you see UNKNOWN at the top left under the Read button, go back and then re-open this manga. Otherwise, this manga has a content rating (${mangaPbRating}) which might not be enabled in your source settings. Please adjust your content filter settings to view chapters`,
+            );
+        }
+
         const groupBlockingEnabled = getGroupBlockingEnabled();
         const fuzzyBlockingEnabled = getFuzzyBlockingEnabled();
         const blockedGroups = groupBlockingEnabled
@@ -73,6 +98,66 @@ export class ChapterProvider {
         let sortingIndex = 0;
         let hasResults = true;
         let prevChapNum = 0;
+        let totalChaptersFetched = 0;
+        let hasExternalChapters = false;
+
+        let verifiedLatestChapterId: string | null = null;
+        if (getOptimizeUpdates()) {
+            try {
+                const unfilteredRequest = {
+                    url: new URL(MANGADEX_API)
+                        .addPathComponent("manga")
+                        .addPathComponent(mangaId)
+                        .addPathComponent("feed")
+                        .setQueryItems({
+                            "contentRating[]": [
+                                "safe",
+                                "suggestive",
+                                "erotica",
+                                "pornographic",
+                            ],
+                        })
+                        .setQueryItem("limit", "25")
+                        .setQueryItem("offset", "0")
+                        .setQueryItem("includes[]", "manga")
+                        .setQueryItem("order[createdAt]", "desc")
+                        .setQueryItem("order[volume]", "desc")
+                        .setQueryItem("order[chapter]", "desc")
+                        .setQueryItem("includeFutureUpdates", "1")
+                        .toString(),
+                    method: "GET",
+                };
+                const unfilteredJson =
+                    await fetchJSON<MangaDex.ChapterResponse>(
+                        unfilteredRequest,
+                    );
+
+                if (unfilteredJson.data && unfilteredJson.data.length > 0) {
+                    for (const chapterData of unfilteredJson.data) {
+                        const chapterIdFromFeed = chapterData.id;
+                        const mangaRel = chapterData.relationships?.find(
+                            (rel) => rel.type === "manga",
+                        );
+                        const latestChapterIdOnManga = (
+                            mangaRel?.attributes as
+                                | { latestUploadedChapter?: string }
+                                | undefined
+                        )?.latestUploadedChapter;
+                        if (
+                            chapterIdFromFeed &&
+                            latestChapterIdOnManga &&
+                            chapterIdFromFeed === latestChapterIdOnManga
+                        ) {
+                            verifiedLatestChapterId = chapterIdFromFeed;
+                            break;
+                        }
+                    }
+                }
+            } catch {
+                verifiedLatestChapterId = null;
+            }
+        }
+
         while (hasResults) {
             const request = {
                 url: new URL(MANGADEX_API)
@@ -90,8 +175,9 @@ export class ChapterProvider {
                     .setQueryItem("order[chapter]", "desc")
                     .setQueryItem("order[createdAt]", "desc")
                     .setQueryItem("contentRating[]", ratings)
-                    .setQueryItem("includeFutureUpdates", "0")
-                    .setQueryItem("includeEmptyPages", "0")
+                    .setQueryItem("translatedLanguage[]", languages)
+                    //.setQueryItem("includeFutureUpdates", "0")
+                    //.setQueryItem("includeEmptyPages", "0")
                     .toString(),
                 method: "GET",
             };
@@ -104,8 +190,15 @@ export class ChapterProvider {
                 throw new Error(`Failed to create chapters for ${mangaId}`);
 
             for (const chapter of json.data) {
+                totalChaptersFetched++;
                 const chapterId = chapter.id;
                 const chapterDetails = chapter.attributes;
+                if (
+                    chapterDetails.externalUrl &&
+                    chapterDetails.externalUrl.trim() !== ""
+                ) {
+                    hasExternalChapters = true;
+                }
                 const time = new Date(chapterDetails.publishAt);
                 const createdAt = new Date(chapterDetails.createdAt);
 
@@ -115,9 +208,15 @@ export class ChapterProvider {
                         createdAt: createdAt,
                     };
 
-                    sourceManga.mangaInfo.additionalInfo = {
-                        latestUploadedChapter: chapterId,
-                    };
+                    if (verifiedLatestChapterId) {
+                        sourceManga.mangaInfo.additionalInfo = {
+                            latestUploadedChapter: verifiedLatestChapterId,
+                        };
+                    } else {
+                        sourceManga.mangaInfo.additionalInfo = {
+                            latestUploadedChapter: chapterId,
+                        };
+                    }
                 }
 
                 if (!languages.includes(chapterDetails.translatedLanguage)) {
@@ -197,10 +296,20 @@ export class ChapterProvider {
             }
         }
 
-        if (chapters.length == 0) {
-            throw new Error(
-                `Couldn't find any chapters in your selected language for mangaId: ${mangaId}!`,
-            );
+        if (chapters.length === 0) {
+            if (totalChaptersFetched > 0 && hasExternalChapters) {
+                throw new Error(
+                    `Chapters are hosted externally outside MangaDex, you'll need to use another source or read it online`,
+                );
+            } else if (totalChaptersFetched > 0) {
+                throw new Error(
+                    `Couldn't find any chapters matching your selected language(s). Chapters in other languages might exist`,
+                );
+            } else {
+                throw new Error(
+                    `No chapters were found from the MangaDex API. This manga likely has no chapters in your selected language(s)`,
+                );
+            }
         }
 
         return chapters.map((chapter) => {

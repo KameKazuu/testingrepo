@@ -372,22 +372,24 @@ export class DiscoverProvider {
                 ? undefined
                 : { offset: offset + 100, collectedIds };
         return {
-            items: items.map((x) => ({
-                chapterId: x.attributes.latestUploadedChapter,
-                imageUrl: x.imageUrl,
-                mangaId: x.mangaId,
-                title: x.title,
-                subtitle: parseChapterTitle(
-                    chapterIdToChapter[x.attributes.latestUploadedChapter]
-                        ?.attributes ?? {},
-                ),
-                publishDate: new Date(
-                    chapterIdToChapter[
-                        x.attributes.latestUploadedChapter
-                    ]?.attributes.readableAt,
-                ),
-                type: "chapterUpdatesCarouselItem",
-            })),
+            items: items
+                .filter((x) => x.attributes.latestUploadedChapter != null)
+                .map((x) => ({
+                    chapterId: x.attributes.latestUploadedChapter,
+                    imageUrl: x.imageUrl,
+                    mangaId: x.mangaId,
+                    title: x.title,
+                    subtitle: parseChapterTitle(
+                        chapterIdToChapter[x.attributes.latestUploadedChapter]
+                            ?.attributes ?? {},
+                    ),
+                    publishDate: new Date(
+                        chapterIdToChapter[
+                            x.attributes.latestUploadedChapter
+                        ]?.attributes.readableAt,
+                    ),
+                    type: "chapterUpdatesCarouselItem",
+                })),
             metadata: nextMetadata,
         };
     }

@@ -107,7 +107,6 @@ export class CollectionProvider {
             const [_, buffer] = await Application.scheduleRequest({
                 url: new URL(MANGADEX_API)
                     .addPathComponent("manga")
-                    .setQueryItem("ids[]", batch)
                     .setQueryItems({
                         "includes[]": ["author", "artist", "cover_art"],
                     })
@@ -119,6 +118,7 @@ export class CollectionProvider {
                             "pornographic",
                         ],
                     })
+                    .setQueryItem("ids[]", batch)
                     .setQueryItem("limit", limit.toString())
                     .toString(),
                 method: "get",

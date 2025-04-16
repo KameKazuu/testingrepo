@@ -175,9 +175,16 @@ export class MangaDexInterceptor extends PaperbackInterceptor {
                 };
                 format = "png";
             } else if (jpegRegex.test(request.url)) {
+                //const decodeStart = Date.now();
                 const jpegData = jpeg.decode(new Uint8Array(data), {
                     useTArray: true,
+                    colorTransform: false,
+                    tolerantDecoding: false,
                 });
+                //const decodeEnd = Date.now();
+                //console.log(
+                //    `[BENCHMARK] jpeg.decode took ${decodeEnd - decodeStart} ms for ${request.url}`,
+                //);
                 decoded = {
                     width: jpegData.width,
                     height: jpegData.height,
@@ -206,11 +213,7 @@ export class MangaDexInterceptor extends PaperbackInterceptor {
                 const r = pixels[idx];
                 const g = pixels[idx + 1];
                 const b = pixels[idx + 2];
-                const result = r > 245 && g > 245 && b > 245;
-                if (!result) {
-                    // Non-whitespace pixel found
-                }
-                return result;
+                return r > 245 && g > 245 && b > 245;
             };
 
             // Top
@@ -293,10 +296,15 @@ export class MangaDexInterceptor extends PaperbackInterceptor {
                     0,
                 );
             } else if (format === "jpeg") {
+                //const encodeStart = Date.now();
                 const jpegData = jpeg.encode(
                     { data: cropped, width: newWidth, height: newHeight },
-                    80,
+                    75,
                 );
+                //const encodeEnd = Date.now();
+                //console.log(
+                //    `[BENCHMARK] jpeg.encode took ${encodeEnd - encodeStart} ms for ${request.url}`,
+                //);
                 // Ensure we only assign if the buffer is an ArrayBuffer, not SharedArrayBuffer
                 if (jpegData.data.buffer instanceof ArrayBuffer) {
                     encoded = jpegData.data.buffer;
