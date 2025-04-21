@@ -38,6 +38,8 @@ import { genres } from "./genres";
 
 const DOMAIN_NAME = "https://fanfox.net";
 
+type Metadata = { offset?: number; collectedIds?: string[] };
+
 // Should match the capabilities which you defined in pbconfig.ts
 type MangaFoxImplementation = Extension &
     DiscoverSectionProviding &
@@ -124,7 +126,7 @@ export class MangaFoxExtension implements MangaFoxImplementation {
     // Populates both the discover sections
     async getDiscoverSectionItems(
         section: DiscoverSection,
-        metadata: MangaDemon.Metadata | undefined,
+        metadata: Metadata | undefined,
     ): Promise<PagedResults<DiscoverSectionItem>> {
         switch (section.id) {
             case "hot-release":
@@ -657,32 +659,28 @@ export class MangaFoxExtension implements MangaFoxImplementation {
         const $ = await this.fetchCheerio(request);
         const chapters: Chapter[] = [];
 
-        $("div#chapterlist ul li").each((_, element) => {
-            // Changed 'chapter' variable to 'element' since that's what's passed in the callback
-            // Also need to find the anchor element inside each list item
-            const anchor = $("a", element);
+        for (const chapter of $("div#chapterlist ul li")
+            .children("a")
+            .toArray()) {
+            //const title = $('p.title3', chapter).html() ?? ''
+            const date = parseDate($("p.title2", chapter).html() ?? "");
+            const chapterIdRaw = $(chapter).attr("href")?.trim();
 
-            //const title = $('p.title3', element).html() ?? '';
-            const date = parseDate($("p.title2", element).html() ?? "");
-
-            // Get href from the anchor element
-            const chapterIdRaw = anchor.attr("href")?.trim();
             const chapterIdRegex = chapterIdRaw?.match(
                 /\/manga\/[a-zA-Z0-9_]*\/(.*)\//,
             );
 
-            let chapterId = null;
+            let chapterId: string | null = null;
             if (chapterIdRegex && chapterIdRegex[1])
-                chapterId = chapterIdRegex[1];
-            if (!chapterId) return; // Using 'return' instead of 'continue' in jQuery's each
+                chapterId = chapterIdRegex[1].split("/").pop() ?? null;
+
+            if (!chapterId) continue;
+
+            console.log(`Chapter ID: ${chapterId}`);
 
             const chapRegex = chapterId?.match(/c([0-9.]+)/);
             let chapNum = 0;
             if (chapRegex && chapRegex[1]) chapNum = Number(chapRegex[1]);
-
-            const volRegex = chapterId?.match(/v([0-9.]+)/);
-            let volNum = 0;
-            if (volRegex && volRegex[1]) volNum = Number(volRegex[1]);
 
             chapters.push({
                 chapterId: chapterId,
@@ -690,10 +688,9 @@ export class MangaFoxExtension implements MangaFoxImplementation {
                 //title: title,
                 langCode: "🇬🇧",
                 chapNum: isNaN(chapNum) ? 0 : chapNum,
-                volume: isNaN(volNum) ? 0 : volNum,
                 publishDate: date,
             });
-        });
+        }
 
         // Reverse to show newest chapters first
         return chapters.reverse();
