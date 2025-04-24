@@ -7,7 +7,7 @@ export const relevanceScore = (title: string, queryTitle: string): number => {
      * The scoring system prioritizes exact matches but also considers partial similarities to provide a nuanced relevance metric.
      *
      * 100: Exact match of title and query after stripping and tokenization.
-     * 100: Exact phrase match at the beginning of the title.
+     * 99: Exact phrase match at the beginning of the title.
      * 95: Exact phrase match elsewhere in the title.
      * 90: Adjacent sequence match at the beginning.
      * 85: Adjacent sequence match elsewhere.
@@ -15,8 +15,8 @@ export const relevanceScore = (title: string, queryTitle: string): number => {
      * 75: All query words are present regardless of order.
      * Below 70: Partial matches, with similarity calculated.
      *
-     * @param title - The first input number
-     * @param queryTitle - The second input number
+     * @param title - The manga/comic title to compare.
+     * @param queryTitle - The user's search query.
      * @returns a number representing the relevance score
      */
     const titleTokens = tokenize(title);
@@ -39,30 +39,34 @@ export const relevanceScore = (title: string, queryTitle: string): number => {
     // Exact phrase match at beginning after stemming
     const phraseAtStartRegex = new RegExp(`^${queryPhrase}\\b`, "i");
     if (phraseAtStartRegex.test(titlePhrase)) {
-        return 95;
+        return 99;
     }
 
     // Exact phrase match anywhere after stemming
     const phraseAnywhereRegex = new RegExp(`\\b${queryPhrase}\\b`, "i");
     if (phraseAnywhereRegex.test(titlePhrase)) {
-        return 90;
+        return 95;
     }
 
-    // **All query words present regardless of order**
+    // Adjacent sequence match (exact order, consecutive)
+    const adjIdx = findAdjacentSequence(titleWords, queryWords);
+    if (adjIdx === 0) {
+        return 90; // Adjacent sequence at the beginning
+    } else if (adjIdx > 0) {
+        return 85; // Adjacent sequence elsewhere
+    }
+
+    // All query words present regardless of order
     if (allWordsPresent(titleWords, queryWords)) {
         if (wordsAppearInOrder(titleWords, queryWords)) {
-            return 90; // All words present and in order
-        } else if (wordsAppearInReverseOrder(titleWords, queryWords)) {
-            return 85; // All words present in reverse order
+            return 80; // All words present and in order (not adjacent)
         } else {
-            return 80; // All words present in any order
+            return 75; // All words present in any order
         }
     }
 
     // Words appear in order but not adjacent
-    if (wordsAppearInOrder(titleWords, queryWords)) {
-        return 80;
-    }
+    // (Removed: redundant wordsAppearInOrder check)
 
     // Partial matches
     const matchedQueryWords = getMatchedQueryWordsCount(titleWords, queryWords);
@@ -89,7 +93,7 @@ const tokenize = (text: string): string[] => {
     return text
         .toLowerCase()
         .replace(/[\u2019']/g, "") // Remove apostrophes
-        .replace(/[^\w\s-]/g, "") // Remove punctuation except hyphens
+        .replace(/[^\w\s-]+/g, " ") // Replace punctuation except hyphens with space
         .split(/[\s-_]+/) // Split into words on spaces or hyphens or underscores
         .filter((word) => word.length > 0);
 };
@@ -137,12 +141,27 @@ const wordsAppearInOrder = (
     return true;
 };
 
-const wordsAppearInReverseOrder = (
+/**
+ * Returns the index of the first adjacent sequence of queryWords in titleWords.
+ * Returns -1 if not found.
+ */
+const findAdjacentSequence = (
     titleWords: string[],
     queryWords: string[],
-): boolean => {
-    const reversedQueryWords = [...queryWords].reverse();
-    return wordsAppearInOrder(titleWords, reversedQueryWords);
+): number => {
+    if (queryWords.length === 0 || titleWords.length < queryWords.length)
+        return -1;
+    for (let i = 0; i <= titleWords.length - queryWords.length; i++) {
+        let allMatch = true;
+        for (let j = 0; j < queryWords.length; j++) {
+            if (wordSimilarity(queryWords[j], titleWords[i + j]) < 0.7) {
+                allMatch = false;
+                break;
+            }
+        }
+        if (allMatch) return i;
+    }
+    return -1;
 };
 
 const allWordsPresent = (

@@ -116,7 +116,23 @@ export const parseMangaList = async (
 
         let relevance = 0;
         if (query?.title && getRelevanceScoringEnabled()) {
+            // Score primary title
             relevance = relevanceScore(title, query.title);
+
+            // Score all alternative titles and take the max
+            const altTitles: string[] =
+                mangaDetails.altTitles
+                    ?.flatMap(
+                        (x: MangaDex.AltTitle) => Object.values(x) as string[],
+                    )
+                    .map((x: string) => Application.decodeHTMLEntities(x)) ||
+                [];
+            for (const alt of altTitles) {
+                const altScore = relevanceScore(alt, query.title);
+                if (altScore > relevance) {
+                    relevance = altScore;
+                }
+            }
         }
 
         results.push({
