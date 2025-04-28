@@ -23,9 +23,11 @@ export class CollectionProvider {
     async getManagedLibraryCollections(): Promise<ManagedCollection[]> {
         return [
             { id: "reading", title: "Reading" },
+            { id: "on_hold", title: "On Hold" },
             { id: "plan_to_read", title: "Planned" },
-            { id: "completed", title: "Completed" },
             { id: "dropped", title: "Dropped" },
+            { id: "re_reading", title: "Re-reading" },
+            { id: "completed", title: "Completed" },
         ];
     }
 
@@ -108,15 +110,13 @@ export class CollectionProvider {
                 url: new URL(MANGADEX_API)
                     .addPathComponent("manga")
                     .setQueryItems({
-                        "includes[]": ["author", "artist", "cover_art"],
-                    })
-                    .setQueryItems({
                         "contentRating[]": [
                             "safe",
                             "suggestive",
                             "erotica",
                             "pornographic",
                         ],
+                        "includes[]": ["author", "artist", "cover_art"],
                     })
                     .setQueryItem("ids[]", batch)
                     .setQueryItem("limit", limit.toString())

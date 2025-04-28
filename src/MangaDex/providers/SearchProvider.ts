@@ -6,12 +6,12 @@ import {
     TagSection,
     URL,
 } from "@paperback/types";
+import { SortingOption } from "@paperback/types/src/SortingOption";
 import tagJSON from "../external/tag.json";
 import { parseMangaList } from "../MangaDexParser";
 import {
     getLanguages,
     getRatings,
-    getSearchSortOrder,
     getSearchThumbnail,
 } from "../MangaDexSettings";
 import { fetchJSON, MANGADEX_API } from "../utils/CommonUtil";
@@ -24,6 +24,7 @@ export class SearchProvider {
      * Returns tag sections for manga search filters
      */
     getSearchTags(): TagSection[] {
+        const ratings: string[] = getRatings();
         const sections: Record<string, TagSection> = {};
 
         for (const tag of tagJSON) {
@@ -39,7 +40,11 @@ export class SearchProvider {
 
             const tagObject = {
                 id: tag.data.id,
-                title: tag.data.attributes.name.en,
+                title:
+                    tag.data.type === "rating" &&
+                    !ratings.includes(tag.data.attributes.name.en.toLowerCase())
+                        ? `${tag.data.attributes.name.en} (Blocked in settings)`
+                        : tag.data.attributes.name.en,
             };
             sections[group].tags = [
                 ...(sections[group]?.tags ?? []),
@@ -101,6 +106,7 @@ export class SearchProvider {
     async getSearchResults(
         query: SearchQuery,
         metadata: MangaDex.Metadata,
+        sortingOption: SortingOption | undefined,
     ): Promise<PagedResults<SearchResultItem>> {
         const ratings: string[] = getRatings();
         const languages: string[] = getLanguages();
@@ -122,11 +128,14 @@ export class SearchProvider {
             .setQueryItem("contentRating[]", ratings)
             .setQueryItem("includes[]", "cover_art");
 
-        const sortOrder = getSearchSortOrder();
-        if (sortOrder) {
-            const [key, value] = sortOrder.split("-");
-            if (key && value) {
-                url.setQueryItem(key, value);
+        if (sortingOption && sortingOption.id) {
+            const index = sortingOption.id.lastIndexOf("-");
+            if (index > 0) {
+                const key = sortingOption.id.substring(0, index);
+                const value = sortingOption.id.substring(index + 1);
+                if (key && value) {
+                    url.setQueryItem(key, value);
+                }
             }
         }
 
@@ -134,18 +143,41 @@ export class SearchProvider {
         const excludedTags = [];
         for (const filter of query.filters) {
             if (filter.id.startsWith("tags")) {
-                const tags = (filter.value ?? {}) as Record<
-                    string,
-                    "included" | "excluded"
-                >;
-                for (const tag of Object.entries(tags)) {
-                    switch (tag[1]) {
-                        case "excluded":
-                            excludedTags.push(tag[0]);
-                            break;
-                        case "included":
-                            includedTags.push(tag[0]);
-                            break;
+                if (filter.id.includes("rating")) {
+                    const tags = (filter.value ?? {}) as Record<
+                        string,
+                        "included" | "excluded"
+                    >;
+                    const ratingMap: Record<string, string> = {
+                        "1": "safe",
+                        "2": "suggestive",
+                        "3": "erotica",
+                        "4": "pornographic",
+                    };
+                    for (const [id, status] of Object.entries(tags)) {
+                        const rating = ratingMap[id];
+                        if (!rating) continue;
+                        const index = ratings.indexOf(rating);
+                        if (status === "excluded" && index !== -1) {
+                            ratings.splice(index, 1);
+                        } else if (status === "included" && index === -1) {
+                            ratings.push(rating);
+                        }
+                    }
+                } else {
+                    const tags = (filter.value ?? {}) as Record<
+                        string,
+                        "included" | "excluded"
+                    >;
+                    for (const tag of Object.entries(tags)) {
+                        switch (tag[1]) {
+                            case "excluded":
+                                excludedTags.push(tag[0]);
+                                break;
+                            case "included":
+                                includedTags.push(tag[0]);
+                                break;
+                        }
                     }
                 }
             }
@@ -184,5 +216,23 @@ export class SearchProvider {
             results.length < 100 ? undefined : { offset: offset + 100 };
 
         return { items: results, metadata: nextMetadata };
+    }
+
+    async getSortingOptions(): Promise<SortingOption[]> {
+        return [
+            { id: "", label: "Latest Upload" },
+            { id: "order[relevance]-desc", label: "Best Match" },
+            { id: "order[latestUploadedChapter]-asc", label: "Oldest Upload" },
+            { id: "order[title]-asc", label: "Title Ascending" },
+            { id: "order[title]-desc", label: "Title Descending" },
+            { id: "order[rating]-desc", label: "Highest Rating" },
+            { id: "order[rating]-asc", label: "Lowest Rating" },
+            { id: "order[followedCount]-desc", label: "Most Follows" },
+            { id: "order[followedCount]-asc", label: "Least Follows" },
+            { id: "order[createdAt]-desc", label: "Recently Added" },
+            { id: "order[createdAt]-asc", label: "Oldest Added" },
+            { id: "order[year]-asc", label: "Year Ascending" },
+            { id: "order[year]-desc", label: "Year Descending" },
+        ];
     }
 }

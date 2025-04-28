@@ -22,7 +22,7 @@ type MangaItemWithAdditionalInfo = MangaDex.MangaItem & {
 };
 
 // Maps MangaDex content ratings to Paperback content ratings
-const contentRatingMap: Record<string, ContentRating> = {
+export const contentRatingMap: Record<string, ContentRating> = {
     safe: ContentRating.EVERYONE,
     suggestive: ContentRating.MATURE,
     erotica: ContentRating.ADULT,

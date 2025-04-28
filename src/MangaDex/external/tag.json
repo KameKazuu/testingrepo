@@ -2,6 +2,62 @@
     {
         "result": "ok",
         "data": {
+            "id": "1",
+            "type": "rating",
+            "attributes": {
+                "name": { "en": "Safe" },
+                "description": [],
+                "group": "rating",
+                "version": 1
+            }
+        },
+        "relationships": []
+    },
+    {
+        "result": "ok",
+        "data": {
+            "id": "2",
+            "type": "rating",
+            "attributes": {
+                "name": { "en": "Suggestive" },
+                "description": [],
+                "group": "rating",
+                "version": 1
+            }
+        },
+        "relationships": []
+    },
+    {
+        "result": "ok",
+        "data": {
+            "id": "3",
+            "type": "rating",
+            "attributes": {
+                "name": { "en": "Erotica" },
+                "description": [],
+                "group": "rating",
+                "version": 1
+            }
+        },
+        "relationships": []
+    },
+    {
+        "result": "ok",
+        "data": {
+            "id": "4",
+            "type": "rating",
+            "attributes": {
+                "name": { "en": "Pornographic" },
+                "description": [],
+                "group": "rating",
+                "version": 1
+            }
+        },
+        "relationships": []
+    },
+    {
+        "result": "ok",
+        "data": {
             "id": "b11fda93-8f1d-4bef-b2ed-8803d3733170",
             "type": "tag",
             "attributes": {

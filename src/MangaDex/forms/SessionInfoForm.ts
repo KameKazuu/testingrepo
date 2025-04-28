@@ -47,13 +47,17 @@ export class SessionInfoForm extends Form {
 
         return [
             Section(
-                "introspect",
-                Object.entries(accessToken.tokenBody).map(([key, value]) =>
-                    LabelRow(key, {
-                        title: key,
-                        value: String(value),
-                    }),
-                ),
+                {
+                    id: "introspect",
+                    footer: Object.entries(accessToken.tokenBody)
+                        .map(([key, value]) =>
+                            typeof value === "object" && value !== null
+                                ? `${key}: ${JSON.stringify(value, null, 2)}`
+                                : `${key}: ${String(value)}`,
+                        )
+                        .join("\n"),
+                },
+                [],
             ),
             Section("account_actions", [
                 ButtonRow("refresh_token_button", {

@@ -513,16 +513,6 @@ export function setTrackingContentRatings(ratings: string[]): void {
 // ============================
 // Search Settings
 // ============================
-export function getSearchSortOrder(): string {
-    return (
-        (Application.getState("search_sort_order") as string | undefined) ?? ""
-    );
-}
-
-export function setSearchSortOrder(order: string): void {
-    Application.setState(order, "search_sort_order");
-}
-
 export function getRelevanceScoringEnabled(): boolean {
     return (
         (Application.getState("relevance_scoring_enabled") as

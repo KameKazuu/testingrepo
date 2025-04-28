@@ -26,6 +26,7 @@ import {
     TrackedMangaChapterReadAction,
     UpdateManager,
 } from "@paperback/types";
+import { SortingOption } from "@paperback/types/src/SortingOption";
 import { MangaDexInterceptor } from "./MangaDexInterceptor";
 import { ChapterProvider } from "./providers/ChapterProvider";
 import { CollectionProvider } from "./providers/CollectionProvider";
@@ -94,12 +95,21 @@ export class MangaDexExtension implements MangaDexImplementation {
     async getSearchResults(
         query: SearchQuery,
         metadata: MangaDex.Metadata,
+        sortingOption: SortingOption | undefined,
     ): Promise<PagedResults<SearchResultItem>> {
-        return this.searchProvider.getSearchResults(query, metadata);
+        return this.searchProvider.getSearchResults(
+            query,
+            metadata,
+            sortingOption,
+        );
     }
 
     getSearchTags(): TagSection[] {
         return this.searchProvider.getSearchTags();
+    }
+
+    async getSortingOptions(): Promise<SortingOption[]> {
+        return this.searchProvider.getSortingOptions();
     }
 
     // ChapterProviding implementation
