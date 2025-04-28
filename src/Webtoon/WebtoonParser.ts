@@ -73,7 +73,7 @@ export abstract class WebtoonParser extends WebtoonSettings {
                             .find(".genre")
                             .toArray()
                             .map((genre) => ({
-                                id: $(genre).text(),
+                                id: $(genre).text().replace(" ", "-"),
                                 title: $(genre).text(),
                             })),
                     },
