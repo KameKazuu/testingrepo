@@ -167,11 +167,11 @@ export class WebtoonExtention
         this.languages.forEach((language) => {
             result.push(
                 genre !== "ALL"
-                    ? genre.startsWith("CANVAS$$")
+                    ? genre.startsWith("CANVAS%%")
                         ? this.getCanvasPopularTitles(
                               language,
                               metadata,
-                              genre.split("$$")[1],
+                              genre.split("%%")[1],
                           )
                         : this.getTitlesByGenre(language, genre)
                     : query.title

@@ -40,8 +40,11 @@ export abstract class WebtoonParser extends WebtoonSettings {
             "#content > div.cont_box > div.detail_header > div.info",
         );
         const infoElement = $("#_asideDetail") as CheerioElement;
+        const isCanvas = mangaId.startsWith(
+            this.languageFromId(mangaId) + "/canvas",
+        );
 
-        const [image, title] = mangaId.startsWith("canvas")
+        const [image, title] = isCanvas
             ? [
                   this.parseCanvasDetailsThumbnail($),
                   detailElement.find("h3").text().trim(),
@@ -58,7 +61,7 @@ export abstract class WebtoonParser extends WebtoonSettings {
                 synopsis: infoElement.find("p.summary").text(),
                 primaryTitle: title,
                 secondaryTitles: [],
-                contentRating: mangaId.startsWith("canvas")
+                contentRating: isCanvas
                     ? ContentRating.MATURE
                     : ContentRating.EVERYONE,
 
@@ -73,7 +76,7 @@ export abstract class WebtoonParser extends WebtoonSettings {
                             .find(".genre")
                             .toArray()
                             .map((genre) => ({
-                                id: $(genre).text().replace(" ", "-"),
+                                id: $(genre).text().replaceAll(" ", "-"),
                                 title: $(genre).text(),
                             })),
                     },
@@ -323,7 +326,7 @@ export abstract class WebtoonParser extends WebtoonSettings {
 
     parseCanvasTagFromElement(elem: CheerioElement): Tag {
         return {
-            id: "CANVAS$$" + (elem.attr("data-genre") ?? ""),
+            id: "CANVAS%%" + (elem.attr("data-genre") ?? ""),
             value: "Canvas - " + elem.find("a").text().trim(),
         };
     }
