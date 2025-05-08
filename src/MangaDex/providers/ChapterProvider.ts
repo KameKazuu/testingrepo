@@ -2,11 +2,13 @@ import {
     Chapter,
     ChapterDetails,
     ContentRating,
+    MangaInfo,
     SourceManga,
     UpdateManager,
     URL,
 } from "@paperback/types";
 import { MDLanguages } from "../MangaDexHelper";
+import { parseMangaItemDetails } from "../MangaDexParser";
 import {
     getBlockedGroups,
     getDataSaver,
@@ -47,13 +49,21 @@ export class ChapterProvider {
         const mangaId = sourceManga.mangaId;
         checkId(mangaId);
 
+        if (!sourceManga.mangaInfo) {
+            sourceManga.mangaInfo = {} as MangaInfo;
+        }
+        if (!sourceManga.mangaInfo.additionalInfo) {
+            sourceManga.mangaInfo.additionalInfo = {};
+        }
+
         const metadataUpdaterEnabled =
             !skipMetadataUpdate && getMetadataUpdater();
         if (
             metadataUpdaterEnabled ||
             !sourceManga.mangaInfo ||
             !sourceManga.mangaInfo.status ||
-            !sourceManga.mangaInfo.rating
+            !sourceManga.mangaInfo.rating ||
+            !sourceManga.mangaInfo.shareUrl
         ) {
             const updatedManga =
                 await this.mangaProvider.getMangaDetails(mangaId);
@@ -150,6 +160,37 @@ export class ChapterProvider {
                         ) {
                             verifiedLatestChapterId = chapterIdFromFeed;
                             break;
+                        }
+                    }
+                }
+                if (skipMetadataUpdate || !getMetadataUpdater()) {
+                    if (unfilteredJson.data && unfilteredJson.data.length > 0) {
+                        const chapterData = unfilteredJson.data[0];
+                        const mangaItem = chapterData.relationships?.find(
+                            (rel: MangaDex.ChapterRelationship) =>
+                                rel.type === "manga",
+                        ) as MangaDex.MangaItem | undefined;
+
+                        if (mangaItem?.attributes && mangaItem.id) {
+                            const mangaDetails = mangaItem.attributes;
+                            const mangaItemDetails = parseMangaItemDetails(
+                                mangaId,
+                                mangaDetails,
+                            );
+
+                            sourceManga.mangaInfo.primaryTitle =
+                                mangaItemDetails.primaryTitle;
+                            sourceManga.mangaInfo.secondaryTitles =
+                                mangaItemDetails.secondaryTitles;
+                            sourceManga.mangaInfo.synopsis =
+                                mangaItemDetails.synopsis ?? "No Description";
+                            sourceManga.mangaInfo.status = mangaDetails.status;
+                            sourceManga.mangaInfo.tagGroups =
+                                mangaItemDetails.tagGroups;
+                            sourceManga.mangaInfo.contentRating =
+                                mangaItemDetails.contentRating;
+                            sourceManga.mangaInfo.shareUrl =
+                                mangaItemDetails.shareUrl;
                         }
                     }
                 }
@@ -297,17 +338,19 @@ export class ChapterProvider {
         }
 
         if (chapters.length === 0) {
+            const langStr = languages.join(", ");
+            const ratingStr = ratings.join(", ");
             if (totalChaptersFetched > 0 && hasExternalChapters) {
                 throw new Error(
                     `Chapters are hosted externally outside MangaDex, you'll need to use another source or read it online`,
                 );
             } else if (totalChaptersFetched > 0) {
                 throw new Error(
-                    `Couldn't find any chapters matching your selected language(s). Chapters in other languages might exist`,
+                    `No chapters found matching your selected language(s) [${langStr}]. Chapters in other languages might exist`,
                 );
             } else {
                 throw new Error(
-                    `No chapters were found from the MangaDex API. This manga likely has no chapters in your selected language(s)`,
+                    `No chapters found. This manga has no chapters in your selected language(s) [${langStr}] or content ratings [${ratingStr}]`,
                 );
             }
         }
@@ -413,6 +456,82 @@ export class ChapterProvider {
                             sourceManga.mangaInfo?.additionalInfo
                                 ?.latestUploadedChapter;
 
+                        let metadataHasChanged = false;
+                        if (sourceManga.mangaInfo) {
+                            const apiMangaDetails = parseMangaItemDetails(
+                                mangaData.id,
+                                mangaData.attributes,
+                            );
+                            const storedMangaInfo = sourceManga.mangaInfo;
+
+                            if (
+                                storedMangaInfo.primaryTitle !==
+                                apiMangaDetails.primaryTitle
+                            ) {
+                                metadataHasChanged = true;
+                            }
+
+                            const storedSecondaryTitle = [
+                                ...(storedMangaInfo.secondaryTitles ?? []),
+                            ]
+                                .sort()
+                                .join(",");
+                            const apiSecondaryTitle = [
+                                ...(apiMangaDetails.secondaryTitles ?? []),
+                            ]
+                                .sort()
+                                .join(",");
+                            if (storedSecondaryTitle !== apiSecondaryTitle) {
+                                metadataHasChanged = true;
+                            }
+
+                            if (
+                                (storedMangaInfo.synopsis ?? "") !==
+                                apiMangaDetails.synopsis
+                            ) {
+                                metadataHasChanged = true;
+                            }
+
+                            if (
+                                storedMangaInfo.status !==
+                                apiMangaDetails.status
+                            ) {
+                                metadataHasChanged = true;
+                            }
+
+                            if (
+                                storedMangaInfo.contentRating !==
+                                apiMangaDetails.contentRating
+                            ) {
+                                metadataHasChanged = true;
+                            }
+
+                            const storedTagIds = (
+                                storedMangaInfo.tagGroups
+                                    ? (storedMangaInfo.tagGroups[0]?.tags ?? [])
+                                    : []
+                            )
+                                .map((t) => t.id)
+                                .sort()
+                                .join(",");
+                            const apiTagIds = (
+                                apiMangaDetails.tagGroups[0]?.tags ?? []
+                            )
+                                .map((t) => t.id)
+                                .sort()
+                                .join(",");
+                            if (storedTagIds !== apiTagIds) {
+                                metadataHasChanged = true;
+                            }
+
+                            if (
+                                (storedMangaInfo.shareUrl ?? "") !==
+                                apiMangaDetails.shareUrl
+                            ) {
+                                metadataHasChanged = true;
+                            }
+                        }
+
                         let skipUnread = false;
                         if (
                             skipUnreadChapters > 0 &&
@@ -448,9 +567,14 @@ export class ChapterProvider {
                             }
                         }
 
-                        if (
+                        const chapterChanged =
                             latestApiChapter &&
-                            latestApiChapter !== latestStoredChapter &&
+                            latestApiChapter !== latestStoredChapter;
+                        const shouldUpdateBasedOnContent =
+                            chapterChanged || metadataHasChanged;
+
+                        if (
+                            shouldUpdateBasedOnContent &&
                             !skipPublicationStatus.includes(
                                 mangaData.attributes.status,
                             ) &&

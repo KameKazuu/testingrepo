@@ -1,4 +1,10 @@
-import { ContentRating, SearchQuery, SourceManga, Tag } from "@paperback/types";
+import {
+    ContentRating,
+    SearchQuery,
+    SourceManga,
+    Tag,
+    TagSection,
+} from "@paperback/types";
 import { MDImageQuality } from "./MangaDexHelper";
 import {
     getCustomCoversEnabled,
@@ -7,6 +13,7 @@ import {
     getSelectedCover,
     getShowChapter,
     getShowRatingIcons,
+    getShowSearchRatingInSubtitle,
     getShowStatusIcons,
     getShowVolume,
 } from "./MangaDexSettings";
@@ -19,6 +26,17 @@ type MangaItemWithAdditionalInfo = MangaDex.MangaItem & {
     title: string;
     imageUrl: string;
     subtitle?: string;
+    contentRating?: ContentRating;
+};
+
+type MangaItemDetails = {
+    primaryTitle: string;
+    secondaryTitles: string[];
+    synopsis: string;
+    status: MangaDex.Status;
+    contentRating: ContentRating;
+    tagGroups: TagSection[];
+    shareUrl: string;
 };
 
 // Maps MangaDex content ratings to Paperback content ratings
@@ -53,6 +71,8 @@ export const parseMangaList = async (
     object: MangaDex.MangaItem[],
     thumbnailSelector: () => string,
     query?: SearchQuery,
+    ratingJson?: MangaDex.StatisticsResponse,
+    chapterDetailsMap?: Record<string, MangaDex.ChapterAttributes>,
 ): Promise<MangaItemWithAdditionalInfo[]> => {
     const results: { manga: MangaItemWithAdditionalInfo; relevance: number }[] =
         [];
@@ -105,14 +125,43 @@ export const parseMangaList = async (
             ? ratingIconMap[mangaDetails.contentRating.toLowerCase()] || ""
             : "";
 
+        let chapterVolume: string | undefined = mangaDetails.lastVolume;
+        let chapterNumber: string | undefined = mangaDetails.lastChapter;
+
+        if (chapterDetailsMap && manga.attributes.latestUploadedChapter) {
+            const latestChapterDetails =
+                chapterDetailsMap[manga.attributes.latestUploadedChapter];
+            if (latestChapterDetails) {
+                chapterVolume = latestChapterDetails.volume ?? undefined;
+                chapterNumber = latestChapterDetails.chapter ?? undefined;
+            }
+        }
+
         const chapterInfo = parseChapterTitle({
             title: undefined,
-            volume: mangaDetails.lastVolume,
-            chapter: mangaDetails.lastChapter,
+            volume: chapterVolume,
+            chapter: chapterNumber,
         });
 
+        const rating = ratingJson?.statistics?.[mangaId]?.rating?.average
+            ? (ratingJson.statistics[mangaId].rating.average * 10).toFixed(0) +
+              "%"
+            : "";
+
         const subtitle =
-            `${ratingIcon}${statusIcon}${statusIcon || ratingIcon ? " " : ""}${chapterInfo}`.trim();
+            `${ratingIcon}${statusIcon}${rating}${statusIcon || ratingIcon || rating ? " " : ""}${chapterInfo}`.trim();
+
+        let displayTitle = title;
+        if (
+            getShowChapter() ||
+            getShowVolume() ||
+            getShowRatingIcons() ||
+            getShowSearchRatingInSubtitle() ||
+            getShowStatusIcons() ||
+            (title.length > 0 && title.length < 35)
+        ) {
+            displayTitle += " ".repeat(30) + " ‍"; // Force 2 lines for consistency
+        }
 
         let relevance = 0;
         if (query?.title && getRelevanceScoringEnabled()) {
@@ -139,9 +188,14 @@ export const parseMangaList = async (
             manga: {
                 ...manga,
                 mangaId: mangaId,
-                title: title,
+                title: displayTitle,
                 imageUrl: image,
                 subtitle: subtitle,
+                contentRating:
+                    contentRatingMap[
+                        (mangaDetails.contentRating as string)?.toLowerCase() ??
+                            ""
+                    ] ?? ContentRating.EVERYONE,
             },
             relevance: relevance,
         });
@@ -164,25 +218,7 @@ export const parseMangaDetails = (
 ): SourceManga => {
     const mangaDetails: MangaDex.DatumAttributes = json.data.attributes;
 
-    const secondaryTitles: string[] = mangaDetails.altTitles
-        .flatMap((x: MangaDex.AltTitle) => Object.values(x) as string[])
-        .map((x: string) => Application.decodeHTMLEntities(x));
-    const primaryTitle: string =
-        mangaDetails.title.en ??
-        (Object.values(mangaDetails.title) as string[])[0];
-    const desc = (mangaDetails.description.en ?? "")?.replace(
-        /\[\/?[bus]]/g,
-        "",
-    );
-
-    const status = mangaDetails.status;
-
-    const tags: Tag[] = mangaDetails.tags
-        .map((tag) => ({
-            id: tag.id,
-            title: tag.attributes.name.en ?? "Unknown",
-        }))
-        .sort((a, b) => a.title.localeCompare(b.title));
+    const mangaItemDetails = parseMangaItemDetails(mangaId, mangaDetails);
 
     const author = json.data.relationships
         .filter(
@@ -191,6 +227,7 @@ export const parseMangaDetails = (
         .map((x) => x.attributes?.name)
         .filter(Boolean)
         .join(", ");
+
     const artist = json.data.relationships
         .filter(
             (x): x is MangaDex.Relationship => x.type.valueOf() === "artist",
@@ -236,24 +273,61 @@ export const parseMangaDetails = (
     return {
         mangaId: mangaId,
         mangaInfo: {
-            primaryTitle,
-            secondaryTitles,
+            primaryTitle: mangaItemDetails.primaryTitle,
+            secondaryTitles: mangaItemDetails.secondaryTitles,
             thumbnailUrl: image,
             author,
             artist,
-            synopsis: desc ?? "No Description",
-            status,
-            tagGroups: [{ id: "tags", title: "Tags", tags }],
-            contentRating:
-                contentRatingMap[
-                    (mangaDetails.contentRating as string)?.toLowerCase() ?? ""
-                ] ?? ContentRating.EVERYONE,
-            shareUrl: `${MANGADEX_DOMAIN}/title/${mangaId}`,
+            synopsis: mangaItemDetails.synopsis ?? "No Description",
+            status: mangaItemDetails.status,
+            tagGroups: mangaItemDetails.tagGroups,
+            contentRating: mangaItemDetails.contentRating,
+            shareUrl: mangaItemDetails.shareUrl,
             rating,
             artworkUrls: artworkUrls.length > 0 ? artworkUrls : undefined,
         },
     };
 };
+
+export function parseMangaItemDetails(
+    mangaId: string,
+    mangaDetails: MangaDex.DatumAttributes,
+): MangaItemDetails {
+    const primaryTitle: string =
+        mangaDetails.title.en ??
+        (Object.values(mangaDetails.title) as string[])[0];
+
+    const secondaryTitles: string[] = mangaDetails.altTitles.flatMap(
+        (x: MangaDex.AltTitle) => Object.values(x) as string[],
+    );
+
+    const desc = (mangaDetails.description.en ?? "")?.replace(
+        /\[\/?[bus]]/g,
+        "",
+    );
+
+    const status = mangaDetails.status;
+
+    const tags: Tag[] = mangaDetails.tags
+        .map((tag) => ({
+            id: tag.id,
+            title: tag.attributes.name.en ?? "Unknown",
+        }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+
+    return {
+        primaryTitle,
+        secondaryTitles,
+        synopsis: desc,
+        status,
+        tagGroups: [{ id: "tags", title: "Tags", tags }],
+        contentRating:
+            contentRatingMap[
+                (mangaDetails.contentRating as string)?.toLowerCase() ?? ""
+            ] ?? ContentRating.EVERYONE,
+        shareUrl: `${MANGADEX_DOMAIN}/title/${mangaId}`,
+    };
+}
 
 /**
  * Formats chapter title with volume and chapter numbers based on settings
@@ -265,10 +339,20 @@ export function parseChapterTitle(
     const showVolume = getShowVolume();
     const showChapter = getShowChapter();
 
+    let volumePrefix = "Vol.";
+    let chapterPrefix = "Ch.";
+    if (getShowSearchRatingInSubtitle()) {
+        volumePrefix = "V.";
+        chapterPrefix = "C.";
+    }
     const volume =
-        showVolume && attributes.volume ? `Vol. ${attributes.volume} ` : "";
+        showVolume && attributes.volume
+            ? `${volumePrefix} ${attributes.volume} `
+            : "";
     const chapter =
-        showChapter && attributes.chapter ? `Ch. ${attributes.chapter}` : "";
+        showChapter && attributes.chapter
+            ? `${chapterPrefix} ${attributes.chapter}`
+            : "";
 
     return `${volume}${chapter}${title ? ` - ${title}` : ""}`.trim();
 }

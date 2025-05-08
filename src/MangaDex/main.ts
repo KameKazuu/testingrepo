@@ -56,7 +56,7 @@ type MangaDexImplementation = Extension &
 export class MangaDexExtension implements MangaDexImplementation {
     // Rate limiting and request interception
     globalRateLimiter = new BasicRateLimiter("rateLimiter", {
-        numberOfRequests: 4,
+        numberOfRequests: 5,
         bufferInterval: 1,
         ignoreImages: true,
     });

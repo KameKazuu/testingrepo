@@ -234,7 +234,7 @@ export class LibraryMangaListForm extends Form {
                         await fetchJSON<MangaDex.SearchResponse>(request);
 
                     if (json.data) {
-                        const statsRequest = {
+                        const ratingRequest = {
                             url: new URL(MANGADEX_API)
                                 .addPathComponent("statistics")
                                 .addPathComponent("manga")
@@ -243,9 +243,9 @@ export class LibraryMangaListForm extends Form {
                             method: "GET",
                         };
 
-                        const statsJson =
+                        const ratingJson =
                             await fetchJSON<MangaDex.StatisticsResponse>(
-                                statsRequest,
+                                ratingRequest,
                             );
 
                         try {
@@ -295,7 +295,7 @@ export class LibraryMangaListForm extends Form {
                                     const sourceManga = parseMangaDetails(
                                         mangaData.id,
                                         mangaDetailsResponse,
-                                        statsJson,
+                                        ratingJson,
                                     );
 
                                     this.libraryManga[index].sourceManga =

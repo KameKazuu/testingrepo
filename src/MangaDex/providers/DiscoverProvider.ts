@@ -260,6 +260,7 @@ export class DiscoverProvider {
                 title: x.title,
                 supertitle: undefined,
                 metadata: undefined,
+                contentRating: x.contentRating,
             })),
             metadata: undefined,
         };
@@ -388,6 +389,7 @@ export class DiscoverProvider {
                             x.attributes.latestUploadedChapter
                         ]?.attributes.readableAt,
                     ),
+                    contentRating: x.contentRating,
                     type: "chapterUpdatesCarouselItem",
                 })),
             metadata: nextMetadata,

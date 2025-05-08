@@ -41,30 +41,34 @@ export class CollectionProvider {
             throw new Error("You need to be logged in");
         }
 
-        for (const addition of changeset.additions) {
-            await Application.scheduleRequest({
-                url: new URL(MANGADEX_API)
-                    .addPathComponent("manga")
-                    .addPathComponent(addition.mangaId)
-                    .addPathComponent("status")
-                    .toString(),
-                method: "post",
-                headers: { "Content-Type": "application/json" },
-                body: { status: changeset.collection.id },
-            });
+        if (changeset.additions && changeset.additions.length > 0) {
+            for (const addition of changeset.additions) {
+                await Application.scheduleRequest({
+                    url: new URL(MANGADEX_API)
+                        .addPathComponent("manga")
+                        .addPathComponent(addition.mangaId)
+                        .addPathComponent("status")
+                        .toString(),
+                    method: "post",
+                    headers: { "Content-Type": "application/json" },
+                    body: { status: changeset.collection.id },
+                });
+            }
         }
 
-        for (const deletion of changeset.deletions) {
-            await Application.scheduleRequest({
-                url: new URL(MANGADEX_API)
-                    .addPathComponent("manga")
-                    .addPathComponent(deletion.mangaId)
-                    .addPathComponent("status")
-                    .toString(),
-                method: "post",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status: null }),
-            });
+        if (changeset.deletions && changeset.deletions.length > 0) {
+            for (const deletion of changeset.deletions) {
+                await Application.scheduleRequest({
+                    url: new URL(MANGADEX_API)
+                        .addPathComponent("manga")
+                        .addPathComponent(deletion.mangaId)
+                        .addPathComponent("status")
+                        .toString(),
+                    method: "post",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: null }),
+                });
+            }
         }
     }
 

@@ -13,6 +13,9 @@ import {
     getLanguages,
     getRatings,
     getSearchThumbnail,
+    getShowChapter,
+    getShowSearchRatingInSubtitle,
+    getShowVolume,
 } from "../MangaDexSettings";
 import { fetchJSON, MANGADEX_API } from "../utils/CommonUtil";
 
@@ -90,7 +93,7 @@ export class SearchProvider {
                 options: tag.tags.map((x) => ({ id: x.id, value: x.title })),
                 id: "tags-" + tag.id,
                 allowExclusion: true,
-                title: tag.title,
+                title: tag.title.replace(/_/g, " "),
                 value: {},
                 allowEmptySelection: true,
                 maximum: undefined,
@@ -209,9 +212,65 @@ export class SearchProvider {
             throw new Error(
                 `Failed to create search results, check MangaDex status and your search query`,
             );
+        } else if (json.data.length === 0 && offset === 0) {
+            const langStr = languages.join(", ");
+            const ratingStr = ratings.join(", ");
+            throw new Error(
+                `No results found. If it exists, check your language and content rating filters in the MangaDex extension settings\nEnabled Languages: ${langStr}\nEnabled Ratings: ${ratingStr}`,
+            );
         }
 
-        results = await parseMangaList(json.data, getSearchThumbnail, query);
+        let ratingJson: MangaDex.StatisticsResponse | undefined = undefined;
+        if (
+            getShowSearchRatingInSubtitle() &&
+            json.data &&
+            json.data.length > 0
+        ) {
+            const mangaIds = json.data.map((manga) => manga.id);
+            const ratingRequest = {
+                url: new URL(MANGADEX_API)
+                    .addPathComponent("statistics")
+                    .addPathComponent("manga")
+                    .setQueryItem("manga[]", mangaIds)
+                    .toString(),
+                method: "GET",
+            };
+            ratingJson =
+                await fetchJSON<MangaDex.StatisticsResponse>(ratingRequest);
+        }
+
+        const chapterDetailsMap: Record<string, MangaDex.ChapterAttributes> =
+            {};
+        const chapterIds = json.data
+            .map((manga) => manga.attributes.latestUploadedChapter)
+            .filter((id): id is string => !!id);
+
+        if ((getShowVolume() || getShowChapter()) && chapterIds.length > 0) {
+            const chapterDetailsRequest = {
+                url: new URL(MANGADEX_API)
+                    .addPathComponent("chapter")
+                    .setQueryItem("ids[]", chapterIds)
+                    .setQueryItem("limit", chapterIds.length.toString())
+                    .toString(),
+                method: "GET",
+            };
+            const chaptersResponse = await fetchJSON<MangaDex.ChapterResponse>(
+                chapterDetailsRequest,
+            );
+            if (chaptersResponse.data) {
+                for (const chapter of chaptersResponse.data) {
+                    chapterDetailsMap[chapter.id] = chapter.attributes;
+                }
+            }
+        }
+
+        results = await parseMangaList(
+            json.data,
+            getSearchThumbnail,
+            query,
+            ratingJson,
+            chapterDetailsMap,
+        );
         const nextMetadata: MangaDex.Metadata | undefined =
             results.length < 100 ? undefined : { offset: offset + 100 };
 

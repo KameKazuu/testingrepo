@@ -3,11 +3,13 @@ import {
     getRelevanceScoringEnabled,
     getShowChapter,
     getShowRatingIcons,
+    getShowSearchRatingInSubtitle,
     getShowStatusIcons,
     getShowVolume,
     setRelevanceScoringEnabled,
     setShowChapter,
     setShowRatingIcons,
+    setShowSearchRatingInSubtitle,
     setShowStatusIcons,
     setShowVolume,
 } from "../MangaDexSettings";
@@ -44,6 +46,11 @@ export class SearchSettingsForm extends Form {
         "relevance_scoring_enabled",
         getRelevanceScoringEnabled(),
     );
+    private showSearchRatingSubtitleState = new State<boolean>(
+        this,
+        "show_search_rating_subtitle",
+        getShowSearchRatingInSubtitle(),
+    );
 
     override getSections(): Application.FormSectionElement[] {
         return [
@@ -63,7 +70,7 @@ export class SearchSettingsForm extends Form {
                 ToggleRow("show_volume_in_subtitle", {
                     title: "Show Volume in Subtitle",
                     subtitle:
-                        "Note: Not all manga have volumes in the search API",
+                        "This may not be accurate for your language due to API",
                     value: this.volumeState.value,
                     onValueChange: Application.Selector(
                         this as SearchSettingsForm,
@@ -73,11 +80,21 @@ export class SearchSettingsForm extends Form {
                 ToggleRow("show_chapter_in_subtitle", {
                     title: "Show Chapter in Subtitle",
                     subtitle:
-                        "Note: Not all manga have chapters in the search API",
+                        "This may not be accurate for your language due to API",
                     value: this.chapterState.value,
                     onValueChange: Application.Selector(
                         this as SearchSettingsForm,
                         "handleChapterChange",
+                    ),
+                }),
+                ToggleRow("show_search_rating_subtitle", {
+                    title: "Show Rating in Subtitle",
+                    subtitle:
+                        "Displays the manga's average rating. Increases loading time by a few seconds",
+                    value: this.showSearchRatingSubtitleState.value,
+                    onValueChange: Application.Selector(
+                        this as SearchSettingsForm,
+                        "handleShowSearchRatingSubtitleChange",
                     ),
                 }),
             ]),
@@ -133,6 +150,12 @@ export class SearchSettingsForm extends Form {
     async handleRelevanceScoringChange(value: boolean): Promise<void> {
         await this.relevanceScoringState.updateValue(value);
         setRelevanceScoringEnabled(value);
+        this.reloadForm();
+    }
+
+    async handleShowSearchRatingSubtitleChange(value: boolean): Promise<void> {
+        await this.showSearchRatingSubtitleState.updateValue(value);
+        setShowSearchRatingInSubtitle(value);
         this.reloadForm();
     }
 }

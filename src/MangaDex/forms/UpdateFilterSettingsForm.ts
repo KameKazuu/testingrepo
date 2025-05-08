@@ -63,7 +63,7 @@ export class UpdateFilterSettingsForm extends Form {
                     ToggleRow("optimize_updates", {
                         title: "Enable Optimized Updates",
                         subtitle:
-                            "Only update manga with new chapters. First update will be slow, subsequent updates will be optimized",
+                            "Highly recommended for library updates. Batch check for manga with new chapters or metadata and only update those. May miss nuked chapters (dmcad manga).",
                         value: this.optimizeUpdatesState.value,
                         onValueChange: Application.Selector(
                             this as UpdateFilterSettingsForm,
@@ -73,7 +73,7 @@ export class UpdateFilterSettingsForm extends Form {
                     ToggleRow("metadata_updater", {
                         title: "Enable Forced Metadata Updater",
                         subtitle:
-                            "Manga description, cover, title, author, and statuses are forcefully updated during chapter updates (opening manga/library updates)",
+                            "Manga details are forcefully updated during chapter updates (opening manga/library updates)",
                         value: this.metadataUpdaterState.value,
                         onValueChange: Application.Selector(
                             this as UpdateFilterSettingsForm,

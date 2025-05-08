@@ -69,7 +69,7 @@ export class TrackingSettingsForm extends Form {
                     ToggleRow("chapter_preloading_enabled", {
                         title: "Enable Chapter Preloading",
                         subtitle:
-                            "Preload chapter data when viewing manga progress. Disable to improve performance.",
+                            "Preload chapter data when viewing manga progress. Disable to load faster",
                         value: this.chapterPreloadingEnabledState.value,
                         onValueChange: Application.Selector(
                             this as TrackingSettingsForm,

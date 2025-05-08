@@ -170,7 +170,7 @@ export class ContentSettingsForm extends Form {
                 ToggleRow("crop_images", {
                     title: "Enable Image Cropping",
                     subtitle:
-                        "Automatically removes whitespace borders from images. Will noticeably increase loading time. Works best with Data Saver enabled.",
+                        "Automatically removes whitespace borders from images. Will noticeably increase loading time. Works best with Data Saver enabled",
                     value: this.cropImagesState.value,
                     onValueChange: this.cropImagesState.selector,
                 }),

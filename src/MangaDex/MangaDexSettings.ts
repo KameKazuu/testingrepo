@@ -364,6 +364,18 @@ export function setShowChapter(enabled: boolean): void {
     Application.setState(enabled, "show_chapter_in_subtitle");
 }
 
+export function getShowSearchRatingInSubtitle(): boolean {
+    return (
+        (Application.getState("show_search_rating_subtitle") as
+            | boolean
+            | undefined) ?? false
+    );
+}
+
+export function setShowSearchRatingInSubtitle(enabled: boolean): void {
+    Application.setState(enabled, "show_search_rating_subtitle");
+}
+
 // ============================
 // Group Blocking Settings
 // ============================
