@@ -1,4 +1,10 @@
-import { Form, Section, SelectRow, ToggleRow } from "@paperback/types";
+import {
+    Form,
+    FormSectionElement,
+    Section,
+    SelectRow,
+    ToggleRow,
+} from "@paperback/types";
 import {
     getMetadataUpdater,
     getOptimizeUpdates,
@@ -52,7 +58,7 @@ export class UpdateFilterSettingsForm extends Form {
         getSkipUnreadChapters(),
     );
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section(
                 {

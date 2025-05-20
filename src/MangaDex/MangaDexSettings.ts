@@ -1,6 +1,8 @@
 import {
     ButtonRow,
     Form,
+    FormItemElement,
+    FormSectionElement,
     NavigationRow,
     OAuthButtonRow,
     Section,
@@ -650,7 +652,7 @@ export class MangaDexSettingsForm extends Form {
         return this.oAuthState;
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         const sections = [this.createMainSettingsSection()];
 
         if (this.oAuthState.value) {
@@ -670,7 +672,7 @@ export class MangaDexSettingsForm extends Form {
         return sections;
     }
 
-    private createMainSettingsSection(): Application.FormSectionElement {
+    private createMainSettingsSection(): FormSectionElement {
         return Section("mainSettings", [
             NavigationRow("mangadex_settings", {
                 title: "MangaDex Website Settings",
@@ -746,7 +748,7 @@ export class MangaDexSettingsForm extends Form {
         return new SessionInfoForm(this.getOAuthState());
     }
 
-    private createLoginButton(): Application.FormItemElement<unknown> {
+    private createLoginButton(): FormItemElement<unknown> {
         return OAuthButtonRow("oAuthButton", {
             title: "Login with MangaDex",
             authorizeEndpoint:
@@ -768,7 +770,7 @@ export class MangaDexSettingsForm extends Form {
         });
     }
 
-    private createResetSection(): Application.FormSectionElement {
+    private createResetSection(): FormSectionElement {
         return Section("reset_section", [
             ButtonRow("reset_settings", {
                 title: "Reset to Defaults",

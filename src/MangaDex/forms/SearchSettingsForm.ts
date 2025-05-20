@@ -1,4 +1,4 @@
-import { Form, Section, ToggleRow } from "@paperback/types";
+import { Form, FormSectionElement, Section, ToggleRow } from "@paperback/types";
 import {
     getRelevanceScoringEnabled,
     getShowChapter,
@@ -52,7 +52,7 @@ export class SearchSettingsForm extends Form {
         getShowSearchRatingInSubtitle(),
     );
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("sorting", [
                 ToggleRow("relevance_scoring_enabled", {

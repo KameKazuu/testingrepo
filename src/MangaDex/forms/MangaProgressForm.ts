@@ -2,6 +2,8 @@ import {
     ButtonRow,
     Chapter,
     Form,
+    FormItemElement,
+    FormSectionElement,
     LabelRow,
     Section,
     SelectRow,
@@ -106,13 +108,13 @@ export class MangaProgressForm extends Form {
         return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         const formattedStatus = this.currentStatus
             .split("_")
             .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
             .join(" ");
 
-        const tagRows: Application.FormItemElement<unknown>[] = [];
+        const tagRows: FormItemElement<unknown>[] = [];
         if (this.sourceManga.mangaInfo.tagGroups?.length) {
             for (const tagGroup of this.sourceManga.mangaInfo.tagGroups) {
                 if (tagGroup.tags.length) {
@@ -135,7 +137,7 @@ export class MangaProgressForm extends Form {
                   ? "Remove Rating"
                   : `${this.currentRating}0%`;
 
-        const sections: Application.FormSectionElement[] = [
+        const sections: FormSectionElement[] = [
             Section("manga_info", [
                 this.isTextTooLong(
                     "Title",
@@ -321,7 +323,7 @@ export class MangaProgressForm extends Form {
             this.covers &&
             this.covers.length > 0
         ) {
-            const coversItems: Application.FormItemElement<unknown>[] = [];
+            const coversItems: FormItemElement<unknown>[] = [];
 
             coversItems.push(
                 LabelRow("covers_list_header", {
@@ -511,7 +513,7 @@ export class MangaProgressForm extends Form {
             this.chapters &&
             this.chapters.length > 0
         ) {
-            const chapterItems: Application.FormItemElement<unknown>[] = [];
+            const chapterItems: FormItemElement<unknown>[] = [];
 
             chapterItems.push(
                 LabelRow("chapter_list_header", {

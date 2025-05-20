@@ -15,8 +15,9 @@ export default {
     badges: [],
     developers: [
         {
-            name: "Paperback Community",
-            website: "https://github.com/paperback-community",
+            name: "Inkdex",
+            website: "https://inkdex.github.io",
+            github: "https://github.com/inkdex",
         },
     ],
 } satisfies SourceInfo;

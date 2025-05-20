@@ -1,5 +1,6 @@
 import {
     Form,
+    FormSectionElement,
     Section,
     SelectRow,
     SettingsFormProviding,
@@ -48,7 +49,7 @@ class WebtoonSettingForm extends Form {
         this.settings = settings;
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("settings", [
                 SelectRow(LANGUAGES, {

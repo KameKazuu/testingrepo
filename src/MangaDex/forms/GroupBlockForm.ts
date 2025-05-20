@@ -1,6 +1,7 @@
 import {
     ButtonRow,
     Form,
+    FormSectionElement,
     InputRow,
     LabelRow,
     Section,
@@ -70,7 +71,7 @@ export class GroupBlockForm extends Form {
         this.onBlockedGroupsChange = onBlockedGroupsChange;
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         const hasSearchResults = this.searchResults.length > 0;
         const blockedGroupIds = Object.keys(this.blockedGroups);
         const currentPage =

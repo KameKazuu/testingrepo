@@ -1,4 +1,10 @@
-import { Form, Section, SelectRow, ToggleRow } from "@paperback/types";
+import {
+    Form,
+    FormSectionElement,
+    Section,
+    SelectRow,
+    ToggleRow,
+} from "@paperback/types";
 import { MDRatings } from "../MangaDexHelper";
 import {
     getAccessToken,
@@ -40,7 +46,7 @@ export class TrackingSettingsForm extends Form {
         getTrackingContentRatings(),
     );
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section(
                 {

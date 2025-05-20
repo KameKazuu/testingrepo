@@ -1,4 +1,10 @@
-import { Form, Section, SelectRow, ToggleRow } from "@paperback/types";
+import {
+    Form,
+    FormSectionElement,
+    Section,
+    SelectRow,
+    ToggleRow,
+} from "@paperback/types";
 import { MDImageQuality, MDLanguages, MDRatings } from "../MangaDexHelper";
 import {
     getCoverArtworkEnabled,
@@ -91,7 +97,7 @@ export class ContentSettingsForm extends Form {
         );
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("generalContent", [
                 SelectRow("languages", {

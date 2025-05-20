@@ -1,4 +1,11 @@
-import { DeferredItem, Form, NavigationRow, Section } from "@paperback/types";
+import {
+    DeferredItem,
+    Form,
+    FormItemElement,
+    FormSectionElement,
+    NavigationRow,
+    Section,
+} from "@paperback/types";
 
 /**
  * Form for managing website-related settings
@@ -7,13 +14,13 @@ import { DeferredItem, Form, NavigationRow, Section } from "@paperback/types";
 export class WebsiteSettingsForm extends Form {
     private oAuthState: { value: boolean };
     private createSessionInfoFormCallback: () => Form;
-    private createLoginButtonCallback: () => Application.FormItemElement<unknown>;
+    private createLoginButtonCallback: () => FormItemElement<unknown>;
     private createStatusInfoFormCallback: () => Form;
 
     constructor(
         oAuthState: { value: boolean },
         createSessionInfoForm: () => Form,
-        createLoginButton: () => Application.FormItemElement<unknown>,
+        createLoginButton: () => FormItemElement<unknown>,
         createStatusInfoForm: () => Form,
     ) {
         super();
@@ -23,7 +30,7 @@ export class WebsiteSettingsForm extends Form {
         this.createStatusInfoFormCallback = createStatusInfoForm;
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         // Dynamically shows either login button or session info based on auth state
         // Also provides navigation to MangaDex status page
         return [
@@ -33,7 +40,7 @@ export class WebsiteSettingsForm extends Form {
                         return NavigationRow("sessionInfo", {
                             title: "Session Info",
                             form: this.createSessionInfoFormCallback(),
-                        }) as Application.FormItemElement<unknown>;
+                        }) as FormItemElement<unknown>;
                     }
                     return this.createLoginButtonCallback();
                 }),

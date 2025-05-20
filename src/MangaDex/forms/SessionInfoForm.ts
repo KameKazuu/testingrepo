@@ -1,4 +1,10 @@
-import { ButtonRow, Form, LabelRow, Section } from "@paperback/types";
+import {
+    ButtonRow,
+    Form,
+    FormSectionElement,
+    LabelRow,
+    Section,
+} from "@paperback/types";
 import {
     authEndpointRequest,
     getAccessToken,
@@ -24,7 +30,7 @@ export class SessionInfoForm extends Form {
         this.sessionState = oAuthState.value;
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         if (!this.sessionState) {
             return [
                 Section("session_status", [

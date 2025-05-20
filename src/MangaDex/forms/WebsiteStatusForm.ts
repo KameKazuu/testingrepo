@@ -1,4 +1,10 @@
-import { ButtonRow, Form, Section, WebViewRow } from "@paperback/types";
+import {
+    ButtonRow,
+    Form,
+    FormSectionElement,
+    Section,
+    WebViewRow,
+} from "@paperback/types";
 import * as cheerio from "cheerio";
 
 /**
@@ -17,7 +23,7 @@ export class WebsiteStatusForm extends Form {
         void this.fetchStatusInfo();
     }
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("status_actions", [
                 WebViewRow("status_webview", {

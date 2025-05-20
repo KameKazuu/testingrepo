@@ -1,4 +1,4 @@
-import { Form, Section, SelectRow } from "@paperback/types";
+import { Form, FormSectionElement, Section, SelectRow } from "@paperback/types";
 import { BTTLanguages } from "./helper";
 
 // Function to get the selected languages from the application state
@@ -19,14 +19,14 @@ export class BatoToSettingsForm extends Form {
     );
 
     // Override to define the sections of the form
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             this.createLanguageSettingsSection(), // Only language-related section
         ];
     }
 
     // Create the language settings section
-    private createLanguageSettingsSection(): Application.FormSectionElement {
+    private createLanguageSettingsSection(): FormSectionElement {
         return Section("languageSettings", [
             SelectRow("languages", {
                 title: "Languages",

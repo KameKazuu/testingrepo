@@ -1,6 +1,7 @@
 import {
     ButtonRow,
     Form,
+    FormSectionElement,
     LabelRow,
     Section,
     ToggleRow,
@@ -31,7 +32,7 @@ export function clearTags(): void {
 }
 
 export class AsuraSettingForm extends Form {
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("first", [
                 ToggleRow("pre", {

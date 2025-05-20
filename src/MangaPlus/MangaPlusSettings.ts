@@ -1,6 +1,7 @@
 import {
     ButtonRow,
     Form,
+    FormSectionElement,
     Section,
     SelectRow,
     ToggleRow,
@@ -22,7 +23,7 @@ export const getResolution = (): string => {
 };
 
 export class MangaPlusSettingForm extends Form {
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("content_settings", [
                 SelectRow("languages", {

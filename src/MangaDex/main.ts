@@ -21,12 +21,12 @@ import {
     SearchResultItem,
     SearchResultsProviding,
     SettingsFormProviding,
+    SortingOption,
     SourceManga,
     TagSection,
     TrackedMangaChapterReadAction,
     UpdateManager,
 } from "@paperback/types";
-import { SortingOption } from "@paperback/types/src/SortingOption";
 import { MangaDexInterceptor } from "./MangaDexInterceptor";
 import { ChapterProvider } from "./providers/ChapterProvider";
 import { CollectionProvider } from "./providers/CollectionProvider";

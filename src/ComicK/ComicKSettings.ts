@@ -2,6 +2,7 @@ import {
     ButtonRow,
     createFormState,
     Form,
+    FormSectionElement,
     InputRow,
     NavigationRow,
     Section,
@@ -64,7 +65,7 @@ export function getHideUnreleasedChapters(): boolean {
 }
 
 export class ComicKSettingsForm extends Form {
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("languageForm", [
                 NavigationRow("languageFprm", {
@@ -89,7 +90,7 @@ export class ComicKSettingsForm extends Form {
 }
 
 export class ChapterForm extends Form {
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         const hideUnreleasedChapters = getHideUnreleasedChapters();
         const showVolumeNumber = getShowVolumeNumber();
         const showTitle = getShowTitle();
@@ -152,7 +153,7 @@ export class ChapterForm extends Form {
 }
 
 export class LanguageForm extends Form {
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         const language = getLanguages();
         const languageHomeFilter = getLanguageHomeFilter();
 
@@ -199,7 +200,7 @@ export class LanguageForm extends Form {
 export class UploaderForm extends Form {
     uploaderState = createFormState(this, "");
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         const chapterScoreEnabled = getChapterScoreFiltering();
         const [uploader, , selectorUploader] = this.uploaderState;
 

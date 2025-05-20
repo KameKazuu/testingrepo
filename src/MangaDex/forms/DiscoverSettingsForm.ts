@@ -1,6 +1,8 @@
 import {
     ButtonRow,
     Form,
+    FormItemElement,
+    FormSectionElement,
     LabelRow,
     Section,
     ToggleRow,
@@ -60,7 +62,7 @@ export class DiscoverSettingsForm extends Form {
         getDiscoverSectionOrder(),
     );
 
-    override getSections(): Application.FormSectionElement[] {
+    override getSections(): FormSectionElement[] {
         return [
             Section("discover_visibility", [
                 ToggleRow("seasonal_enabled", {
@@ -126,8 +128,8 @@ export class DiscoverSettingsForm extends Form {
     /**
      * Creates UI elements for section reordering
      */
-    private createOrderItems(): Application.FormItemElement<unknown>[] {
-        const items: Application.FormItemElement<unknown>[] = [];
+    private createOrderItems(): FormItemElement<unknown>[] {
+        const items: FormItemElement<unknown>[] = [];
         const currentOrder = this.sectionOrderState.value;
 
         const sectionTitles = {

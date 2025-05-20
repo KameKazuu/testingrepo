@@ -1,6 +1,8 @@
 import {
     ButtonRow,
     Form,
+    FormItemElement,
+    FormSectionElement,
     LabelRow,
     NavigationRow,
     Section,
@@ -55,8 +57,8 @@ export class LibraryMangaListForm extends Form {
         this.chapterProvider = new ChapterProvider(mangaProvider);
     }
 
-    override getSections(): Application.FormSectionElement[] {
-        const sections: Application.FormSectionElement[] = [];
+    override getSections(): FormSectionElement[] {
+        const sections: FormSectionElement[] = [];
 
         if (!this.isLoaded && !this.isLoading) {
             sections.push(
@@ -102,7 +104,7 @@ export class LibraryMangaListForm extends Form {
         }
 
         if (this.isLoaded && this.libraryManga.length > 0) {
-            const mangaItems: Application.FormItemElement<unknown>[] = [];
+            const mangaItems: FormItemElement<unknown>[] = [];
 
             for (const manga of this.libraryManga) {
                 if (manga.sourceManga) {
