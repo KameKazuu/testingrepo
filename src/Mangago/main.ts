@@ -59,6 +59,13 @@ class MangagoExtension implements MangagoImplementation {
     this.interceptor.registerInterceptor();
   }
 
+  async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {
+    for (const cookie of cookies) {
+      if (cookie.expires && cookie.expires.getTime() <= Date.now()) continue;
+      this.cookieStorageInterceptor.setCookie(cookie);
+    }
+  }
+
   async getSortingOptions(): Promise<SortingOption[]> {
     return [
       {
