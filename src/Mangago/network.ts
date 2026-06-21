@@ -75,3 +75,4 @@ export async function fetchText(url: string, headers: Record<string, string> =):
 
   return Application.arrayBufferToUTF8String(data);
 }
+
