@@ -16,8 +16,8 @@ import {
   type SearchQuery,
   type SearchResultItem,
   type SearchResultsProviding,
+  type SortingOption,
   type SourceManga,
-  type TagSection,
 } from "@paperback/types";
 
 import { DOMAIN, type MangagoSearchMetadata } from "./models";
@@ -32,7 +32,14 @@ import {
 } from "./parsers";
 import { getMangagoPageUrls } from "./utils";
 
-class MangagoExtension implements Extension {
+type MangagoImplementation = Extension &
+  SearchResultsProviding &
+  MangaProviding &
+  ChapterProviding &
+  DiscoverSectionProviding &
+  CloudflareBypassRequestProviding;
+
+class MangagoExtension implements MangagoImplementation {
   private interceptor = new MangagoInterceptor("mangago-interceptor");
 
   private rateLimiter = new BasicRateLimiter("mangago-rate-limiter", {
@@ -41,7 +48,12 @@ class MangagoExtension implements Extension {
     ignoreImages: false,
   });
 
+  private cookieStorageInterceptor = new CookieStorageInterceptor({
+    storage: "stateManager",
+  });
+
   async initialise(): Promise<void> {
+    this.cookieStorageInterceptor.registerInterceptor();
     this.rateLimiter.registerInterceptor();
     this.interceptor.registerInterceptor();
   }
@@ -197,6 +209,27 @@ class MangagoExtension implements Extension {
       pages,
     };
   }
+
+  async cloudflareBypassCompleted(
+    _request: globalThis.Request,
+    cookies: Cookie[],
+    _localStorage: Record<string, string>,
+  ): Promise<void> {
+    for (const cookie of this.cookieStorageInterceptor.cookies) {
+      this.cookieStorageInterceptor.deleteCookie(cookie);
+    }
+
+    for (const cookie of cookies) {
+      if (cookie.expires && cookie.expires.getTime() <= Date.now()) {
+        continue;
+      }
+
+      this.cookieStorageInterceptor.setCookie(cookie);
+    }
+  }
 }
 
 export const Mangago = new MangagoExtension();
+
+        
+    
