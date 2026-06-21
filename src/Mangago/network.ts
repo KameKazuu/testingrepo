@@ -61,7 +61,10 @@ export class MangagoInterceptor extends PaperbackInterceptor {
   }
 }
 
-export async function fetchText(url: string, headers: Record<string, string> =): Promise<string> {
+export async function fetchText(
+  url: string,
+  headers: { [key: string]: string } = {},
+): Promise<string> {
   const [, data] = await Application.scheduleRequest({
     url,
     method: "GET",
