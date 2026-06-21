@@ -132,7 +132,7 @@ function unscrambleChars(chars: string[], keys: number[]): void {
 }
 
 export function unscrambleImageList(imageList: string, js: string): string {
-  const chars = [...imageList];
+  const chars = imageList.split("");
   const keyLocations = findKeyLocations(js);
   const unscrambleKey: number[] = [];
 
