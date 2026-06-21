@@ -7,9 +7,9 @@
       "website": "https://mangago.me",
       "author": "popbase85-collab",
       "contentRating": "MATURE",
-      "icon": "https://raw.githubusercontent.com/popbase85-collab/test-extension/0.9/stable/bundles/Mangago/static/icon.png",
+      "icon": "https://raw.githubusercontent.com/popbase85-collab/test-extension/refs/heads/0.9/stable/bundles/Mangago/static/icon.png",
       "version": "1.0.0-alpha.1",
-      "bundleUrl": "https://raw.githubusercontent.com/popbase85-collab/test-extension/0.9/stable/bundles/Mangago",
+      "bundleUrl": "https://raw.githubusercontent.com/popbase85-collab/test-extension/refs/heads/0.9/stable/bundles/Mangago",
       "repository": "https://github.com/popbase85-collab/test-extension"
     }
   ]
