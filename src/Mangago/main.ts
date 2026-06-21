@@ -40,44 +40,83 @@ class MangagoExtension implements Extension {
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {
-    return [
-      {
-        id: "popular",
-        label: "Popular",
-      },
-      {
-        id: "latest",
-        label: "Latest Updates",
-      },
-    ];
-  }
+  return [
+    {
+      id: "alphabetical",
+      label: "Alphabetical",
+    },
+    {
+      id: "views",
+      label: "Views",
+    },
+    {
+      id: "popularity",
+      label: "Popularity",
+    },
+    {
+      id: "create_date",
+      label: "Create Date",
+    },
+    {
+      id: "update_date",
+      label: "Update Date",
+    },
+  ];
+}
 
-  async getSearchResults(
-    query: SearchQuery<MangagoSearchMetadata>,
-    metadata?: MangagoSearchMetadata,
-    sortingOption?: SortingOption,
-  ): Promise<PagedResults<SearchResultItem>> {
-    const page = metadata?.page ?? 1;
-    const title = query.title?.trim() ?? "";
+async getSearchResults(
+  query: SearchQuery<MangagoSearchMetadata>,
+  metadata?: MangagoSearchMetadata,
+  sortingOption?: SortingOption,
+): Promise<PagedResults<SearchResultItem>> {
+  const page = metadata?.page ?? 1;
+  const title = query.title?.trim() ?? "";
 
-    let url: string;
+  let url: string;
 
-    if (title) {
-      url = `${DOMAIN}/r/l_search?name=${encodeURIComponent(title)}&page=${page}`;
-    } else if (sortingOption?.id === "latest") {
-      url = `${DOMAIN}/genre/all/${page}/?f=1&o=1&sortby=update_date&e=`;
-    } else {
-      url = `${DOMAIN}/genre/all/${page}/?f=1&o=1&sortby=view&e=`;
+  if (title) {
+    url = `${DOMAIN}/r/l_search?name=${encodeURIComponent(title)}&page=${page}`;
+  } else {
+    let sortby = "";
+
+    switch (sortingOption?.id) {
+      case "views":
+        sortby = "view";
+        break;
+      case "popularity":
+        sortby = "comment_count";
+        break;
+      case "create_date":
+        sortby = "create_date";
+        break;
+      case "update_date":
+        sortby = "update_date";
+        break;
+      case "alphabetical":
+      default:
+        sortby = "";
+        break;
     }
 
-    const html = await fetchText(url);
-    const items = parseListings(html);
+    const queryParts: string[] = [];
 
-    return {
-      items,
-      metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
-    };
+    if (sortby) {
+      queryParts.push(`sortby=${encodeURIComponent(sortby)}`);
+    }
+
+    const queryString = queryParts.join("&");
+
+    url = `${DOMAIN}/genre/all/${page}/?${queryString}`;
   }
+
+  const html = await fetchText(url);
+  const items = parseListings(html);
+
+  return {
+    items,
+    metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
+  };
+}
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
