@@ -191,7 +191,7 @@ export function parseChapters(html: string, sourceManga: SourceManga): Chapter[]
 
     chapters.push({
       chapterId,
-      sourceManga: { mangaId },
+      sourceManga,
       title: parsed.title || rawTitle,
       chapNum: parsed.chapter ?? chapters.length + 1,
       volume: parsed.volume,
