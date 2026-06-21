@@ -109,11 +109,12 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
   return {
     mangaId,
     mangaInfo: {
-      primaryTitle: title,
-      thumbnailUrl: imageUrl,
-      synopsis: description,
-      author,
-      status,
+  primaryTitle: title,
+  secondaryTitles: [],
+  thumbnailUrl: imageUrl,
+  synopsis: description,
+  author,
+  status,
       contentRating: isAdult
         ? ContentRating.ADULT
         : isMature
