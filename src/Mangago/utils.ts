@@ -242,7 +242,7 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
   });
 }
 
-export async function descrambleMangaGoImage(
+export async function descrambleMangagoImage(
   data: ArrayBuffer,
   key: string,
   cols: number,
@@ -351,7 +351,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       }
 
       if (!cols) {
-        console.log("[MangaGo] cspiclink image found but cols missing");
+        console.log("[Mangago] cspiclink image found but cols missing");
         return abs;
       }
 
