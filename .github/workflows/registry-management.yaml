@@ -1,11 +1,6 @@
 name: Registry Management
 
 on:
-  workflow_run:
-    workflows:
-      - Bundle and Deploy
-    types:
-      - completed
   workflow_dispatch:
 
 concurrency:
