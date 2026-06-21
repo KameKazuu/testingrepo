@@ -164,6 +164,7 @@ async getSearchResults(
   };
 });
 
+
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
     const html = await fetchText(mangaUrlFromId(mangaId));
     return parseMangaDetails(html, mangaId);
