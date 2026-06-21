@@ -190,26 +190,17 @@ export function getDescramblingKey(deobfChapterJs: string, imageUrl: string): st
     .join("\n")
     .replaceAll("img.src", "url");
 
-  const script = `
+  const scriptText = `
 ${REPLACE_POS_JS}
-function getDescramblingKey(url) {
+function getDescramblingKeyInner(url) {
   ${imgkeys}
   return key;
 }
-return getDescramblingKey(${JSON.stringify(imageUrl)});
+return getDescramblingKeyInner(${JSON.stringify(imageUrl)});
 `;
 
-  const script = `
-${REPLACE_POS_JS}
-function getDescramblingKey(url) {
-  ${imgkeys}
-  return key;
-}
-return getDescramblingKey(${JSON.stringify(imageUrl)});
-`;
-
-const functionConstructor = globalThis.Function;
-return functionConstructor(script)() as string;
+  const functionConstructor = globalThis.Function;
+  return functionConstructor(scriptText)() as string;
 }
 
 function arrayBufferToBase64(data: ArrayBuffer): string {
