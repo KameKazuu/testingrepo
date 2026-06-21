@@ -1,8 +1,8 @@
-import { ContentRating, SourceIntents, type ExtensionInfo } from "@paperback/types";
+import { ContentRating, type ExtensionInfo, SourceIntents } from "@paperback/types";
 
 export default {
   name: "Mangago",
-  description: "Mangago source for Paperback.",
+  description: "Extension for Mangago.",
   version: "1.0.0",
   icon: "icon.png",
   language: "en",
@@ -10,13 +10,12 @@ export default {
   capabilities: [
     SourceIntents.DISCOVER_SECTION_PROVIDING,
     SourceIntents.SEARCH_RESULT_PROVIDING,
-    SourceIntents.CHAPTER_PROVIDING,
+    SourceIntents.MANGA_CHAPTERS_PROVIDING,
+    SourceIntents.CHAPTER_DETAILS_PROVIDING,
   ],
-  badges: [],
   developers: [
     {
-      name: "Popbase85",
-      github: "https://github.com/popbase85-collab",
+      name: "popbase85-collab",
     },
   ],
 } satisfies ExtensionInfo;
