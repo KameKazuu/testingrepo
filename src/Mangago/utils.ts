@@ -203,6 +203,7 @@ return getDescramblingKeyInner(${JSON.stringify(imageUrl)});
   return functionConstructor(scriptText)() as string;
 }
 
+
 function arrayBufferToBase64(data: ArrayBuffer): string {
   const encoded = Application.base64Encode(data);
   return typeof encoded === "string" ? encoded : Application.arrayBufferToASCIIString(encoded);
