@@ -134,36 +134,41 @@ async getSearchResults(
   }
 
   async getDiscoverSectionItems(
-    section: DiscoverSection,
-    metadata?: MangagoSearchMetadata,
-  ): Promise<PagedResults<DiscoverSectionItem>> {
-    const page = metadata?.page ?? 1;
-    const sortby = section.id === "latest" ? "update_date" : "view";
-    const url = `${DOMAIN}/genre/all/${page}/?f=1&o=1&sortby=${sortby}&e=`;
+  section: DiscoverSection,
+  metadata?: MangagoSearchMetadata,
+): Promise<PagedResults<DiscoverSectionItem>> {
+  const page = metadata?.page ?? 1;
+  const sortby = section.id === "latest" ? "update_date" : "view";
+  const url = `${DOMAIN}/genre/all/${page}/?sortby=${sortby}`;
 
-    const html = await fetchText(url);
-    const searchItems = parseListings(html);
+  const html = await fetchText(url);
+  const searchItems = parseListings(html);
 
-    const items: DiscoverSectionItem[] = searchItems.map((item) => {
-  if (section.id === "popular") {
+  const items: DiscoverSectionItem[] = searchItems.map((item) => {
+    if (section.id === "popular") {
+      return {
+        type: "featuredCarouselItem",
+        mangaId: item.mangaId,
+        title: item.title,
+        imageUrl: item.imageUrl,
+        metadata: undefined,
+      };
+    }
+
     return {
-      type: "featuredCarouselItem",
+      type: "simpleCarouselItem",
       mangaId: item.mangaId,
       title: item.title,
       imageUrl: item.imageUrl,
       metadata: undefined,
     };
-  }
+  });
 
   return {
-    type: "simpleCarouselItem",
-    mangaId: item.mangaId,
-    title: item.title,
-    imageUrl: item.imageUrl,
-    metadata: undefined,
+    items,
+    metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
   };
-});
-
+}
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
     const html = await fetchText(mangaUrlFromId(mangaId));
