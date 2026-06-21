@@ -1,4 +1,9 @@
-import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
+import {
+  CloudflareError,
+  PaperbackInterceptor,
+  type Request,
+  type Response,
+} from "@paperback/types";
 
 import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
@@ -29,7 +34,6 @@ export class MangagoInterceptor extends PaperbackInterceptor {
         ...request.headers,
         referer: `${DOMAIN}/`,
         origin: DOMAIN,
-        cookie: "_m_superu=1",
         "user-agent": request.headers?.["user-agent"] ?? DESKTOP_USER_AGENT,
       },
     };
@@ -40,6 +44,19 @@ export class MangagoInterceptor extends PaperbackInterceptor {
     response: Response,
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
+    const cfMitigated = response.headers?.["cf-mitigated"];
+    if (cfMitigated === "challenge") {
+      throw new CloudflareError({
+        url: request.url,
+        method: request.method ?? "GET",
+        headers: {
+          referer: `${DOMAIN}/`,
+          origin: DOMAIN,
+          "user-agent": request.headers?.["user-agent"] ?? DESKTOP_USER_AGENT,
+        },
+      });
+    }
+
     const context = parseImageContext(request.url);
 
     if (!context) return data;
@@ -71,7 +88,6 @@ export async function fetchText(
     method: "GET",
     headers: {
       referer: `${DOMAIN}/`,
-      cookie: "_m_superu=1",
       "user-agent": DESKTOP_USER_AGENT,
       ...headers,
     },
