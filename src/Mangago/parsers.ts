@@ -64,7 +64,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
 
   const description = summary.text().trim();
 
-  let status: SourceManga["status"] = "UNKNOWN";
+  let status: MangaInfo["status"] = "UNKNOWN";
   let author = "";
   const tags: Tag[] = [];
   const tagTitles: string[] = [];
