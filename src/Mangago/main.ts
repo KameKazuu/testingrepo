@@ -1,16 +1,23 @@
 import {
   BasicRateLimiter,
-  DiscoverSectionType,
+  CookieStorageInterceptor,
   type Chapter,
   type ChapterDetails,
+  type ChapterProviding,
+  type CloudflareBypassRequestProviding,
+  type Cookie,
   type DiscoverSection,
   type DiscoverSectionItem,
+  type DiscoverSectionProviding,
+  DiscoverSectionType,
   type Extension,
+  type MangaProviding,
   type PagedResults,
   type SearchQuery,
   type SearchResultItem,
-  type SortingOption,
+  type SearchResultsProviding,
   type SourceManga,
+  type TagSection,
 } from "@paperback/types";
 
 import { DOMAIN, type MangagoSearchMetadata } from "./models";
