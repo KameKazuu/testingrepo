@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import {
   ContentRating,
   type Chapter,
+  type MangaInfo,
   type SearchResultItem,
   type SourceManga,
   type Tag,
