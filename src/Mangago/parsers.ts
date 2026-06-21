@@ -171,7 +171,6 @@ function parseChapterTitle(input: string): {
 }
 
 export function parseChapters(html: string, sourceManga: SourceManga): Chapter[] {
-  const mangaId = sourceManga.mangaId;
   const $ = cheerio.load(html);
   const chapters: Chapter[] = [];
 
