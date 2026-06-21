@@ -171,7 +171,7 @@ async getSearchResults(
 
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
     const html = await fetchText(mangaUrlFromId(sourceManga.mangaId));
-    return parseChapters(html, sourceManga.mangaId);
+    return parseChapters(html, sourceManga);
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
