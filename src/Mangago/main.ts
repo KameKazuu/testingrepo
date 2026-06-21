@@ -40,83 +40,83 @@ class MangagoExtension implements Extension {
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {
-  return [
-    {
-      id: "alphabetical",
-      label: "Alphabetical",
-    },
-    {
-      id: "views",
-      label: "Views",
-    },
-    {
-      id: "popularity",
-      label: "Popularity",
-    },
-    {
-      id: "create_date",
-      label: "Create Date",
-    },
-    {
-      id: "update_date",
-      label: "Update Date",
-    },
-  ];
-}
-
-async getSearchResults(
-  query: SearchQuery<MangagoSearchMetadata>,
-  metadata?: MangagoSearchMetadata,
-  sortingOption?: SortingOption,
-): Promise<PagedResults<SearchResultItem>> {
-  const page = metadata?.page ?? 1;
-  const title = query.title?.trim() ?? "";
-
-  let url: string;
-
-  if (title) {
-    url = `${DOMAIN}/r/l_search?name=${encodeURIComponent(title)}&page=${page}`;
-  } else {
-    let sortby = "";
-
-    switch (sortingOption?.id) {
-      case "views":
-        sortby = "view";
-        break;
-      case "popularity":
-        sortby = "comment_count";
-        break;
-      case "create_date":
-        sortby = "create_date";
-        break;
-      case "update_date":
-        sortby = "update_date";
-        break;
-      case "alphabetical":
-      default:
-        sortby = "";
-        break;
-    }
-
-    const queryParts: string[] = [];
-
-    if (sortby) {
-      queryParts.push(`sortby=${encodeURIComponent(sortby)}`);
-    }
-
-    const queryString = queryParts.join("&");
-
-    url = `${DOMAIN}/genre/all/${page}/?${queryString}`;
+    return [
+      {
+        id: "alphabetical",
+        label: "Alphabetical",
+      },
+      {
+        id: "views",
+        label: "Views",
+      },
+      {
+        id: "popularity",
+        label: "Popularity",
+      },
+      {
+        id: "create_date",
+        label: "Create Date",
+      },
+      {
+        id: "update_date",
+        label: "Update Date",
+      },
+    ];
   }
 
-  const html = await fetchText(url);
-  const items = parseListings(html);
+  async getSearchResults(
+    query: SearchQuery<MangagoSearchMetadata>,
+    metadata?: MangagoSearchMetadata,
+    sortingOption?: SortingOption,
+  ): Promise<PagedResults<SearchResultItem>> {
+    const page = metadata?.page ?? 1;
+    const title = query.title?.trim() ?? "";
 
-  return {
-    items,
-    metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
-  };
-}
+    let url: string;
+
+    if (title) {
+      url = `${DOMAIN}/r/l_search?name=${encodeURIComponent(title)}&page=${page}`;
+    } else {
+      let sortby = "";
+
+      switch (sortingOption?.id) {
+        case "views":
+          sortby = "view";
+          break;
+        case "popularity":
+          sortby = "comment_count";
+          break;
+        case "create_date":
+          sortby = "create_date";
+          break;
+        case "update_date":
+          sortby = "update_date";
+          break;
+        case "alphabetical":
+        default:
+          sortby = "";
+          break;
+      }
+
+      const queryParts: string[] = [];
+
+      if (sortby) {
+        queryParts.push(`sortby=${encodeURIComponent(sortby)}`);
+      }
+
+      const queryString = queryParts.join("&");
+
+      url = `${DOMAIN}/genre/all/${page}/?${queryString}`;
+    }
+
+    const html = await fetchText(url);
+    const items = parseListings(html);
+
+    return {
+      items,
+      metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
+    };
+  }
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
@@ -134,41 +134,41 @@ async getSearchResults(
   }
 
   async getDiscoverSectionItems(
-  section: DiscoverSection,
-  metadata?: MangagoSearchMetadata,
-): Promise<PagedResults<DiscoverSectionItem>> {
-  const page = metadata?.page ?? 1;
-  const sortby = section.id === "latest" ? "update_date" : "view";
-  const url = `${DOMAIN}/genre/all/${page}/?sortby=${sortby}`;
+    section: DiscoverSection,
+    metadata?: MangagoSearchMetadata,
+  ): Promise<PagedResults<DiscoverSectionItem>> {
+    const page = metadata?.page ?? 1;
+    const sortby = section.id === "latest" ? "update_date" : "view";
+    const url = `${DOMAIN}/genre/all/${page}/?sortby=${sortby}`;
 
-  const html = await fetchText(url);
-  const searchItems = parseListings(html);
+    const html = await fetchText(url);
+    const searchItems = parseListings(html);
 
-  const items: DiscoverSectionItem[] = searchItems.map((item) => {
-    if (section.id === "popular") {
+    const items: DiscoverSectionItem[] = searchItems.map((item) => {
+      if (section.id === "popular") {
+        return {
+          type: "featuredCarouselItem",
+          mangaId: item.mangaId,
+          title: item.title,
+          imageUrl: item.imageUrl,
+          metadata: undefined,
+        };
+      }
+
       return {
-        type: "featuredCarouselItem",
+        type: "simpleCarouselItem",
         mangaId: item.mangaId,
         title: item.title,
         imageUrl: item.imageUrl,
         metadata: undefined,
       };
-    }
+    });
 
     return {
-      type: "simpleCarouselItem",
-      mangaId: item.mangaId,
-      title: item.title,
-      imageUrl: item.imageUrl,
-      metadata: undefined,
+      items,
+      metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
     };
-  });
-
-  return {
-    items,
-    metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
-  };
-}
+  }
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
     const html = await fetchText(mangaUrlFromId(mangaId));
@@ -176,9 +176,9 @@ async getSearchResults(
   }
 
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
-  const html = await fetchText(mangaUrlFromId(sourceManga.mangaId));
-  return parseChapters(html, sourceManga);
-}
+    const html = await fetchText(mangaUrlFromId(sourceManga.mangaId));
+    return parseChapters(html, sourceManga);
+  }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const chapterUrl = chapterUrlFromId(chapter.chapterId);

@@ -1,4 +1,5 @@
 import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
+
 import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
@@ -78,4 +79,3 @@ export async function fetchText(
 
   return Application.arrayBufferToUTF8String(data);
 }
-

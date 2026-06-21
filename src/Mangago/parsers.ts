@@ -1,4 +1,3 @@
-import * as cheerio from "cheerio";
 import {
   ContentRating,
   type Chapter,
@@ -7,6 +6,8 @@ import {
   type SourceManga,
   type Tag,
 } from "@paperback/types";
+import * as cheerio from "cheerio";
+
 import { DOMAIN } from "./models";
 import { absoluteUrl, extractMangaId } from "./utils";
 
@@ -109,12 +110,12 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
   return {
     mangaId,
     mangaInfo: {
-  primaryTitle: title,
-  secondaryTitles: [],
-  thumbnailUrl: imageUrl,
-  synopsis: description,
-  author,
-  status,
+      primaryTitle: title,
+      secondaryTitles: [],
+      thumbnailUrl: imageUrl,
+      synopsis: description,
+      author,
+      status,
       contentRating: isAdult
         ? ContentRating.ADULT
         : isMature

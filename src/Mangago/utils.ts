@@ -203,7 +203,6 @@ return getDescramblingKeyInner(${JSON.stringify(imageUrl)});
   return functionConstructor(scriptText)() as string;
 }
 
-
 function arrayBufferToBase64(data: ArrayBuffer): string {
   const encoded = Application.base64Encode(data);
   return typeof encoded === "string" ? encoded : Application.arrayBufferToASCIIString(encoded);
@@ -335,12 +334,12 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   let decryptedText = new TextDecoder().decode(decryptedBuffer);
 
-const nulChar = String.fromCharCode(0);
-while (decryptedText.endsWith(nulChar)) {
-  decryptedText = decryptedText.slice(0, -1);
-}
+  const nulChar = String.fromCharCode(0);
+  while (decryptedText.endsWith(nulChar)) {
+    decryptedText = decryptedText.slice(0, -1);
+  }
 
-decryptedText = decryptedText.replace(/,+$/g, "")
+  decryptedText = decryptedText.replace(/,+$/g, "");
 
   const imageList = unscrambleImageList(decryptedText, deobfChapterJs);
   const cols = findCols(deobfChapterJs);
