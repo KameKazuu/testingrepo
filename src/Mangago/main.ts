@@ -144,18 +144,25 @@ async getSearchResults(
     const html = await fetchText(url);
     const searchItems = parseListings(html);
 
-    const items: DiscoverSectionItem[] = searchItems.map((item) => ({
-      type: "manga",
+    const items: DiscoverSectionItem[] = searchItems.map((item) => {
+  if (section.id === "popular") {
+    return {
+      type: "featuredCarouselItem",
       mangaId: item.mangaId,
       title: item.title,
       imageUrl: item.imageUrl,
-    }));
-
-    return {
-      items,
-      metadata: hasNextPage(html) ? { page: page + 1 } : undefined,
+      metadata: undefined,
     };
   }
+
+  return {
+    type: "simpleCarouselItem",
+    mangaId: item.mangaId,
+    title: item.title,
+    imageUrl: item.imageUrl,
+    metadata: undefined,
+  };
+});
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
     const html = await fetchText(mangaUrlFromId(mangaId));
