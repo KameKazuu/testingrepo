@@ -212,24 +212,22 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async cloudflareBypassCompleted(
-  _request: Request,
-  cookies: Cookie[],
-  _localStorage: Record<string, string>,
-): Promise<void> {
-  for (const cookie of this.cookieStorageInterceptor.cookies) {
-    this.cookieStorageInterceptor.deleteCookie(cookie);
-  }
-
-  for (const cookie of cookies) {
-    if (cookie.expires && cookie.expires.getTime() <= Date.now()) {
-      continue;
+    _request: Request,
+    cookies: Cookie[],
+    _localStorage: Record<string, string>,
+  ): Promise<void> {
+    for (const cookie of this.cookieStorageInterceptor.cookies) {
+      this.cookieStorageInterceptor.deleteCookie(cookie);
     }
 
-    this.cookieStorageInterceptor.setCookie(cookie);
+    for (const cookie of cookies) {
+      if (cookie.expires && cookie.expires.getTime() <= Date.now()) {
+        continue;
+      }
+
+      this.cookieStorageInterceptor.setCookie(cookie);
+    }
   }
 }
 
 export const Mangago = new MangagoExtension();
-
-        
-    
