@@ -199,7 +199,17 @@ function getDescramblingKey(url) {
 return getDescramblingKey(${JSON.stringify(imageUrl)});
 `;
 
-  return new Function(script)() as string;
+  const script = `
+${REPLACE_POS_JS}
+function getDescramblingKey(url) {
+  ${imgkeys}
+  return key;
+}
+return getDescramblingKey(${JSON.stringify(imageUrl)});
+`;
+
+const functionConstructor = globalThis.Function;
+return functionConstructor(script)() as string;
 }
 
 function arrayBufferToBase64(data: ArrayBuffer): string {
@@ -331,10 +341,14 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   const decryptedBuffer = await aesCbcDecrypt(encrypted, decodeHex(keyHex), decodeHex(ivHex));
 
-  const decryptedText = new TextDecoder()
-    .decode(decryptedBuffer)
-    .replace(/\0+$/g, "")
-    .replace(/,+$/g, "");
+  let decryptedText = new TextDecoder().decode(decryptedBuffer);
+
+const nulChar = String.fromCharCode(0);
+while (decryptedText.endsWith(nulChar)) {
+  decryptedText = decryptedText.slice(0, -1);
+}
+
+decryptedText = decryptedText.replace(/,+$/g, "")
 
   const imageList = unscrambleImageList(decryptedText, deobfChapterJs);
   const cols = findCols(deobfChapterJs);
