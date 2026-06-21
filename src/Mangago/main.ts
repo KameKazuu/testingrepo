@@ -13,6 +13,7 @@ import {
   type Extension,
   type MangaProviding,
   type PagedResults,
+  type Request,
   type SearchQuery,
   type SearchResultItem,
   type SearchResultsProviding,
@@ -211,21 +212,20 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async cloudflareBypassCompleted(
-    _request: globalThis.Request,
-    cookies: Cookie[],
-    _localStorage: Record<string, string>,
-  ): Promise<void> {
-    for (const cookie of this.cookieStorageInterceptor.cookies) {
-      this.cookieStorageInterceptor.deleteCookie(cookie);
+  _request: Request,
+  cookies: Cookie[],
+  _localStorage: Record<string, string>,
+): Promise<void> {
+  for (const cookie of this.cookieStorageInterceptor.cookies) {
+    this.cookieStorageInterceptor.deleteCookie(cookie);
+  }
+
+  for (const cookie of cookies) {
+    if (cookie.expires && cookie.expires.getTime() <= Date.now()) {
+      continue;
     }
 
-    for (const cookie of cookies) {
-      if (cookie.expires && cookie.expires.getTime() <= Date.now()) {
-        continue;
-      }
-
-      this.cookieStorageInterceptor.setCookie(cookie);
-    }
+    this.cookieStorageInterceptor.setCookie(cookie);
   }
 }
 
