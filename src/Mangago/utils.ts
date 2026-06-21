@@ -265,6 +265,10 @@ export async function descrambleMangaGoImage(
     return Number.isFinite(n) ? n : 0;
   });
 
+  if (keyArray.length < cols * cols - 1) {
+    throw new Error(`Invalid key array length ${keyArray.length}, expected ${cols * cols}`);
+  }
+
   const canvas = new HTMLCanvasElement();
   canvas.width = width;
   canvas.height = height;
