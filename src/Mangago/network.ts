@@ -8,9 +8,48 @@ import {
 import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
+// Remember each image's descramble context (desckey + cols) keyed by its
+// clean, fragment-less URL. On a retry the reader sometimes drops the
+// "#desckey=...&cols=..." fragment; without this the retried image would come
+// back still scrambled. The saved context lets us descramble it anyway.
+const IMAGE_CONTEXT_STATE_PREFIX = "mangago-image-context:";
+
+function cleanUrl(url: string): string {
+  const hashIndex = url.indexOf("#");
+  return hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+}
+
+function saveImageContext(url: string, context: MangagoImageContext): void {
+  try {
+    Application.setState(
+      { desckey: context.desckey, cols: context.cols },
+      `${IMAGE_CONTEXT_STATE_PREFIX}${cleanUrl(url)}`,
+    );
+  } catch {
+    // State storage is only a safety net; ignore failures.
+  }
+}
+
+function readSavedImageContext(url: string): MangagoImageContext | null {
+  try {
+    const raw = Application.getState(`${IMAGE_CONTEXT_STATE_PREFIX}${cleanUrl(url)}`) as
+      | { desckey?: unknown; cols?: unknown }
+      | undefined;
+
+    const desckey = typeof raw?.desckey === "string" ? raw.desckey : undefined;
+    const cols = typeof raw?.cols === "number" ? raw.cols : undefined;
+
+    if (!desckey || !cols || cols <= 0) return null;
+
+    return { desckey, cols };
+  } catch {
+    return null;
+  }
+}
+
 function parseImageContext(url: string): MangagoImageContext | null {
   const hashIndex = url.indexOf("#");
-  if (hashIndex < 0) return null;
+  if (hashIndex < 0) return readSavedImageContext(url);
 
   const fragment = url.slice(hashIndex + 1);
   const params = new URLSearchParams(fragment);
@@ -18,12 +57,14 @@ function parseImageContext(url: string): MangagoImageContext | null {
   const desckey = params.get("desckey");
   const colsRaw = params.get("cols");
 
-  if (!desckey || !colsRaw) return null;
+  if (!desckey || !colsRaw) return readSavedImageContext(url);
 
   const cols = Number(colsRaw);
-  if (!Number.isFinite(cols) || cols <= 0) return null;
+  if (!Number.isFinite(cols) || cols <= 0) return readSavedImageContext(url);
 
-  return { desckey, cols };
+  const context = { desckey, cols };
+  saveImageContext(url, context);
+  return context;
 }
 
 export class MangagoInterceptor extends PaperbackInterceptor {
