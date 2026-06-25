@@ -1,6 +1,33 @@
 import { DESKTOP_USER_AGENT } from "./models";
 import { fetchText } from "./network";
 
+// ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
+//    extension from refetching on every retry/re-open, which is the main
+//    source of redundant requests that trip the 5/30 rate limit. ──
+const mangagoPageUrlsCache = new Map<string, string[]>();
+const chapterJsCache = new Map<string, string>();
+
+// ── Known reader mirrors. parsers.ts routes chapters to mangago.zone first;
+//    if that mirror ever 403s or stops returning imgsrcs we fall through to
+//    the others instead of breaking the chapter. Happy path = 1 fetch. ──
+const MANGAGO_READER_MIRRORS = [
+  "https://www.mangago.zone",
+  "https://www.mangago.me",
+  "https://www.youhim.me",
+];
+
+function withMirror(url: string, mirror: string): string {
+  try {
+    const u = new URL(url);
+    const m = new URL(mirror);
+    u.protocol = m.protocol;
+    u.host = m.host;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 export function absoluteUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -66,10 +93,40 @@ export async function aesCbcDecrypt(
   const subtle = new SubtleCrypto();
 
   const cryptoKey = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, [
+    "encrypt",
     "decrypt",
   ]);
 
-  return await subtle.decrypt({ name: "AES-CBC", iv: ivBytes }, cryptoKey, encrypted);
+  const ciphertext = new Uint8Array(encrypted);
+
+  // Mangago uses zero-byte padding (keiyoushi: AES/CBC/ZEROBYTEPADDING,
+  // Aidoku: NoPadding). WebCrypto AES-CBC only supports PKCS#7 and THROWS on
+  // zero-padded data, which silently kills some chapters. We append one
+  // synthetic block that decrypts to a valid full PKCS#7 pad block so
+  // WebCrypto strips exactly that block, then we strip trailing zeros.
+  const lastBlock = ciphertext.slice(ciphertext.length - 16);
+  const padBlock = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    padBlock[i] = 0x10 ^ (lastBlock[i] ?? 0);
+  }
+
+  const zeroIv = new Uint8Array(16);
+  const encryptedPad = new Uint8Array(
+    await subtle.encrypt({ name: "AES-CBC", iv: zeroIv.buffer }, cryptoKey, padBlock.buffer),
+  );
+
+  const extended = new Uint8Array(ciphertext.length + 16);
+  extended.set(ciphertext, 0);
+  extended.set(encryptedPad.slice(0, 16), ciphertext.length);
+
+  const decrypted = new Uint8Array(
+    await subtle.decrypt({ name: "AES-CBC", iv: ivBytes }, cryptoKey, extended.buffer),
+  );
+
+  let end = decrypted.length;
+  while (end > 0 && decrypted[end - 1] === 0) end--;
+
+  return decrypted.slice(0, end).buffer;
 }
 
 function base64ToArrayBuffer(value: string): ArrayBuffer {
@@ -297,10 +354,37 @@ export async function descrambleMangagoImage(
 }
 
 export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> {
-  const html = await fetchText(chapterUrl, {
-    "user-agent": DESKTOP_USER_AGENT,
-    cookie: "_m_superu=1",
-  });
+  const cachedPages = mangagoPageUrlsCache.get(chapterUrl);
+  if (cachedPages && cachedPages.length > 0) {
+    return cachedPages;
+  }
+
+  // Fetch the chapter HTML, trying the chapter's own host first and then the
+  // other mirrors only if it fails or returns no imgsrcs. On the normal path
+  // this is a single request, so it does not worsen rate limiting.
+  let html = "";
+  const tried = new Set<string>();
+  const candidates = [chapterUrl, ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m))];
+
+  for (const candidate of candidates) {
+    if (tried.has(candidate)) continue;
+    tried.add(candidate);
+
+    try {
+      const attempt = await fetchText(candidate, {
+        "user-agent": DESKTOP_USER_AGENT,
+        cookie: "_m_superu=1",
+      });
+      if (attempt.includes("imgsrcs")) {
+        html = attempt;
+        break;
+      }
+    } catch {
+      // Try the next mirror.
+    }
+  }
+
+  if (!html) throw new Error("[Mangago] no mirror returned a usable chapter page");
 
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(
     (m) => m[1] ?? "",
@@ -321,8 +405,13 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   if (!chapterJsMatch?.[1]) throw new Error("Could not find chapter.js URL");
 
   const chapterJsUrl = absoluteUrl(chapterJsMatch[1]);
-  const obfuscatedChapterJs = await fetchText(chapterJsUrl);
-  const deobfChapterJs = sojsonV4Decode(obfuscatedChapterJs);
+
+  let deobfChapterJs = chapterJsCache.get(chapterJsUrl);
+  if (!deobfChapterJs) {
+    const obfuscatedChapterJs = await fetchText(chapterJsUrl);
+    deobfChapterJs = sojsonV4Decode(obfuscatedChapterJs);
+    chapterJsCache.set(chapterJsUrl, deobfChapterJs);
+  }
 
   const keyHex = findHexEncodedVariable(deobfChapterJs, "key");
   const ivHex = findHexEncodedVariable(deobfChapterJs, "iv");
@@ -344,7 +433,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const imageList = unscrambleImageList(decryptedText, deobfChapterJs);
   const cols = findCols(deobfChapterJs);
 
-  return imageList
+  const pages = imageList
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean)
@@ -374,4 +463,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         return abs;
       }
     });
+
+  if (pages.length > 0) {
+    mangagoPageUrlsCache.set(chapterUrl, pages);
+  }
+
+  return pages;
 }
