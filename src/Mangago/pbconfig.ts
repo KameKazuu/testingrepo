@@ -6,7 +6,7 @@ import { ContentRating, SourceIntents, type ExtensionInfo } from "@paperback/typ
 export default {
   name: "Mangago",
   description: "Extension that pulls content from mangago.me.",
-  version: "1.0.0-alpha.4",
+  version: "1.0.0-alpha.6",
   icon: "icon.png",
   language: "en",
   contentRating: ContentRating.MATURE,
@@ -15,6 +15,7 @@ export default {
     SourceIntents.CLOUDFLARE_BYPASS_PROVIDING,
     SourceIntents.DISCOVER_SECTION_PROVIDING,
     SourceIntents.SEARCH_RESULT_PROVIDING,
+    SourceIntents.SETTINGS_FORM_PROVIDING,
   ],
   badges: [
     {

@@ -452,6 +452,8 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
 
   let status: MangaInfo["status"] = "UNKNOWN";
   let author = "";
+  let artist = "";
+  const secondaryTitles: string[] = [];
   const tags: Tag[] = [];
   const tagTitles: string[] = [];
 
@@ -473,6 +475,24 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
         .map((_, a) => $(a).text().trim())
         .get()
         .join(", ");
+    }
+
+    if (label.startsWith("artist")) {
+      artist = $el
+        .find("a")
+        .map((_, a) => $(a).text().trim())
+        .get()
+        .join(", ");
+    }
+
+    // Alternative / other names — improves search and tracker (AniList/MAL)
+    // matching. Best-effort: if the row's markup doesn't match, the list just
+    // stays empty (no regression). mangago separates names with ; / or newlines.
+    if (label.startsWith("alternative") || label.includes("other name")) {
+      const raw = value || $el.text().replace(/^[^:]*:/, "");
+      for (const name of raw.split(/[;/\n]+/).map((s) => s.trim())) {
+        if (name && !secondaryTitles.includes(name)) secondaryTitles.push(name);
+      }
     }
 
     if (label.startsWith("genre")) {
@@ -497,10 +517,11 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
     mangaId: normalizedMangaId,
     mangaInfo: {
       primaryTitle: title,
-      secondaryTitles: [],
+      secondaryTitles,
       thumbnailUrl: imageUrl,
       synopsis: description,
       author,
+      artist,
       status,
       contentRating: isAdult
         ? ContentRating.ADULT

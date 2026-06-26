@@ -1,5 +1,5 @@
 import { DESKTOP_USER_AGENT } from "./models";
-import { fetchText } from "./network";
+import { FETCH_TIMEOUT_MS, fetchText } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
 //    extension from refetching on every retry/re-open, which is the main
@@ -473,7 +473,7 @@ async function getCachedDeobfChapterJs(chapterJsUrl: string): Promise<string> {
   const cached = chapterJsCache.get(chapterJsUrl);
   if (cached) return cached;
 
-  const obfuscatedChapterJs = await fetchText(chapterJsUrl);
+  const obfuscatedChapterJs = await fetchText(chapterJsUrl, {}, FETCH_TIMEOUT_MS);
   const deobf = sojsonV4Decode(obfuscatedChapterJs);
   chapterJsCache.set(chapterJsUrl, deobf);
   return deobf;
@@ -577,10 +577,14 @@ async function fetchReaderPage(
   for (const origin of origins) {
     const url = withMirror(pageUrl, origin);
     try {
-      const pageHtml = await fetchText(url, {
-        "user-agent": DESKTOP_USER_AGENT,
-        cookie: "_m_superu=1",
-      });
+      const pageHtml = await fetchText(
+        url,
+        {
+          "user-agent": DESKTOP_USER_AGENT,
+          cookie: "_m_superu=1",
+        },
+        FETCH_TIMEOUT_MS,
+      );
       const imgsrcs = extractImgsrcsFromHtml(pageHtml);
       if (imgsrcs) return { imgsrcs, origin };
     } catch {
@@ -609,10 +613,14 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     tried.add(candidate);
 
     try {
-      const attempt = await fetchText(candidate, {
-        "user-agent": DESKTOP_USER_AGENT,
-        cookie: "_m_superu=1",
-      });
+      const attempt = await fetchText(
+        candidate,
+        {
+          "user-agent": DESKTOP_USER_AGENT,
+          cookie: "_m_superu=1",
+        },
+        FETCH_TIMEOUT_MS,
+      );
       if (attempt.includes("imgsrcs")) {
         html = attempt;
         loadedUrl = candidate;
@@ -734,7 +742,16 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         break;
       }
 
-      addImages(pageImages);
+      // A page that only repeats images we already have (a duplicate window from
+      // a bad merged URL or a misbehaving mirror) means we're making no forward
+      // progress. Stop instead of probing every remaining page — that wasted
+      // request burst is exactly what this reader path tries to avoid.
+      const added = addImages(pageImages);
+      if (added === 0) {
+        console.log(`[Mangago] reader page ${page} added no new images -> stop`);
+        complete = false;
+        break;
+      }
     }
 
     if (merged.length < totalPages) complete = false;
