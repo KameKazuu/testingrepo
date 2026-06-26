@@ -32,9 +32,9 @@ function saveImageContext(url: string, context: MangagoImageContext): void {
 
 function readSavedImageContext(url: string): MangagoImageContext | null {
   try {
-    const raw = Application.getState(`${IMAGE_CONTEXT_STATE_PREFIX}${cleanUrl(url)}`) as
-      | { desckey?: unknown; cols?: unknown }
-      | undefined;
+    const raw = Application.getState(
+      `${IMAGE_CONTEXT_STATE_PREFIX}${cleanUrl(url)}`,
+    ) as { desckey?: unknown; cols?: unknown } | undefined;
 
     const desckey = typeof raw?.desckey === "string" ? raw.desckey : undefined;
     const cols = typeof raw?.cols === "number" ? raw.cols : undefined;
@@ -120,11 +120,44 @@ export class MangagoInterceptor extends PaperbackInterceptor {
   }
 }
 
+export const FETCH_TIMEOUT_MS = 15000;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`[Mangago] ${label} timed out after ${ms}ms`));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
+  timeoutMs?: number,
 ): Promise<string> {
-  const [, data] = await Application.scheduleRequest({
+  const request = Application.scheduleRequest({
     url,
     method: "GET",
     headers: {
@@ -133,6 +166,10 @@ export async function fetchText(
       ...headers,
     },
   });
+
+  const [, data] = timeoutMs
+    ? await withTimeout(request, timeoutMs, `fetch ${url}`)
+    : await request;
 
   return Application.arrayBufferToUTF8String(data);
 }

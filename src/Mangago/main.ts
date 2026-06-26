@@ -84,7 +84,12 @@ function genreSlugFromTopSection(sectionId: string): string {
   return sectionId.replace(/^top_/, "");
 }
 
-function buildGenreUrl(domain: string, genre: string, page: number, sortby?: string): string {
+function buildGenreUrl(
+  domain: string,
+  genre: string,
+  page: number,
+  sortby?: string,
+): string {
   const query = sortby ? `?sortby=${encodeURIComponent(sortby)}` : "";
 
   return `${domain}/genre/${encodeURIComponent(genre)}/${page}/${query}`;
@@ -111,7 +116,12 @@ function buildDiscoverUrl(sectionId: string, page: number): string {
 
     default:
       if (sectionId.startsWith("top_")) {
-        return buildGenreUrl(domain, genreSlugFromTopSection(sectionId), page, "view");
+        return buildGenreUrl(
+          domain,
+          genreSlugFromTopSection(sectionId),
+          page,
+          "view",
+        );
       }
 
       return buildGenreUrl(domain, "all", page, "view");
@@ -136,6 +146,69 @@ function sortingIdToMangagoSort(sortingOption?: SortingOption): string {
     default:
       return "";
   }
+}
+
+type MangagoChapterAdditionalInfo = {
+  originalChapterUrl?: string;
+};
+
+function getOriginalChapterUrl(chapter: Chapter): string | undefined {
+  const additionalInfo = chapter.additionalInfo as
+    | MangagoChapterAdditionalInfo
+    | undefined;
+  const originalChapterUrl = additionalInfo?.originalChapterUrl?.trim();
+  return originalChapterUrl || undefined;
+}
+
+function isNumericReaderChapterUrl(url: string): boolean {
+  try {
+    return new URL(url, DOMAIN).pathname.startsWith("/chapter/");
+  } catch {
+    return url.startsWith("/chapter/") || url.startsWith("chapter/");
+  }
+}
+
+function sameChapterIdentity(left: Chapter, right: Chapter): boolean {
+  if (left.chapNum > 0 && right.chapNum > 0 && left.chapNum === right.chapNum)
+    return true;
+
+  const leftTitle = left.title?.replace(/\s+/g, " ").trim().toLowerCase();
+  const rightTitle = right.title?.replace(/\s+/g, " ").trim().toLowerCase();
+
+  return !!leftTitle && leftTitle === rightTitle;
+}
+
+async function recoverChapterUrlFromMangaPage(
+  chapter: Chapter,
+): Promise<string | undefined> {
+  const sourceManga = chapter.sourceManga;
+  if (!sourceManga?.mangaId) return undefined;
+
+  const html = await fetchText(mangaUrlFromId(sourceManga.mangaId));
+  const chapters = parseChapters(html, sourceManga);
+  const recovered = chapters.find((candidate) =>
+    sameChapterIdentity(chapter, candidate),
+  );
+  if (!recovered) return undefined;
+
+  return (
+    getOriginalChapterUrl(recovered) ?? chapterUrlFromId(recovered.chapterId)
+  );
+}
+
+async function resolveChapterReaderUrl(chapter: Chapter): Promise<string> {
+  const originalChapterUrl = getOriginalChapterUrl(chapter);
+  if (originalChapterUrl && isNumericReaderChapterUrl(originalChapterUrl)) {
+    return chapterUrlFromId(originalChapterUrl);
+  }
+
+  const chapterUrl = chapterUrlFromId(chapter.chapterId);
+  if (isNumericReaderChapterUrl(chapterUrl)) return chapterUrl;
+
+  const recoveredUrl = await recoverChapterUrlFromMangaPage(chapter);
+  if (recoveredUrl) return recoveredUrl;
+
+  return chapterUrl;
 }
 
 class MangagoExtension implements MangagoImplementation {
@@ -220,7 +293,8 @@ class MangagoExtension implements MangagoImplementation {
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return DISCOVER_SECTION_OPTIONS.filter(
-      (section) => section.id !== "genres" && getDiscoverSectionEnabled(section.id),
+      (section) =>
+        section.id !== "genres" && getDiscoverSectionEnabled(section.id),
     ).map((section) => ({
       id: section.id,
       title: section.title,
@@ -262,7 +336,10 @@ class MangagoExtension implements MangagoImplementation {
 
     return {
       items,
-      metadata: limit === undefined && hasNextPage(html) ? { page: page + 1 } : undefined,
+      metadata:
+        limit === undefined && hasNextPage(html)
+          ? { page: page + 1 }
+          : undefined,
     };
   }
 
@@ -279,7 +356,7 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const chapterUrl = chapterUrlFromId(chapter.chapterId);
+    const chapterUrl = await resolveChapterReaderUrl(chapter);
     const pages = await getMangagoPageUrls(chapterUrl);
 
     return {

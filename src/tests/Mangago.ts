@@ -6,7 +6,14 @@ import { TestSuite, registerDefaultTests } from "./suite.js";
 
 export async function runTests(logger: TestLogger) {
   const suite = new TestSuite("Mangago tests", logger);
-  registerDefaultTests(suite, Mangago, sourceInfo);
+  registerDefaultTests(suite, Mangago, sourceInfo, {
+    searchResultsProviding: {
+      getSearchResults: [{ title: "love" }, undefined, undefined],
+    },
+    mangaProviding: {
+      getMangaDetails: ["/read-manga/love_is_an_illusion/"],
+    },
+  });
 
   await suite.run();
 }
