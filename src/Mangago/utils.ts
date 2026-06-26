@@ -7,14 +7,23 @@ import { fetchText } from "./network";
 const mangagoPageUrlsCache = new Map<string, string[]>();
 const chapterJsCache = new Map<string, string>();
 
-// ── Known reader mirrors. parsers.ts routes chapters to mangago.zone first;
-//    if that mirror ever 403s or stops returning imgsrcs we fall through to
-//    the others instead of breaking the chapter. Happy path = 1 fetch. ──
+// Reader mirrors in preference order. mangago.me is LAST: it currently 404s
+// every numeric reader page (/chapter/ID/CID/N/) even though it serves cover
+// and search pages fine, so for the reader walk we treat it as a last resort.
 const MANGAGO_READER_MIRRORS = [
   "https://www.mangago.zone",
-  "https://www.mangago.me",
   "https://www.youhim.me",
+  "https://www.mangago.me",
 ];
+
+function originOf(url: string): string | undefined {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return undefined;
+  }
+}
 
 function withMirror(url: string, mirror: string): string {
   try {
@@ -353,6 +362,7 @@ export async function descrambleMangagoImage(
   return decodeDataUrlToArrayBuffer(canvas.toDataURL(mimeType));
 }
 
+// Decrypt + unscramble a single reader page's imgsrcs blob into raw image URLs.
 function decodeImgsrcsBlob(
   imgsrcsRaw: string,
   deobfChapterJs: string,
@@ -396,9 +406,7 @@ function annotateImageUrl(rawUrl: string, deobfChapterJs: string, cols: number):
 
   try {
     const desckey = getDescramblingKey(deobfChapterJs, abs);
-    return `${abs}#desckey=${encodeURIComponent(desckey)}&cols=${encodeURIComponent(
-      String(cols),
-    )}`;
+    return `${abs}#desckey=${encodeURIComponent(desckey)}&cols=${encodeURIComponent(String(cols))}`;
   } catch (error) {
     console.log(
       `[Mangago] failed to get descrambling key: ${
@@ -418,7 +426,32 @@ function extractTotalPages(html: string): number {
 // The reader-page URL template, e.g. "/chapter/35134/2096487/{page}/".
 function extractCurlTemplate(html: string): string | undefined {
   const match = /<input[^>]*id=["']curl["'][^>]*value=["']([^"']+)["']/i.exec(html);
-  return match?.[1];
+  return match?.[1]?.trim();
+}
+
+// The site's own multimode flag: `_multimode = "1"` for paginated readers
+// (page 1 holds only a slice of the chapter), `""` for single-page readers
+// (page 1 holds every image).
+function extractMultimode(html: string): string {
+  const match = /_multimode\s*=\s*["']([^"']*)["']/.exec(html);
+  return match?.[1] ?? "";
+}
+
+// The reader's "next page" anchor href, used as a concrete example path when a
+// region serves the curl template without its full path prefix (read-manga).
+function extractNextPageHref(html: string): string | undefined {
+  const anchor = /<a\b(?=[^>]*class=["'][^"']*next_page[^"']*["'])[^>]*>/i.exec(html)?.[0];
+  if (!anchor) return undefined;
+  const href = /\bhref=["']([^"']+)["']/i.exec(anchor)?.[1];
+  return href?.trim();
+}
+
+function resolveUrl(url: string, baseUrl: string): string {
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    return absoluteUrl(url);
+  }
 }
 
 function extractChapterJsUrl(html: string): string | undefined {
@@ -446,16 +479,115 @@ async function getCachedDeobfChapterJs(chapterJsUrl: string): Promise<string> {
   return deobf;
 }
 
-// Build the absolute URL for reader page N from the curl template, resolved
-// against the host the chapter HTML actually loaded from.
-function buildReaderPageUrl(template: string, baseUrl: string, page: number): string {
-  const path = template.replace("{page}", String(page));
+// Match a single curl-template path segment (which may contain "{page}")
+// against a concrete URL segment.
+function templateSegmentMatches(templateSegment: string, urlSegment: string): boolean {
+  const escaped = templateSegment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = `^${escaped.replace(/\\\{[^}]+\\\}/g, "[^/]+")}$`;
+  return new RegExp(pattern).test(urlSegment);
+}
 
-  try {
-    return new URL(path, baseUrl).toString();
-  } catch {
-    return absoluteUrl(path);
+// Merge the curl template into a concrete URL path. Numeric readers serve a
+// full-path template ("/chapter/ID/CID/{page}/") so this is an identity; some
+// read-manga regions serve a template relative to the chapter slug
+// ("/uu/nml_chapter-41/pg-{page}/"), so we splice it onto the real path prefix
+// from the next_page href instead of resolving it against the domain root
+// (which would 404).
+function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
+  const urlSegments = urlPath
+    .replace(/^\/+|\/+$/g, "")
+    .split("/")
+    .filter(Boolean);
+  const templateSegments = template
+    .replace(/^\/+|\/+$/g, "")
+    .split("/")
+    .filter(Boolean);
+
+  let bestStart = -1;
+  let bestLength = 0;
+
+  for (let start = 0; start < urlSegments.length; start++) {
+    let length = 0;
+    while (
+      length < templateSegments.length &&
+      start + length < urlSegments.length &&
+      templateSegmentMatches(templateSegments[length]!, urlSegments[start + length]!)
+    ) {
+      length++;
+    }
+    if (length > bestLength) {
+      bestStart = start;
+      bestLength = length;
+    }
   }
+
+  const tail = template.endsWith("/") ? "/" : "";
+  if (bestStart >= 0 && bestLength > 0) {
+    const prefix = urlSegments.slice(0, bestStart);
+    return `/${[...prefix, ...templateSegments].join("/")}${tail}`;
+  }
+  return `/${[...urlSegments, ...templateSegments].join("/")}${tail}`;
+}
+
+// Build the URL for reader page N. Prefer the site's next_page href as the
+// concrete example path and merge the template into it; fall back to resolving
+// the template against the loaded URL.
+function buildReaderPageUrl(
+  template: string,
+  baseUrl: string,
+  page: number,
+  nextPageHref?: string,
+): string {
+  const concreteBase = nextPageHref ? resolveUrl(nextPageHref, baseUrl) : baseUrl;
+  try {
+    const base = new URL(concreteBase);
+    base.pathname = mergeUrlPathWithTemplate(base.pathname, template).replace(
+      "{page}",
+      String(page),
+    );
+    base.search = "";
+    base.hash = "";
+    return base.toString();
+  } catch {
+    return resolveUrl(template.replace("{page}", String(page)), baseUrl);
+  }
+}
+
+// Fetch one reader page, trying mirrors in order (preferred host first) until
+// one returns a page that actually contains imgsrcs. Returns the imgsrcs blob
+// and the origin that served it, so the caller can stick with a working mirror
+// and stop re-probing dead ones (mangago.me 404s every numeric reader page).
+async function fetchReaderPage(
+  template: string,
+  baseUrl: string,
+  page: number,
+  nextPageHref: string | undefined,
+  preferredOrigin: string | undefined,
+): Promise<{ imgsrcs: string; origin: string } | undefined> {
+  const pageUrl = buildReaderPageUrl(template, baseUrl, page, nextPageHref);
+
+  const origins: string[] = [];
+  const pushOrigin = (o: string | undefined): void => {
+    if (o && !origins.includes(o)) origins.push(o);
+  };
+  pushOrigin(preferredOrigin);
+  pushOrigin(originOf(baseUrl));
+  for (const mirror of MANGAGO_READER_MIRRORS) pushOrigin(originOf(mirror));
+
+  for (const origin of origins) {
+    const url = withMirror(pageUrl, origin);
+    try {
+      const pageHtml = await fetchText(url, {
+        "user-agent": DESKTOP_USER_AGENT,
+        cookie: "_m_superu=1",
+      });
+      const imgsrcs = extractImgsrcsFromHtml(pageHtml);
+      if (imgsrcs) return { imgsrcs, origin };
+    } catch {
+      // Try the next mirror.
+    }
+  }
+  return undefined;
 }
 
 export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> {
@@ -499,7 +631,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const chapterJsSrc = extractChapterJsUrl(html);
   if (!chapterJsSrc) throw new Error("Could not find chapter.js URL");
 
-  const chapterJsUrl = absoluteUrl(chapterJsSrc);
+  const chapterJsUrl = resolveUrl(chapterJsSrc, loadedUrl);
   const deobfChapterJs = await getCachedDeobfChapterJs(chapterJsUrl);
 
   const keyHex = findHexEncodedVariable(deobfChapterJs, "key");
@@ -514,96 +646,111 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   const totalPages = extractTotalPages(html);
   const curlTemplate = extractCurlTemplate(html);
+  const nextPageHref = extractNextPageHref(html);
+  const multimodeFlag = extractMultimode(html);
 
   console.log(
-    `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} curl=${
-      curlTemplate ?? "none"
-    }`,
+    `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} multimode=${
+      multimodeFlag || "(none)"
+    } curl=${curlTemplate ?? "none"}`,
   );
 
-  let rawImages: string[];
+  // `total_pages` is the number of READER PAGES, not images. In a multimode
+  // reader each page holds only a slice of the chapter (often ~5 images) and
+  // the page parameter is a plain 1-based counter, so the remaining images live
+  // on pages 2..total_pages. A single-page reader (`_multimode` empty) already
+  // has every image on page 1.
+  const isMultimode =
+    !!curlTemplate && totalPages > 1 && (multimodeFlag === "1" || firstImages.length < totalPages);
 
-  // Single-page chapter: the first page already holds every image (the common
-  // case). Take the exact original path — no extra requests.
-  if (!curlTemplate || totalPages <= firstImages.length || firstImages.length === 0) {
+  let rawImages: string[];
+  let complete = true;
+
+  if (!isMultimode) {
     console.log(`[Mangago] single-page path -> ${firstImages.length} images`);
     rawImages = firstImages;
   } else {
-    // Multimode chapter: the first page holds only a slice (e.g. 5 of 78). Walk
-    // the remaining reader pages using the curl template and merge. Mangago's
-    // reader numbers pages by image index, so the next page number is always
-    // "images collected so far + 1" (e.g. 1, 6, 11, ...). Deriving it from the
-    // running count (rather than a fixed stride) stays correct even when pages
-    // hold uneven image counts.
-    console.log(`[Mangago] multimode path -> walking pages up to total_pages=${totalPages}`);
+    console.log(
+      `[Mangago] multimode path -> striding reader pages (page 1 already loaded, total images=${totalPages})`,
+    );
 
     const merged: string[] = [];
     const seen = new Set<string>();
-
-    const addImages = (imgs: string[]): void => {
+    const addImages = (imgs: string[]): number => {
+      let added = 0;
       for (const img of imgs) {
         if (!seen.has(img)) {
           seen.add(img);
           merged.push(img);
+          added++;
         }
       }
+      return added;
     };
 
     addImages(firstImages);
 
-    // Guard against runaway loops: at most one fetch per remaining page.
-    let safety = totalPages + 2;
+    // Mangago's multimode reader serves one page per image: reader page N starts
+    // at the Nth image and shows a forward window from there. So once we hold a
+    // contiguous prefix of M images, the next image we need is at position M+1,
+    // which lives on page M+1. Striding by the running image count therefore
+    // advances gap-free and skips the redundant overlapping pages (3 fetches for
+    // a 16-image chapter instead of 16). total_pages is also the total image
+    // count, so we stop once merged reaches it.
+    //
+    // Stick with whichever mirror actually serves reader sub-pages so we don't
+    // pay a 404 round-trip to a dead mirror (mangago.me) on every page.
+    let preferredOrigin = originOf(loadedUrl);
+    let lastPage = 1;
+    let safety = totalPages + 6;
 
     while (merged.length < totalPages && safety-- > 0) {
-      const nextPage = merged.length + 1;
-      const pageUrl = buildReaderPageUrl(curlTemplate, loadedUrl, nextPage);
+      let page = merged.length + 1;
+      if (page <= lastPage) page = lastPage + 1; // never step backwards
+      if (page > totalPages) break;
 
-      let pageHtml = "";
-      try {
-        pageHtml = await fetchText(pageUrl, {
-          "user-agent": DESKTOP_USER_AGENT,
-          cookie: "_m_superu=1",
-        });
-      } catch (error) {
-        console.log(
-          `[Mangago] multimode page ${nextPage} fetch failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+      const result = await fetchReaderPage(
+        curlTemplate!,
+        loadedUrl,
+        page,
+        nextPageHref,
+        preferredOrigin,
+      );
+      lastPage = page;
+
+      if (!result) {
+        console.log(`[Mangago] reader page ${page} unavailable on all mirrors -> stop`);
+        complete = false;
         break;
       }
 
-      const pageImgsrcs = extractImgsrcsFromHtml(pageHtml);
-      if (!pageImgsrcs) {
-        console.log(`[Mangago] multimode page ${nextPage} had no imgsrcs -> stop`);
-        break;
-      }
+      preferredOrigin = result.origin;
 
-      const pageImages = await decodeImgsrcsBlob(pageImgsrcs, deobfChapterJs, keyHex, ivHex);
+      const pageImages = await decodeImgsrcsBlob(result.imgsrcs, deobfChapterJs, keyHex, ivHex);
+
       if (pageImages.length === 0) {
-        console.log(`[Mangago] multimode page ${nextPage} decoded 0 images -> stop`);
+        console.log(`[Mangago] reader page ${page} decoded 0 images -> stop`);
+        complete = false;
         break;
       }
 
-      const before = merged.length;
       addImages(pageImages);
-
-      // No new images means we're stuck (duplicate page) — stop to avoid a loop.
-      if (merged.length === before) {
-        console.log(`[Mangago] multimode page ${nextPage} added no new images -> stop`);
-        break;
-      }
     }
 
-    console.log(`[Mangago] multimode walk collected ${merged.length}/${totalPages} images`);
+    if (merged.length < totalPages) complete = false;
+
+    console.log(
+      `[Mangago] multimode collected ${merged.length}/${totalPages} images (complete=${complete})`,
+    );
     rawImages = merged;
   }
 
   const pages = rawImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
 
   // Only cache a result we believe is complete, so a partial/rate-limited run
-  // is never frozen in the cache. (totalPages == 0 means unknown -> trust it.)
-  if (pages.length > 0 && (totalPages === 0 || pages.length >= totalPages)) {
+  // is never frozen in the cache. Single-page is always complete; multimode is
+  // complete only if every reader page was fetched successfully.
+  if (pages.length > 0 && complete) {
     mangagoPageUrlsCache.set(chapterUrl, pages);
   }
 
