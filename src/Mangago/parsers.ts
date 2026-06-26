@@ -8,10 +8,8 @@ import {
 } from "@paperback/types";
 import * as cheerio from "cheerio";
 
-import { DOMAIN } from "./models";
+import { DOMAIN, READER_DOMAIN } from "./models";
 import { absoluteUrl, extractMangaId } from "./utils";
-
-const READER_DOMAIN = "https://www.mangago.zone";
 
 const KNOWN_GROUPS = [
   {
