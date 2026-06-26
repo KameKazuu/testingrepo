@@ -137,7 +137,15 @@ export class MangagoInterceptor extends PaperbackInterceptor {
 // it. Racing each fetch against a timer turns a hang into a rejection so the
 // caller can move on. We can't cancel the underlying request, but we stop
 // awaiting it, which is all the walk needs.
-const FETCH_TIMEOUT_MS = 15000;
+//
+// IMPORTANT: the timeout is opt-in (pass `timeoutMs`). It must NOT wrap browse
+// requests. The home page fires many discover sections plus their cover images
+// through the shared rate limiter at once, so a request can sit queued for
+// longer than the timeout even though the actual fetch is fast (~400ms) — a
+// blanket timeout there produces false "timed out after 15000ms" failures.
+// Only chapter-reading fetches (where a genuinely hung mirror would spin the
+// reader forever and a mirror fallback exists) opt in.
+export const FETCH_TIMEOUT_MS = 15000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -161,20 +169,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
+  timeoutMs?: number,
 ): Promise<string> {
-  const [, data] = await withTimeout(
-    Application.scheduleRequest({
-      url,
-      method: "GET",
-      headers: {
-        referer: `${DOMAIN}/`,
-        "user-agent": DESKTOP_USER_AGENT,
-        ...headers,
-      },
-    }),
-    FETCH_TIMEOUT_MS,
-    `fetch ${url}`,
-  );
+  const request = Application.scheduleRequest({
+    url,
+    method: "GET",
+    headers: {
+      referer: `${DOMAIN}/`,
+      "user-agent": DESKTOP_USER_AGENT,
+      ...headers,
+    },
+  });
+
+  const [, data] = timeoutMs
+    ? await withTimeout(request, timeoutMs, `fetch ${url}`)
+    : await request;
 
   return Application.arrayBufferToUTF8String(data);
 }
