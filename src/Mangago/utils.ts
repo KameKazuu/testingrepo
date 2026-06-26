@@ -1,7 +1,7 @@
 import CryptoJS from "crypto-js";
 
 import { DESKTOP_USER_AGENT } from "./models";
-import { FETCH_TIMEOUT_MS, fetchText } from "./network";
+import { fetchText } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
 //    extension from refetching on every retry/re-open, which is the main
@@ -474,7 +474,7 @@ async function getCachedDeobfChapterJs(chapterJsUrl: string): Promise<string> {
   const cached = chapterJsCache.get(chapterJsUrl);
   if (cached) return cached;
 
-  const obfuscatedChapterJs = await fetchText(chapterJsUrl, {}, FETCH_TIMEOUT_MS);
+  const obfuscatedChapterJs = await fetchText(chapterJsUrl);
   const deobf = sojsonV4Decode(obfuscatedChapterJs);
   chapterJsCache.set(chapterJsUrl, deobf);
   return deobf;
@@ -578,14 +578,10 @@ async function fetchReaderPage(
   for (const origin of origins) {
     const url = withMirror(pageUrl, origin);
     try {
-      const pageHtml = await fetchText(
-        url,
-        {
-          "user-agent": DESKTOP_USER_AGENT,
-          cookie: "_m_superu=1",
-        },
-        FETCH_TIMEOUT_MS,
-      );
+      const pageHtml = await fetchText(url, {
+        "user-agent": DESKTOP_USER_AGENT,
+        cookie: "_m_superu=1",
+      });
       const imgsrcs = extractImgsrcsFromHtml(pageHtml);
       if (imgsrcs) return { imgsrcs, origin };
     } catch {
@@ -614,14 +610,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     tried.add(candidate);
 
     try {
-      const attempt = await fetchText(
-        candidate,
-        {
-          "user-agent": DESKTOP_USER_AGENT,
-          cookie: "_m_superu=1",
-        },
-        FETCH_TIMEOUT_MS,
-      );
+      const attempt = await fetchText(candidate, {
+        "user-agent": DESKTOP_USER_AGENT,
+        cookie: "_m_superu=1",
+      });
       if (attempt.includes("imgsrcs")) {
         html = attempt;
         loadedUrl = candidate;
