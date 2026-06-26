@@ -1,4 +1,5 @@
 import {
+  type AdvancedSearchForm,
   BasicRateLimiter,
   CookieStorageInterceptor,
   type Chapter,
@@ -11,21 +12,26 @@ import {
   type DiscoverSectionProviding,
   DiscoverSectionType,
   type Extension,
+  type Form,
   type MangaProviding,
   type PagedResults,
   type Request,
   type SearchQuery,
   type SearchResultItem,
   type SearchResultsProviding,
+  type SettingsFormProviding,
   type SortingOption,
   type SourceManga,
 } from "@paperback/types";
 
+import { MangagoAdvancedSearchForm, MangagoSettingsForm } from "./forms";
 import {
   DISCOVER_DOMAIN,
   DISCOVER_SECTION_OPTIONS,
   DOMAIN,
+  GENRE_OPTIONS,
   getDiscoverSectionEnabled,
+  getGenreTitle,
   type MangagoSearchMetadata,
 } from "./models";
 import { MangagoInterceptor, fetchText } from "./network";
@@ -44,6 +50,7 @@ type MangagoImplementation = Extension &
   MangaProviding &
   ChapterProviding &
   DiscoverSectionProviding &
+  SettingsFormProviding &
   CloudflareBypassRequestProviding;
 
 const DISCOVER_ZONE_SECTION_IDS = new Set([
@@ -67,9 +74,46 @@ function discoverDomainForSection(sectionId: string): string {
 }
 
 function discoverSectionType(sectionId: string): DiscoverSectionType {
-  return sectionId === "featured_manga"
-    ? DiscoverSectionType.featured
-    : DiscoverSectionType.simpleCarousel;
+  if (sectionId === "featured_manga") return DiscoverSectionType.featured;
+  if (sectionId === "genres") return DiscoverSectionType.genres;
+  return DiscoverSectionType.simpleCarousel;
+}
+
+// Build the genre-browse/filter URL from advanced-search metadata. Mirrors
+// mangago's own form: included genres go in the path segment (comma-joined,
+// "all" when none), excluded genres in `e`, and the status toggles map 1:1 to
+// `f` (Completed) and `o` (Ongoing). e.g. /genre/Yaoi,Romance/1/?e=Smut&f=1&o=1
+//
+// mangago matches genres by their display title in the URL ("Shounen Ai", not
+// the "shounen_ai" id our form stores), so map each id back to its title and
+// URL-encode it (spaces become %20). Metadata/tile fields stay id-keyed; only
+// this fetched URL string uses the title. Matches the working test-extension.
+function buildGenreFilterUrl(
+  metadata: MangagoSearchMetadata | undefined,
+  page: number,
+  sortby: string,
+): string {
+  const genres = metadata?.genres ?? {};
+  const included = Object.entries(genres)
+    .filter(([, state]) => state === "included")
+    .map(([id]) => encodeURIComponent(getGenreTitle(id)));
+  const excluded = Object.entries(genres)
+    .filter(([, state]) => state === "excluded")
+    .map(([id]) => encodeURIComponent(getGenreTitle(id)));
+
+  // `statuses` is omitted by the form when both are selected (= show all).
+  const statuses = metadata?.statuses;
+  const completed = !statuses || statuses.includes("f") ? 1 : 0;
+  const ongoing = !statuses || statuses.includes("o") ? 1 : 0;
+
+  const pathGenres = included.length > 0 ? included.join(",") : "all";
+
+  const params: string[] = [];
+  if (excluded.length > 0) params.push(`e=${excluded.join(",")}`);
+  params.push(`f=${completed}`, `o=${ongoing}`);
+  if (sortby) params.push(`sortby=${encodeURIComponent(sortby)}`);
+
+  return `${DOMAIN}/genre/${pathGenres}/${page}/?${params.join("&")}`;
 }
 
 function discoverItemLimit(sectionId: string): number | undefined {
@@ -190,6 +234,16 @@ class MangagoExtension implements MangagoImplementation {
     ];
   }
 
+  async getSettingsForm(): Promise<Form> {
+    return new MangagoSettingsForm();
+  }
+
+  async getAdvancedSearchForm(
+    query: SearchQuery<MangagoSearchMetadata>,
+  ): Promise<AdvancedSearchForm> {
+    return new MangagoAdvancedSearchForm(query);
+  }
+
   async getSearchResults(
     query: SearchQuery<MangagoSearchMetadata>,
     metadata?: MangagoSearchMetadata,
@@ -198,16 +252,12 @@ class MangagoExtension implements MangagoImplementation {
     const page = metadata?.page ?? 1;
     const title = query.title?.trim() ?? "";
 
-    let url: string;
-
-    if (title) {
-      url = `${DOMAIN}/r/l_search?name=${encodeURIComponent(title)}&page=${page}`;
-    } else {
-      const sortby = sortingIdToMangagoSort(sortingOption);
-      const queryString = sortby ? `?sortby=${encodeURIComponent(sortby)}` : "";
-
-      url = `${DOMAIN}/genre/all/${page}/${queryString}`;
-    }
+    // A text query uses mangago's title search; mangago can't combine free text
+    // with the genre filter, so genre/status from the advanced-search form only
+    // apply to the no-title browse path (same behaviour as keiyoushi/Aidoku).
+    const url = title
+      ? `${DOMAIN}/r/l_search?name=${encodeURIComponent(title)}&page=${page}`
+      : buildGenreFilterUrl(query.metadata, page, sortingIdToMangagoSort(sortingOption));
 
     const html = await fetchText(url);
     const items = parseListings(html);
@@ -219,13 +269,13 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
-    return DISCOVER_SECTION_OPTIONS.filter(
-      (section) => section.id !== "genres" && getDiscoverSectionEnabled(section.id),
-    ).map((section) => ({
-      id: section.id,
-      title: section.title,
-      type: discoverSectionType(section.id),
-    }));
+    return DISCOVER_SECTION_OPTIONS.filter((section) => getDiscoverSectionEnabled(section.id)).map(
+      (section) => ({
+        id: section.id,
+        title: section.title,
+        type: discoverSectionType(section.id),
+      }),
+    );
   }
 
   async getDiscoverSectionItems(
@@ -233,6 +283,25 @@ class MangagoExtension implements MangagoImplementation {
     metadata?: MangagoSearchMetadata,
   ): Promise<PagedResults<DiscoverSectionItem>> {
     const sectionId = normalizeDiscoverSectionId(section.id);
+
+    // Genre grid: each tile runs a genre-filtered search when tapped. No fetch
+    // needed — the genres are static, so this is a single page of items.
+    if (sectionId === "genres") {
+      const items: DiscoverSectionItem[] = GENRE_OPTIONS.map((genre) => ({
+        type: "genresCarouselItem",
+        name: genre.title,
+        searchQuery: {
+          title: "",
+          // `genres` (keyed by genre id) drives getSearchResults; `genre` (the
+          // display title) lets the advanced-search form pre-select this genre
+          // when opened from the results. Matches the working test-extension.
+          metadata: { genre: genre.title, genres: { [genre.id]: "included" } },
+        },
+      }));
+
+      return { items, metadata: undefined };
+    }
+
     const page = metadata?.page ?? 1;
     const url = buildDiscoverUrl(sectionId, page);
 

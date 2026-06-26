@@ -33,6 +33,12 @@ jobs:
       - name: Install Dependencies
         run: npm ci
       - name: Run Tests
+        # These are live integration tests against the real sites. CI runners
+        # have no Cloudflare cf_clearance, so Cloudflare-gated sources (Mangago,
+        # Mangapill, WeebCentral, Webtoon, ...) can't pass here and an unhandled
+        # CloudflareError can abort the whole run. Keep the results visible but
+        # don't let them block PRs — conformance + CodeQL are the real gates.
+        continue-on-error: true
         run: npm test
       - name: Upload Test Results
         if: ${{ github.event_name != 'pull_request' }}
