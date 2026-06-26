@@ -1,3 +1,5 @@
+import { CloudflareError } from "@paperback/types";
+
 import { DESKTOP_USER_AGENT } from "./models";
 import { fetchText } from "./network";
 
@@ -637,6 +639,11 @@ async function fetchReaderPage(
   // within a few ms — before the blip clears — and the chapter truncates to
   // page 1. Mirror rotation alone does not help when every mirror is briefly
   // unhappy at the same instant.
+  // If every mirror/round fails specifically with a Cloudflare challenge, we
+  // surface it (below) so Paperback shows the bypass webview instead of letting
+  // the walk silently truncate the chapter to page 1.
+  let cloudflareError: CloudflareError | undefined;
+
   const MAX_ROUNDS = 3;
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     for (const origin of origins) {
@@ -647,14 +654,20 @@ async function fetchReaderPage(
           cookie: "_m_superu=1",
         });
         if (extractImgsrcsFromHtml(html)) return { html, url, origin };
-      } catch {
-        // Try the next mirror.
+      } catch (error) {
+        if (error instanceof CloudflareError) cloudflareError = error;
+        // Otherwise try the next mirror.
       }
     }
     if (round < MAX_ROUNDS) {
       await new Promise((resolve) => setTimeout(resolve, 400 * round));
     }
   }
+
+  // A real Cloudflare wall on the sub-pages must reach the user as a bypass
+  // prompt, not a silently short chapter.
+  if (cloudflareError) throw cloudflareError;
+
   return undefined;
 }
 
@@ -669,6 +682,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // this is a single request, so it does not worsen rate limiting.
   let html = "";
   let loadedUrl = chapterUrl;
+  let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
   const candidates = [chapterUrl, ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m))];
 
@@ -686,11 +700,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         loadedUrl = candidate;
         break;
       }
-    } catch {
-      // Try the next mirror.
+    } catch (error) {
+      if (error instanceof CloudflareError) cloudflareError = error;
+      // Otherwise try the next mirror.
     }
   }
 
+  // Prefer surfacing a Cloudflare challenge (triggers the bypass webview) over a
+  // generic "no usable page" error when every mirror was walled.
+  if (!html && cloudflareError) throw cloudflareError;
   if (!html) throw new Error("[Mangago] no mirror returned a usable chapter page");
 
   const imgsrcsRaw = extractImgsrcsFromHtml(html);
