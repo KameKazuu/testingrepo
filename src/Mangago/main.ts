@@ -186,9 +186,9 @@ class MangagoExtension implements MangagoImplementation {
   private interceptor = new MangagoInterceptor("mangago-interceptor");
 
   private rateLimiter = new BasicRateLimiter("mangago-rate-limiter", {
-    numberOfRequests: 3,
+    numberOfRequests: 5,
     bufferInterval: 1,
-    ignoreImages: false,
+    ignoreImages: true,
   });
 
   private cookieStorageInterceptor = new CookieStorageInterceptor({
