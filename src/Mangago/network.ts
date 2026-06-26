@@ -52,10 +52,26 @@ function parseImageContext(url: string): MangagoImageContext | null {
   if (hashIndex < 0) return readSavedImageContext(url);
 
   const fragment = url.slice(hashIndex + 1);
-  const params = new URLSearchParams(fragment);
 
-  const desckey = params.get("desckey");
-  const colsRaw = params.get("cols");
+  // Parse the "desckey=...&cols=..." fragment by hand instead of via
+  // URLSearchParams: URL is polyfilled on-device but URLSearchParams is not
+  // guaranteed, and this fragment is written by annotateImageUrl() with
+  // encodeURIComponent, so a split + decodeURIComponent round-trips exactly.
+  const fragmentParams = new Map<string, string>();
+  for (const pair of fragment.split("&")) {
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    const key = pair.slice(0, eq);
+    const value = pair.slice(eq + 1);
+    try {
+      fragmentParams.set(key, decodeURIComponent(value));
+    } catch {
+      fragmentParams.set(key, value);
+    }
+  }
+
+  const desckey = fragmentParams.get("desckey");
+  const colsRaw = fragmentParams.get("cols");
 
   if (!desckey || !colsRaw) return readSavedImageContext(url);
 
