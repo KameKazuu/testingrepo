@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-06-21T14:10:08.254Z",
+  "buildTime": "2026-06-26T09:33:21.611Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -258,8 +258,8 @@
       ],
       "developers": [
         {
-          "name": "popbase85-collab",
-          "github": "https://github.com/popbase85-collab"
+          "name": "PoppingMango",
+          "github": "https://github.com/PoppingMango"
         }
       ],
       "id": "Mangago"
