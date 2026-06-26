@@ -9,6 +9,39 @@ import { fetchText } from "./network";
 const mangagoPageUrlsCache = new Map<string, string[]>();
 const chapterJsCache = new Map<string, string>();
 
+// ── CachedRequests-style dedup for reader-page HTML (keyed mirror-independently
+//    by path, short TTL). mangago throttles request bursts, and an incomplete
+//    chapter is re-walked on re-open (we deliberately don't cache partial page
+//    lists). Caching successful reader HTML means a re-walk reuses what already
+//    loaded and only re-hits the network for the pages that previously failed —
+//    cutting requests and rate-limit pressure. Only successful (imgsrcs-bearing)
+//    responses are cached, so a failed page is always retried fresh. ──
+const READER_HTML_TTL_MS = 5 * 60 * 1000;
+const readerHtmlCache = new Map<string, { html: string; expires: number }>();
+
+function pathnameKey(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function getCachedReaderHtml(url: string): string | undefined {
+  const key = pathnameKey(url);
+  const entry = readerHtmlCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expires) {
+    readerHtmlCache.delete(key);
+    return undefined;
+  }
+  return entry.html;
+}
+
+function cacheReaderHtml(url: string, html: string): void {
+  readerHtmlCache.set(pathnameKey(url), { html, expires: Date.now() + READER_HTML_TTL_MS });
+}
+
 // Reader mirrors in preference order. mangago.me is LAST: it currently 404s
 // every numeric reader page (/chapter/ID/CID/N/) even though it serves cover
 // and search pages fine, so for the reader walk we treat it as a last resort.
@@ -624,6 +657,14 @@ async function fetchReaderPage(
   pageUrl: string,
   preferredOrigin: string | undefined,
 ): Promise<{ html: string; url: string; origin: string } | undefined> {
+  // Reuse a recently-fetched copy of this reader page if we have one (e.g. when
+  // re-walking an incomplete chapter), so we don't re-hit the network or the
+  // rate limiter for pages that already loaded.
+  const cachedHtml = getCachedReaderHtml(pageUrl);
+  if (cachedHtml) {
+    return { html: cachedHtml, url: pageUrl, origin: preferredOrigin ?? originOf(pageUrl) ?? "" };
+  }
+
   const origins: string[] = [];
   const pushOrigin = (o: string | undefined): void => {
     if (o && !origins.includes(o)) origins.push(o);
@@ -653,7 +694,10 @@ async function fetchReaderPage(
           "user-agent": DESKTOP_USER_AGENT,
           cookie: "_m_superu=1",
         });
-        if (extractImgsrcsFromHtml(html)) return { html, url, origin };
+        if (extractImgsrcsFromHtml(html)) {
+          cacheReaderHtml(pageUrl, html);
+          return { html, url, origin };
+        }
       } catch (error) {
         if (error instanceof CloudflareError) cloudflareError = error;
         // Otherwise try the next mirror.
@@ -690,12 +734,20 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     if (tried.has(candidate)) continue;
     tried.add(candidate);
 
+    const cached = getCachedReaderHtml(candidate);
+    if (cached && cached.includes("imgsrcs")) {
+      html = cached;
+      loadedUrl = candidate;
+      break;
+    }
+
     try {
       const attempt = await fetchText(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
       });
       if (attempt.includes("imgsrcs")) {
+        cacheReaderHtml(candidate, attempt);
         html = attempt;
         loadedUrl = candidate;
         break;
