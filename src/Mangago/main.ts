@@ -31,6 +31,7 @@ import {
   DOMAIN,
   GENRE_OPTIONS,
   getDiscoverSectionEnabled,
+  getGenreTitle,
   type MangagoSearchMetadata,
 } from "./models";
 import { MangagoInterceptor, fetchText } from "./network";
@@ -81,12 +82,12 @@ function discoverSectionType(sectionId: string): DiscoverSectionType {
 // Build the genre-browse/filter URL from advanced-search metadata. Mirrors
 // mangago's own form: included genres go in the path segment (comma-joined,
 // "all" when none), excluded genres in `e`, and the status toggles map 1:1 to
-// `f` (Completed) and `o` (Ongoing). e.g. /genre/yaoi,romance/1/?e=smut&f=1&o=1
+// `f` (Completed) and `o` (Ongoing). e.g. /genre/Yaoi,Romance/1/?e=Smut&f=1&o=1
 //
-// Genres are kept as their ids (alphanumeric/underscore). We deliberately do
-// NOT map them to mangago's spaced display titles ("Shounen Ai"): Paperback
-// rejects non-alphanumeric values in genre/search fields, which makes the
-// discover genre tiles unclickable.
+// mangago matches genres by their display title in the URL ("Shounen Ai", not
+// the "shounen_ai" id our form stores), so map each id back to its title and
+// URL-encode it (spaces become %20). Metadata/tile fields stay id-keyed; only
+// this fetched URL string uses the title. Matches the working test-extension.
 function buildGenreFilterUrl(
   metadata: MangagoSearchMetadata | undefined,
   page: number,
@@ -95,10 +96,10 @@ function buildGenreFilterUrl(
   const genres = metadata?.genres ?? {};
   const included = Object.entries(genres)
     .filter(([, state]) => state === "included")
-    .map(([id]) => encodeURIComponent(id));
+    .map(([id]) => encodeURIComponent(getGenreTitle(id)));
   const excluded = Object.entries(genres)
     .filter(([, state]) => state === "excluded")
-    .map(([id]) => encodeURIComponent(id));
+    .map(([id]) => encodeURIComponent(getGenreTitle(id)));
 
   // `statuses` is omitted by the form when both are selected (= show all).
   const statuses = metadata?.statuses;
@@ -291,10 +292,10 @@ class MangagoExtension implements MangagoImplementation {
         name: genre.title,
         searchQuery: {
           title: "",
-          // Keyed by the alphanumeric genre id. We intentionally don't include
-          // the spaced display title in metadata — Paperback rejects
-          // non-alphanumeric genre values (the tile becomes unclickable).
-          metadata: { genres: { [genre.id]: "included" } },
+          // `genres` (keyed by genre id) drives getSearchResults; `genre` (the
+          // display title) lets the advanced-search form pre-select this genre
+          // when opened from the results. Matches the working test-extension.
+          metadata: { genre: genre.title, genres: { [genre.id]: "included" } },
         },
       }));
 
