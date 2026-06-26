@@ -6,7 +6,7 @@ import { ContentRating, SourceIntents, type ExtensionInfo } from "@paperback/typ
 export default {
   name: "Mangago",
   description: "Extension that pulls content from mangago.me.",
-  version: "1.0.0-alpha.1",
+  version: "1.0.0-alpha.2",
   icon: "icon.png",
   language: "en",
   contentRating: ContentRating.MATURE,
@@ -30,8 +30,8 @@ export default {
   ],
   developers: [
     {
-      name: "popbase85-collab",
-      github: "https://github.com/popbase85-collab",
+      name: "PoppingMango",
+      github: "https://github.com/PoppingMango",
     },
   ],
 } satisfies ExtensionInfo;
