@@ -580,6 +580,14 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
   return `/${[...urlSegments, ...templateSegments].join("/")}${tail}`;
 }
 
+// True when the curl template's {page} parameter is a 1-based IMAGE index
+// (numeric reader, "/chapter/<mid>/<cid>/{page}/"). read-manga "pg-{page}"
+// templates index reader pages instead, so the image-count stride guess does
+// not apply there.
+function isImageIndexTemplate(template: string): boolean {
+  return /\/chapter\/\d+\/\d+\/\{page\}\/?$/.test(template);
+}
+
 // Build the URL for reader page N. Prefer the site's next_page href as the
 // concrete example path and merge the template into it; fall back to resolving
 // the template against the loaded URL. Only used as a fallback when a sub-page
@@ -787,13 +795,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           break;
         }
         nextUrl = resolved;
-      } else if (curlTemplate && merged.length < totalPages) {
-        // No next_page link on this sub-page: best-effort stride guess (next
-        // image index) based off the CURRENT page's URL, not page 1's stale
-        // next href.
+      } else if (curlTemplate && merged.length < totalPages && isImageIndexTemplate(curlTemplate)) {
+        // No next_page link on this sub-page. Stride-guess the next page ONLY
+        // for the numeric reader whose {page} param is a 1-based image index
+        // (".../chapter/<mid>/<cid>/{page}/"), where merged.length+1 is the next
+        // image. read-manga "pg-N" indexes reader pages, not images, so a guess
+        // there would fetch the wrong page — stop cleanly (and don't cache).
         nextUrl = buildReaderPageUrl(curlTemplate, currentUrl, merged.length + 1);
       } else {
-        break; // no link and nothing more expected -> done
+        break; // no usable next link -> stop
       }
 
       // Forward-only guard: never step to a page we've already loaded (the same
