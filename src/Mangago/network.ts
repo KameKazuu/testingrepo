@@ -19,22 +19,6 @@ function cleanUrl(url: string): string {
   return hashIndex >= 0 ? url.slice(0, hashIndex) : url;
 }
 
-// Downgrade HTTPS -> HTTP only when the host contains an underscore (e.g.
-// iweb_4.mangapicgallery.com), preserving any path/query/fragment. Mangago's
-// main reader hosts never contain underscores, so they're untouched. This is
-// the same workaround keiyoushi uses for these image hosts.
-function downgradeUnderscoreHost(url: string): string {
-  if (!url.startsWith("https://")) return url;
-
-  const afterScheme = url.slice("https://".length);
-  const hostEnd = afterScheme.search(/[/?#]/);
-  const host = (hostEnd >= 0 ? afterScheme.slice(0, hostEnd) : afterScheme).toLowerCase();
-
-  if (!host.includes("_")) return url;
-
-  return `http://${afterScheme}`;
-}
-
 function saveImageContext(url: string, context: MangagoImageContext): void {
   try {
     Application.setState(
@@ -85,20 +69,26 @@ function parseImageContext(url: string): MangagoImageContext | null {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    // Mangago serves some scrambled images from hosts containing an underscore
-    // (e.g. iweb_4.mangapicgallery.com). Those fail to load over HTTPS in some
-    // runtimes ("internal error"), so downgrade just those hosts to HTTP — the
-    // same workaround keiyoushi uses. Only the host's images are affected.
-    const url = downgradeUnderscoreHost(request.url);
+    // Prefer the app's live UA (stays in sync with cf_clearance binding).
+    // Falls back to the hardcoded desktop UA if the API isn't available.
+    //
+    // NOTE: We intentionally do NOT downgrade underscore image hosts
+    // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP here. That
+    // workaround is Android-only (keiyoushi); on iOS, App Transport Security
+    // blocks plaintext HTTP, so the image never returns and the reader spins
+    // forever ("infinite loading" / partial chapters). Keeping every request
+    // on HTTPS is what makes scrambled images load reliably in the iOS app.
+    const ua =
+      request.headers?.["user-agent"] ??
+      (await Application.getDefaultUserAgent().catch(() => DESKTOP_USER_AGENT));
 
     return {
       ...request,
-      url,
       headers: {
         ...request.headers,
         referer: `${DOMAIN}/`,
         origin: DOMAIN,
-        "user-agent": request.headers?.["user-agent"] ?? DESKTOP_USER_AGENT,
+        "user-agent": ua,
       },
     };
   }
