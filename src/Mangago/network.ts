@@ -69,13 +69,19 @@ function parseImageContext(url: string): MangagoImageContext | null {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
+    // Prefer the app's live UA (stays in sync with cf_clearance binding).
+    // Falls back to hardcoded desktop UA if the API isn't available.
+    const ua =
+      request.headers?.["user-agent"] ??
+      (await Application.getDefaultUserAgent().catch(() => DESKTOP_USER_AGENT));
+
     return {
       ...request,
       headers: {
         ...request.headers,
         referer: `${DOMAIN}/`,
         origin: DOMAIN,
-        "user-agent": request.headers?.["user-agent"] ?? DESKTOP_USER_AGENT,
+        "user-agent": ua,
       },
     };
   }
