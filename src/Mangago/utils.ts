@@ -757,6 +757,19 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     // for a sub-page that omits its link. Stick with whichever mirror actually
     // serves sub-pages so we don't pay a 404 round-trip to a dead mirror.
     const chapterKey = readerChapterKey(loadedUrl);
+    // Pages already loaded, keyed by mirror-independent path. The walk must only
+    // ever move forward: a malformed or duplicate next_page link pointing back
+    // to the current page (or an earlier one) would otherwise re-fetch and
+    // stall. Keying on the path (not the full URL) makes this hold across mirror
+    // switches, and across both URL shapes (numeric image-index and pg-N).
+    const pathKey = (u: string): string => {
+      try {
+        return new URL(u).pathname;
+      } catch {
+        return u;
+      }
+    };
+    const visitedPaths = new Set<string>([pathKey(loadedUrl)]);
     let preferredOrigin = originOf(loadedUrl);
     let currentHtml = html;
     let currentUrl = loadedUrl;
@@ -782,6 +795,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       } else {
         break; // no link and nothing more expected -> done
       }
+
+      // Forward-only guard: never step to a page we've already loaded (the same
+      // page or an earlier one). Stops a backward/duplicate next link from
+      // stalling the walk before the dedup check even runs.
+      if (visitedPaths.has(pathKey(nextUrl))) {
+        console.log(`[Mangago] next reader page ${nextUrl} already visited -> stop`);
+        break;
+      }
+      visitedPaths.add(pathKey(nextUrl));
 
       const result = await fetchReaderPage(nextUrl, preferredOrigin);
       if (!result) {
