@@ -1,5 +1,3 @@
-import CryptoJS from "crypto-js";
-
 import { DESKTOP_USER_AGENT } from "./models";
 import { fetchText } from "./network";
 
@@ -101,35 +99,54 @@ export async function aesCbcDecrypt(
   keyBytes: ArrayBuffer,
   ivBytes: ArrayBuffer,
 ): Promise<ArrayBuffer> {
-  // CryptoJS AES-CBC + ZeroPadding — same scheme as keiyoushi (ZEROBYTEPADDING),
-  // Aidoku (NoPadding), and mangago's own chapter.js. No WebCrypto polyfill needed.
-  const key = arrayBufferToWordArray(keyBytes);
-  const iv = arrayBufferToWordArray(ivBytes);
-  const ciphertext = arrayBufferToWordArray(encrypted);
-  const decrypted = CryptoJS.AES.decrypt(CryptoJS.lib.CipherParams.create({ ciphertext }), key, {
-    iv,
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.ZeroPadding,
-  });
-  return wordArrayToArrayBuffer(decrypted);
-}
+  // Native Web Crypto. `new SubtleCrypto()` is an illegal constructor in JSCore
+  // (this threw on every chapter = the broken reader). `crypto.subtle` is the
+  // form Paperback's window.crypto polyfill exposes and that shipping inkdex
+  // sources (madara) use. No external crypto dependency needed.
+  const subtle = crypto.subtle;
 
-function arrayBufferToWordArray(buffer: ArrayBuffer): CryptoJS.lib.WordArray {
-  const u8 = new Uint8Array(buffer);
-  const words: number[] = [];
-  for (let i = 0; i < u8.length; i++) {
-    words[i >>> 2] = (words[i >>> 2] ?? 0) | (u8[i]! << (24 - (i % 4) * 8));
+  // AES-CBC ciphertext must be a whole number of 16-byte blocks. Bail early with
+  // a clear message rather than letting WebCrypto throw an opaque
+  // InvalidAccessError on a truncated/corrupt blob.
+  if (encrypted.byteLength === 0 || encrypted.byteLength % 16 !== 0) {
+    throw new Error(`Invalid ciphertext length ${encrypted.byteLength} (not a multiple of 16)`);
   }
-  return CryptoJS.lib.WordArray.create(words, u8.length);
-}
 
-function wordArrayToArrayBuffer(wordArray: CryptoJS.lib.WordArray): ArrayBuffer {
-  const { words, sigBytes } = wordArray;
-  const u8 = new Uint8Array(sigBytes);
-  for (let i = 0; i < sigBytes; i++) {
-    u8[i] = (words[i >>> 2]! >>> (24 - (i % 4) * 8)) & 0xff;
+  const cryptoKey = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
+
+  const ciphertext = new Uint8Array(encrypted);
+
+  // Mangago uses zero-byte padding (keiyoushi: AES/CBC/ZEROBYTEPADDING,
+  // Aidoku: NoPadding). WebCrypto AES-CBC only supports PKCS#7 and THROWS on
+  // zero-padded data, which silently kills some chapters. We append one
+  // synthetic block that decrypts to a valid full PKCS#7 pad block so
+  // WebCrypto strips exactly that block, then we strip trailing zeros.
+  const lastBlock = ciphertext.slice(ciphertext.length - 16);
+  const padBlock = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    padBlock[i] = 0x10 ^ (lastBlock[i] ?? 0);
   }
-  return u8.buffer;
+
+  const zeroIv = new Uint8Array(16);
+  const encryptedPad = new Uint8Array(
+    await subtle.encrypt({ name: "AES-CBC", iv: zeroIv.buffer }, cryptoKey, padBlock.buffer),
+  );
+
+  const extended = new Uint8Array(ciphertext.length + 16);
+  extended.set(ciphertext, 0);
+  extended.set(encryptedPad.slice(0, 16), ciphertext.length);
+
+  const decrypted = new Uint8Array(
+    await subtle.decrypt({ name: "AES-CBC", iv: ivBytes }, cryptoKey, extended.buffer),
+  );
+
+  let end = decrypted.length;
+  while (end > 0 && decrypted[end - 1] === 0) end--;
+
+  return decrypted.slice(0, end).buffer;
 }
 
 function base64ToArrayBuffer(value: string): ArrayBuffer {
@@ -292,6 +309,11 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
 
   const img = new Image();
 
+  // Settle once across all JSCore Image-polyfill behaviours (sync-complete,
+  // async onload/onerror, or neither). The timer here is a settle-guard, NOT a
+  // network/fetch timeout: if the polyfill never fires a callback, this rejects
+  // so interceptResponse returns the raw bytes instead of leaving the reader
+  // spinning forever.
   return await new Promise<HTMLImageElement>((resolve, reject) => {
     let settled = false;
     const done = (action: () => void): void => {
@@ -373,7 +395,11 @@ function decodeImgsrcsBlob(
   const encrypted = base64ToArrayBuffer(imgsrcsRaw);
 
   return aesCbcDecrypt(encrypted, decodeHex(keyHex), decodeHex(ivHex)).then((decryptedBuffer) => {
-    let decryptedText = new TextDecoder().decode(decryptedBuffer);
+    // Use Paperback's provided converter rather than a global TextDecoder: the
+    // on-device iOS runtime polyfills Application.* and Image/HTMLCanvasElement,
+    // but does not guarantee the WHATWG TextDecoder global (no other source in
+    // this repo relies on it). This blob is plain ASCII (comma-joined URLs).
+    let decryptedText = Application.arrayBufferToUTF8String(decryptedBuffer);
 
     const nulChar = String.fromCharCode(0);
     while (decryptedText.endsWith(nulChar)) {
@@ -438,13 +464,37 @@ function extractMultimode(html: string): string {
   return match?.[1] ?? "";
 }
 
-// The reader's "next page" anchor href, used as a concrete example path when a
-// region serves the curl template without its full path prefix (read-manga).
+// The reader's "next page" anchor href. This is the link the site itself uses
+// to advance the reader, so following it is correct regardless of what the page
+// parameter means (image index vs. reader-page index vs. pg-N slug). On the
+// last page of a chapter it points at the next chapter, which we detect and use
+// as the natural stop signal.
 function extractNextPageHref(html: string): string | undefined {
   const anchor = /<a\b(?=[^>]*class=["'][^"']*next_page[^"']*["'])[^>]*>/i.exec(html)?.[0];
   if (!anchor) return undefined;
   const href = /\bhref=["']([^"']+)["']/i.exec(anchor)?.[1];
   return href?.trim();
+}
+
+// Identify a chapter (independent of which page within it) from a reader URL or
+// path, so a "next page" link can be told apart from a "next chapter" link:
+//   /chapter/<mid>/<cid>/<page>/        -> c:<cid>
+//   /read-manga/<slug>/.../chapter-<id>/pg-<n>/ -> rm:<id>
+function readerChapterKey(u: string): string {
+  let path = u;
+  try {
+    path = new URL(u).pathname;
+  } catch {
+    // keep the raw string
+  }
+
+  const numeric = /\/chapter\/\d+\/(\d+)(?:\/|$)/.exec(path);
+  if (numeric) return `c:${numeric[1]}`;
+
+  const readManga = /chapter-(\d+)/i.exec(path);
+  if (readManga) return `rm:${readManga[1]}`;
+
+  return path;
 }
 
 function resolveUrl(url: string, baseUrl: string): string {
@@ -530,9 +580,18 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
   return `/${[...urlSegments, ...templateSegments].join("/")}${tail}`;
 }
 
+// True when the curl template's {page} parameter is a 1-based IMAGE index
+// (numeric reader, "/chapter/<mid>/<cid>/{page}/"). read-manga "pg-{page}"
+// templates index reader pages instead, so the image-count stride guess does
+// not apply there.
+function isImageIndexTemplate(template: string): boolean {
+  return /\/chapter\/\d+\/\d+\/\{page\}\/?$/.test(template);
+}
+
 // Build the URL for reader page N. Prefer the site's next_page href as the
 // concrete example path and merge the template into it; fall back to resolving
-// the template against the loaded URL.
+// the template against the loaded URL. Only used as a fallback when a sub-page
+// omits its own next_page link.
 function buildReaderPageUrl(
   template: string,
   baseUrl: string,
@@ -554,38 +613,46 @@ function buildReaderPageUrl(
   }
 }
 
-// Fetch one reader page, trying mirrors in order (preferred host first) until
-// one returns a page that actually contains imgsrcs. Returns the imgsrcs blob
-// and the origin that served it, so the caller can stick with a working mirror
-// and stop re-probing dead ones (mangago.me 404s every numeric reader page).
+// Fetch one reader page by URL, trying mirrors in order (preferred host first).
+// Returns the page HTML (which contains both the imgsrcs blob and the next_page
+// link) plus the origin that served it, so the caller can stick with a working
+// mirror and stop re-probing dead ones (mangago.me 404s every numeric reader
+// page).
 async function fetchReaderPage(
-  template: string,
-  baseUrl: string,
-  page: number,
-  nextPageHref: string | undefined,
+  pageUrl: string,
   preferredOrigin: string | undefined,
-): Promise<{ imgsrcs: string; origin: string } | undefined> {
-  const pageUrl = buildReaderPageUrl(template, baseUrl, page, nextPageHref);
-
+): Promise<{ html: string; url: string; origin: string } | undefined> {
   const origins: string[] = [];
   const pushOrigin = (o: string | undefined): void => {
     if (o && !origins.includes(o)) origins.push(o);
   };
   pushOrigin(preferredOrigin);
-  pushOrigin(originOf(baseUrl));
+  pushOrigin(originOf(pageUrl));
   for (const mirror of MANGAGO_READER_MIRRORS) pushOrigin(originOf(mirror));
 
-  for (const origin of origins) {
-    const url = withMirror(pageUrl, origin);
-    try {
-      const pageHtml = await fetchText(url, {
-        "user-agent": DESKTOP_USER_AGENT,
-        cookie: "_m_superu=1",
-      });
-      const imgsrcs = extractImgsrcsFromHtml(pageHtml);
-      if (imgsrcs) return { imgsrcs, origin };
-    } catch {
-      // Try the next mirror.
+  // Retry across a few rounds with a short backoff between them. The backoff is
+  // a wait BETWEEN retries, NOT a fetch timeout: a reader page can transiently
+  // fail (rate-limit, -999 cancel, momentary network), and the walk treats one
+  // failed page as the end of the chapter. Without the pause all rounds fire
+  // within a few ms — before the blip clears — and the chapter truncates to
+  // page 1. Mirror rotation alone does not help when every mirror is briefly
+  // unhappy at the same instant.
+  const MAX_ROUNDS = 3;
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    for (const origin of origins) {
+      const url = withMirror(pageUrl, origin);
+      try {
+        const html = await fetchText(url, {
+          "user-agent": DESKTOP_USER_AGENT,
+          cookie: "_m_superu=1",
+        });
+        if (extractImgsrcsFromHtml(html)) return { html, url, origin };
+      } catch {
+        // Try the next mirror.
+      }
+    }
+    if (round < MAX_ROUNDS) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * round));
     }
   }
   return undefined;
@@ -653,16 +720,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   console.log(
     `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} multimode=${
       multimodeFlag || "(none)"
-    } curl=${curlTemplate ?? "none"}`,
+    } curl=${curlTemplate ?? "none"} next=${nextPageHref ?? "none"}`,
   );
 
-  // `total_pages` is the number of READER PAGES, not images. In a multimode
-  // reader each page holds only a slice of the chapter (often ~5 images) and
-  // the page parameter is a plain 1-based counter, so the remaining images live
-  // on pages 2..total_pages. A single-page reader (`_multimode` empty) already
-  // has every image on page 1.
+  // A multimode reader holds only a slice of the chapter on page 1; the rest
+  // live on the following reader pages reachable via the next_page link.
   const isMultimode =
-    !!curlTemplate && totalPages > 1 && (multimodeFlag === "1" || firstImages.length < totalPages);
+    totalPages > 1 &&
+    (multimodeFlag === "1" || firstImages.length < totalPages) &&
+    (!!curlTemplate || !!nextPageHref);
 
   let rawImages: string[];
   let complete = true;
@@ -672,7 +738,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     rawImages = firstImages;
   } else {
     console.log(
-      `[Mangago] multimode path -> striding reader pages (page 1 already loaded, total images=${totalPages})`,
+      `[Mangago] multimode path -> walking reader pages (page 1 already loaded, total images=${totalPages})`,
     );
 
     const merged: string[] = [];
@@ -691,63 +757,101 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
     addImages(firstImages);
 
-    // Mangago's multimode reader serves one page per image: reader page N starts
-    // at the Nth image and shows a forward window from there. So once we hold a
-    // contiguous prefix of M images, the next image we need is at position M+1,
-    // which lives on page M+1. Striding by the running image count therefore
-    // advances gap-free and skips the redundant overlapping pages (3 fetches for
-    // a 16-image chapter instead of 16). total_pages is also the total image
-    // count, so we stop once merged reaches it.
-    //
-    // Stick with whichever mirror actually serves reader sub-pages so we don't
-    // pay a 404 round-trip to a dead mirror (mangago.me) on every page.
+    // Follow the site's own next_page link from each reader page, exactly like
+    // the website does. This is self-correcting: it works whether the page
+    // parameter is a 1-based image index (".../6/"), a reader-page index, or a
+    // read-manga "pg-N" slug, and it stops naturally when the link crosses into
+    // the next chapter. The stride guess (next image index) is only a fallback
+    // for a sub-page that omits its link. Stick with whichever mirror actually
+    // serves sub-pages so we don't pay a 404 round-trip to a dead mirror.
+    const chapterKey = readerChapterKey(loadedUrl);
+    // Pages already loaded, keyed by mirror-independent path. The walk must only
+    // ever move forward: a malformed or duplicate next_page link pointing back
+    // to the current page (or an earlier one) would otherwise re-fetch and
+    // stall. Keying on the path (not the full URL) makes this hold across mirror
+    // switches, and across both URL shapes (numeric image-index and pg-N).
+    const pathKey = (u: string): string => {
+      try {
+        return new URL(u).pathname;
+      } catch {
+        return u;
+      }
+    };
+    const visitedPaths = new Set<string>([pathKey(loadedUrl)]);
     let preferredOrigin = originOf(loadedUrl);
-    let lastPage = 1;
-    let safety = totalPages + 6;
+    let currentHtml = html;
+    let currentUrl = loadedUrl;
+    let safety = totalPages + 10;
 
-    while (merged.length < totalPages && safety-- > 0) {
-      let page = merged.length + 1;
-      if (page <= lastPage) page = lastPage + 1; // never step backwards
-      if (page > totalPages) break;
+    while (safety-- > 0) {
+      if (totalPages > 0 && merged.length >= totalPages) break; // collected them all
 
-      const result = await fetchReaderPage(
-        curlTemplate!,
-        loadedUrl,
-        page,
-        nextPageHref,
-        preferredOrigin,
-      );
-      lastPage = page;
+      let nextUrl: string | undefined;
+      const nextHref = extractNextPageHref(currentHtml);
+      if (nextHref) {
+        const resolved = resolveUrl(nextHref, currentUrl);
+        if (readerChapterKey(resolved) !== chapterKey) {
+          // "next" leaves this chapter -> we've reached the end.
+          break;
+        }
+        nextUrl = resolved;
+      } else if (curlTemplate && merged.length < totalPages && isImageIndexTemplate(curlTemplate)) {
+        // No next_page link on this sub-page. Stride-guess the next page ONLY
+        // for the numeric reader whose {page} param is a 1-based image index
+        // (".../chapter/<mid>/<cid>/{page}/"), where merged.length+1 is the next
+        // image. read-manga "pg-N" indexes reader pages, not images, so a guess
+        // there would fetch the wrong page — stop cleanly (and don't cache).
+        nextUrl = buildReaderPageUrl(curlTemplate, currentUrl, merged.length + 1);
+      } else {
+        break; // no usable next link -> stop
+      }
 
+      // Forward-only guard: never step to a page we've already loaded (the same
+      // page or an earlier one). Stops a backward/duplicate next link from
+      // stalling the walk before the dedup check even runs.
+      if (visitedPaths.has(pathKey(nextUrl))) {
+        console.log(`[Mangago] next reader page ${nextUrl} already visited -> stop`);
+        break;
+      }
+      visitedPaths.add(pathKey(nextUrl));
+
+      const result = await fetchReaderPage(nextUrl, preferredOrigin);
       if (!result) {
-        console.log(`[Mangago] reader page ${page} unavailable on all mirrors -> stop`);
+        console.log(`[Mangago] reader page ${nextUrl} unavailable on all mirrors -> stop`);
         complete = false;
         break;
       }
 
       preferredOrigin = result.origin;
+      currentHtml = result.html;
+      currentUrl = result.url;
 
-      const pageImages = await decodeImgsrcsBlob(result.imgsrcs, deobfChapterJs, keyHex, ivHex);
+      const imgsrcs = extractImgsrcsFromHtml(currentHtml);
+      if (!imgsrcs) {
+        console.log(`[Mangago] reader page ${currentUrl} had no imgsrcs -> stop`);
+        complete = false;
+        break;
+      }
 
+      const pageImages = await decodeImgsrcsBlob(imgsrcs, deobfChapterJs, keyHex, ivHex);
       if (pageImages.length === 0) {
-        console.log(`[Mangago] reader page ${page} decoded 0 images -> stop`);
+        console.log(`[Mangago] reader page ${currentUrl} decoded 0 images -> stop`);
         complete = false;
         break;
       }
 
       // A page that only repeats images we already have (a duplicate window from
-      // a bad merged URL or a misbehaving mirror) means we're making no forward
-      // progress. Stop instead of probing every remaining page — that wasted
-      // request burst is exactly what this reader path tries to avoid.
+      // a bad URL or a misbehaving mirror) means no forward progress. Stop
+      // instead of probing every remaining page.
       const added = addImages(pageImages);
       if (added === 0) {
-        console.log(`[Mangago] reader page ${page} added no new images -> stop`);
+        console.log(`[Mangago] reader page ${currentUrl} added no new images -> stop`);
         complete = false;
         break;
       }
     }
 
-    if (merged.length < totalPages) complete = false;
+    if (totalPages > 0 && merged.length < totalPages) complete = false;
 
     console.log(
       `[Mangago] multimode collected ${merged.length}/${totalPages} images (complete=${complete})`,
