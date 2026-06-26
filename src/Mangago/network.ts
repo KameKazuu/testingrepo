@@ -69,8 +69,14 @@ function parseImageContext(url: string): MangagoImageContext | null {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    // Prefer the app's live UA (stays in sync with cf_clearance binding).
-    // Falls back to hardcoded desktop UA if the API isn't available.
+    // Falls back to the hardcoded desktop UA if the API isn't available.
+    //
+    // NOTE: We intentionally do NOT downgrade underscore image hosts
+    // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP here. That
+    // workaround is Android-only (keiyoushi); on iOS, App Transport Security
+    // blocks plaintext HTTP, so the image never returns and the reader spins
+    // forever ("infinite loading" / partial chapters). Keeping every request
+    // on HTTPS is what makes scrambled images load reliably in the iOS app.
     const ua =
       request.headers?.["user-agent"] ??
       (await Application.getDefaultUserAgent().catch(() => DESKTOP_USER_AGENT));
@@ -126,19 +132,49 @@ export class MangagoInterceptor extends PaperbackInterceptor {
   }
 }
 
+// A hung mirror never throws — scheduleRequest just never resolves — so the
+// reader's fallback chain (try the next mirror) would stall forever waiting on
+// it. Racing each fetch against a timer turns a hang into a rejection so the
+// caller can move on. We can't cancel the underlying request, but we stop
+// awaiting it, which is all the walk needs.
+const FETCH_TIMEOUT_MS = 15000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[Mangago] ${label} timed out after ${ms}ms`));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
 ): Promise<string> {
-  const [, data] = await Application.scheduleRequest({
-    url,
-    method: "GET",
-    headers: {
-      referer: `${DOMAIN}/`,
-      "user-agent": DESKTOP_USER_AGENT,
-      ...headers,
-    },
-  });
+  const [, data] = await withTimeout(
+    Application.scheduleRequest({
+      url,
+      method: "GET",
+      headers: {
+        referer: `${DOMAIN}/`,
+        "user-agent": DESKTOP_USER_AGENT,
+        ...headers,
+      },
+    }),
+    FETCH_TIMEOUT_MS,
+    `fetch ${url}`,
+  );
 
   return Application.arrayBufferToUTF8String(data);
 }
