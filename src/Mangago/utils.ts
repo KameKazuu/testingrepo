@@ -99,7 +99,11 @@ export async function aesCbcDecrypt(
   keyBytes: ArrayBuffer,
   ivBytes: ArrayBuffer,
 ): Promise<ArrayBuffer> {
-  const subtle = new SubtleCrypto();
+  // Native Web Crypto. `new SubtleCrypto()` is an illegal constructor in JSCore
+  // (this threw on every chapter = the broken reader). `crypto.subtle` is the
+  // form Paperback's window.crypto polyfill exposes and that shipping inkdex
+  // sources (madara) use. No external crypto dependency needed.
+  const subtle = crypto.subtle;
 
   const cryptoKey = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, [
     "encrypt",
@@ -298,13 +302,26 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
 
   const img = new Image();
 
+  // Settle once across all JSCore Image-polyfill behaviors (sync-complete,
+  // async onload/onerror, or neither) and time out so a non-firing polyfill can
+  // never hang interceptResponse and spin the reader.
   return await new Promise<HTMLImageElement>((resolve, reject) => {
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Image load failed"));
+    let settled = false;
+    const done = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      action();
+    };
+    const timer = setTimeout(
+      () => done(() => reject(new Error("image load timed out"))),
+      10000,
+    );
+    img.onload = () => done(() => resolve(img));
+    img.onerror = () => done(() => reject(new Error("Image load failed")));
     img.src = dataUrl;
-
     if (img.complete && img.naturalWidth > 0) {
-      resolve(img);
+      done(() => resolve(img));
     }
   });
 }
