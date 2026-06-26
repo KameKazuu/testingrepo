@@ -1,4 +1,5 @@
 import CryptoJS from "crypto-js";
+
 import { DESKTOP_USER_AGENT } from "./models";
 import { FETCH_TIMEOUT_MS, fetchText } from "./network";
 
@@ -105,11 +106,11 @@ export async function aesCbcDecrypt(
   const key = arrayBufferToWordArray(keyBytes);
   const iv = arrayBufferToWordArray(ivBytes);
   const ciphertext = arrayBufferToWordArray(encrypted);
-  const decrypted = CryptoJS.AES.decrypt(
-    CryptoJS.lib.CipherParams.create({ ciphertext }),
-    key,
-    { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.ZeroPadding },
-  );
+  const decrypted = CryptoJS.AES.decrypt(CryptoJS.lib.CipherParams.create({ ciphertext }), key, {
+    iv,
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.ZeroPadding,
+  });
   return wordArrayToArrayBuffer(decrypted);
 }
 
@@ -299,10 +300,7 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
       clearTimeout(timer);
       action();
     };
-    const timer = setTimeout(
-      () => done(() => reject(new Error("image load timed out"))),
-      10000,
-    );
+    const timer = setTimeout(() => done(() => reject(new Error("image load timed out"))), 10000);
     img.onload = () => done(() => resolve(img));
     img.onerror = () => done(() => reject(new Error("Image load failed")));
     img.src = dataUrl;
