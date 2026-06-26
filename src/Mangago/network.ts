@@ -8,6 +8,14 @@ import {
 import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
+const IMAGE_CONTEXT_STATE_KEY = "mangago.imageContexts";
+const MAX_SAVED_IMAGE_CONTEXTS = 200;
+
+function stripFragment(url: string): string {
+  const hashIndex = url.indexOf("#");
+  return hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+}
+
 function parseImageContext(url: string): MangagoImageContext | null {
   const hashIndex = url.indexOf("#");
   if (hashIndex < 0) return null;
@@ -26,8 +34,43 @@ function parseImageContext(url: string): MangagoImageContext | null {
   return { desckey, cols };
 }
 
+function getSavedImageContexts(): Record<string, MangagoImageContext> {
+  const value = Application.getState(IMAGE_CONTEXT_STATE_KEY);
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, MangagoImageContext>;
+}
+
+function saveImageContext(url: string, context: MangagoImageContext | null): void {
+  if (!context) return;
+
+  const saved = getSavedImageContexts();
+  const cleanUrl = stripFragment(url);
+  const next = {
+    ...saved,
+    [cleanUrl]: context,
+  };
+
+  const keys = Object.keys(next);
+  while (keys.length > MAX_SAVED_IMAGE_CONTEXTS) {
+    const oldest = keys.shift();
+    if (oldest) delete next[oldest];
+  }
+
+  Application.setState(next, IMAGE_CONTEXT_STATE_KEY);
+}
+
+function readSavedImageContext(url: string): MangagoImageContext | null {
+  return getSavedImageContexts()[stripFragment(url)] ?? null;
+}
+
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
+    saveImageContext(request.url, parseImageContext(request.url));
+
     return {
       ...request,
       headers: {
@@ -57,7 +100,7 @@ export class MangagoInterceptor extends PaperbackInterceptor {
       });
     }
 
-    const context = parseImageContext(request.url);
+    const context = parseImageContext(request.url) ?? readSavedImageContext(request.url);
 
     if (!context) return data;
 

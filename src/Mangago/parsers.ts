@@ -53,6 +53,24 @@ export function chapterUrlFromId(chapterId: string): string {
   return `${DOMAIN}${chapterId}`;
 }
 
+function chapterIdFromHref(href: string): string {
+  if (!href) return "";
+
+  try {
+    const url = new URL(href, DOMAIN);
+    const domain = new URL(DOMAIN).hostname.replace(/^www\./, "");
+    const host = url.hostname.replace(/^www\./, "");
+
+    if (host === domain) {
+      return url.pathname;
+    }
+
+    return url.toString();
+  } catch {
+    return extractMangaId(href);
+  }
+}
+
 export function parseMangaDetails(html: string, mangaId: string): SourceManga {
   const $ = cheerio.load(html);
 
@@ -182,7 +200,7 @@ export function parseChapters(html: string, sourceManga: SourceManga): Chapter[]
     const href = $link.attr("href") ?? "";
     if (!href) return;
 
-    const chapterId = extractMangaId(href);
+    const chapterId = chapterIdFromHref(href);
     const rawTitle = $link.text().trim();
     const parsed = parseChapterTitle(rawTitle);
 
@@ -198,6 +216,9 @@ export function parseChapters(html: string, sourceManga: SourceManga): Chapter[]
       publishDate,
       langCode: "en",
       sortingIndex: index,
+      additionalInfo: {
+        originalChapterUrl: chapterUrlFromId(chapterId),
+      },
     });
   });
 

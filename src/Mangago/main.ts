@@ -40,6 +40,60 @@ type MangagoImplementation = Extension &
   DiscoverSectionProviding &
   CloudflareBypassRequestProviding;
 
+function getOriginalChapterUrl(chapter: Chapter): string | undefined {
+  const value = chapter.additionalInfo?.originalChapterUrl?.trim();
+  return value || undefined;
+}
+
+function normalizeTitle(title?: string): string {
+  return title?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
+
+function sameChapterIdentity(left: Chapter, right: Chapter): boolean {
+  if (left.chapNum > 0 && right.chapNum > 0 && left.chapNum === right.chapNum) {
+    return true;
+  }
+
+  const leftTitle = normalizeTitle(left.title);
+  const rightTitle = normalizeTitle(right.title);
+
+  return leftTitle.length > 0 && leftTitle === rightTitle;
+}
+
+async function recoverChapterUrlFromMangaPage(chapter: Chapter): Promise<string | undefined> {
+  const mangaId = chapter.sourceManga?.mangaId;
+  if (!mangaId) return undefined;
+
+  const html = await fetchText(mangaUrlFromId(mangaId));
+  const chapters = parseChapters(html, chapter.sourceManga);
+  const recovered = chapters.find((candidate) => sameChapterIdentity(chapter, candidate));
+
+  return recovered
+    ? (getOriginalChapterUrl(recovered) ?? chapterUrlFromId(recovered.chapterId))
+    : undefined;
+}
+
+function shouldTryRecoveringChapterUrl(chapterUrl: string): boolean {
+  try {
+    const url = new URL(chapterUrl, DOMAIN);
+    const path = url.pathname;
+
+    return path.startsWith("/chapter/") || !path.startsWith("/read-manga/");
+  } catch {
+    return true;
+  }
+}
+
+async function resolveChapterReaderUrl(chapter: Chapter): Promise<string> {
+  const originalChapterUrl = getOriginalChapterUrl(chapter);
+  if (originalChapterUrl) return originalChapterUrl;
+
+  const chapterUrl = chapterUrlFromId(chapter.chapterId);
+  if (!shouldTryRecoveringChapterUrl(chapterUrl)) return chapterUrl;
+
+  return (await recoverChapterUrlFromMangaPage(chapter)) ?? chapterUrl;
+}
+
 class MangagoExtension implements MangagoImplementation {
   private interceptor = new MangagoInterceptor("mangago-interceptor");
 
@@ -208,7 +262,7 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const chapterUrl = chapterUrlFromId(chapter.chapterId);
+    const chapterUrl = await resolveChapterReaderUrl(chapter);
     const pages = await getMangagoPageUrls(chapterUrl);
 
     return {
