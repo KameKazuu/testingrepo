@@ -734,7 +734,16 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         break;
       }
 
-      addImages(pageImages);
+      // A page that only repeats images we already have (a duplicate window from
+      // a bad merged URL or a misbehaving mirror) means we're making no forward
+      // progress. Stop instead of probing every remaining page — that wasted
+      // request burst is exactly what this reader path tries to avoid.
+      const added = addImages(pageImages);
+      if (added === 0) {
+        console.log(`[Mangago] reader page ${page} added no new images -> stop`);
+        complete = false;
+        break;
+      }
     }
 
     if (merged.length < totalPages) complete = false;
