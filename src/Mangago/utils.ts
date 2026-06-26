@@ -515,11 +515,18 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const totalPages = extractTotalPages(html);
   const curlTemplate = extractCurlTemplate(html);
 
+  console.log(
+    `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} curl=${
+      curlTemplate ?? "none"
+    }`,
+  );
+
   let rawImages: string[];
 
   // Single-page chapter: the first page already holds every image (the common
   // case). Take the exact original path — no extra requests.
   if (!curlTemplate || totalPages <= firstImages.length || firstImages.length === 0) {
+    console.log(`[Mangago] single-page path -> ${firstImages.length} images`);
     rawImages = firstImages;
   } else {
     // Multimode chapter: the first page holds only a slice (e.g. 5 of 78). Walk
@@ -528,6 +535,8 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     // "images collected so far + 1" (e.g. 1, 6, 11, ...). Deriving it from the
     // running count (rather than a fixed stride) stays correct even when pages
     // hold uneven image counts.
+    console.log(`[Mangago] multimode path -> walking pages up to total_pages=${totalPages}`);
+
     const merged: string[] = [];
     const seen = new Set<string>();
 
@@ -565,18 +574,28 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       }
 
       const pageImgsrcs = extractImgsrcsFromHtml(pageHtml);
-      if (!pageImgsrcs) break;
+      if (!pageImgsrcs) {
+        console.log(`[Mangago] multimode page ${nextPage} had no imgsrcs -> stop`);
+        break;
+      }
 
       const pageImages = await decodeImgsrcsBlob(pageImgsrcs, deobfChapterJs, keyHex, ivHex);
-      if (pageImages.length === 0) break;
+      if (pageImages.length === 0) {
+        console.log(`[Mangago] multimode page ${nextPage} decoded 0 images -> stop`);
+        break;
+      }
 
       const before = merged.length;
       addImages(pageImages);
 
       // No new images means we're stuck (duplicate page) — stop to avoid a loop.
-      if (merged.length === before) break;
+      if (merged.length === before) {
+        console.log(`[Mangago] multimode page ${nextPage} added no new images -> stop`);
+        break;
+      }
     }
 
+    console.log(`[Mangago] multimode walk collected ${merged.length}/${totalPages} images`);
     rawImages = merged;
   }
 
