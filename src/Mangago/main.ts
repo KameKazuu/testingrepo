@@ -82,6 +82,11 @@ function discoverSectionType(sectionId: string): DiscoverSectionType {
 // mangago's own form: included genres go in the path segment (comma-joined,
 // "all" when none), excluded genres in `e`, and the status toggles map 1:1 to
 // `f` (Completed) and `o` (Ongoing). e.g. /genre/yaoi,romance/1/?e=smut&f=1&o=1
+//
+// Genres are kept as their ids (alphanumeric/underscore). We deliberately do
+// NOT map them to mangago's spaced display titles ("Shounen Ai"): Paperback
+// rejects non-alphanumeric values in genre/search fields, which makes the
+// discover genre tiles unclickable.
 function buildGenreFilterUrl(
   metadata: MangagoSearchMetadata | undefined,
   page: number,
@@ -286,9 +291,10 @@ class MangagoExtension implements MangagoImplementation {
         name: genre.title,
         searchQuery: {
           title: "",
-          // `genres` drives getSearchResults; `genre` lets the advanced-search
-          // form pre-select this genre if the user opens it from the results.
-          metadata: { genre: genre.title, genres: { [genre.id]: "included" } },
+          // Keyed by the alphanumeric genre id. We intentionally don't include
+          // the spaced display title in metadata — Paperback rejects
+          // non-alphanumeric genre values (the tile becomes unclickable).
+          metadata: { genres: { [genre.id]: "included" } },
         },
       }));
 
