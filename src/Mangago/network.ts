@@ -69,7 +69,6 @@ function parseImageContext(url: string): MangagoImageContext | null {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    // Prefer the app's live UA (stays in sync with cf_clearance binding).
     // Falls back to the hardcoded desktop UA if the API isn't available.
     //
     // NOTE: We intentionally do NOT downgrade underscore image hosts
