@@ -42,6 +42,14 @@ function cacheReaderHtml(url: string, html: string): void {
   readerHtmlCache.set(pathnameKey(url), { html, expires: Date.now() + READER_HTML_TTL_MS });
 }
 
+// Parse the trailing reader-page position from a numeric image-index URL
+// (".../chapter/<mid>/<cid>/<pos>/"). Page 1 (".../chapter/<mid>/<cid>/") has no
+// trailing position and returns undefined.
+function readerPagePosition(url: string): number | undefined {
+  const match = /\/chapter\/\d+\/\d+\/(\d+)\/?$/.exec(pathnameKey(url));
+  return match ? Number(match[1]) : undefined;
+}
+
 // Reader mirrors in preference order. mangago.me is LAST: it currently 404s
 // every numeric reader page (/chapter/ID/CID/N/) even though it serves cover
 // and search pages fine, so for the reader walk we treat it as a last resort.
@@ -827,96 +835,98 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
     addImages(firstImages);
 
-    // Follow the site's own next_page link from each reader page, exactly like
-    // the website does. This is self-correcting: it works whether the page
-    // parameter is a 1-based image index (".../6/"), a reader-page index, or a
-    // read-manga "pg-N" slug, and it stops naturally when the link crosses into
-    // the next chapter. The stride guess (next image index) is only a fallback
-    // for a sub-page that omits its link. Stick with whichever mirror actually
-    // serves sub-pages so we don't pay a 404 round-trip to a dead mirror.
+    // Follow the last successful reader page's own next_page link (exact, and it
+    // handles variable window sizes and stops naturally when the link crosses
+    // into the next chapter). When a page FAILS, fall back — on the numeric
+    // image-index reader only — to the curl template at the next expected image
+    // index and SKIP the failed window instead of dropping the rest of the
+    // chapter (gap-tolerant, like the MangaFox extension). read-manga "pg-N"
+    // pages can't be advanced without their own link, so those still stop.
     const chapterKey = readerChapterKey(loadedUrl);
-    // Pages already loaded, keyed by mirror-independent path. The walk must only
-    // ever move forward: a malformed or duplicate next_page link pointing back
-    // to the current page (or an earlier one) would otherwise re-fetch and
-    // stall. Keying on the path (not the full URL) makes this hold across mirror
-    // switches, and across both URL shapes (numeric image-index and pg-N).
-    const pathKey = (u: string): string => {
-      try {
-        return new URL(u).pathname;
-      } catch {
-        return u;
-      }
-    };
-    const visitedPaths = new Set<string>([pathKey(loadedUrl)]);
+    // Pages already loaded/attempted, keyed mirror-independently by path, so the
+    // walk only ever moves forward (a backward/duplicate link can't stall it).
+    const visitedPaths = new Set<string>([pathnameKey(loadedUrl)]);
+
+    // Window size = how many images page 1 carried; used to step past a failed
+    // page on the numeric reader.
+    const stride = Math.max(1, firstImages.length);
+    const imageIndexReader = !!curlTemplate && isImageIndexTemplate(curlTemplate);
+
     let preferredOrigin = originOf(loadedUrl);
-    let currentHtml = html;
+    let currentHtml = html; // HTML of the last reader page fetched successfully
     let currentUrl = loadedUrl;
+    let expectedNext = merged.length + 1; // next image index still needed
+    let consecutiveFailures = 0;
     let safety = totalPages + 10;
 
     while (safety-- > 0) {
       if (totalPages > 0 && merged.length >= totalPages) break; // collected them all
 
       let nextUrl: string | undefined;
-      const nextHref = extractNextPageHref(currentHtml);
+      const nextHref = currentHtml ? extractNextPageHref(currentHtml) : undefined;
       if (nextHref) {
         const resolved = resolveUrl(nextHref, currentUrl);
-        if (readerChapterKey(resolved) !== chapterKey) {
-          // "next" leaves this chapter -> we've reached the end.
-          break;
-        }
+        if (readerChapterKey(resolved) !== chapterKey) break; // next chapter -> done
         nextUrl = resolved;
-      } else if (curlTemplate && merged.length < totalPages && isImageIndexTemplate(curlTemplate)) {
-        // No next_page link on this sub-page. Stride-guess the next page ONLY
-        // for the numeric reader whose {page} param is a 1-based image index
-        // (".../chapter/<mid>/<cid>/{page}/"), where merged.length+1 is the next
-        // image. read-manga "pg-N" indexes reader pages, not images, so a guess
-        // there would fetch the wrong page — stop cleanly (and don't cache).
-        nextUrl = buildReaderPageUrl(curlTemplate, currentUrl, merged.length + 1);
+      } else if (curlTemplate && imageIndexReader && expectedNext <= totalPages) {
+        nextUrl = buildReaderPageUrl(curlTemplate, currentUrl || loadedUrl, expectedNext);
       } else {
-        break; // no usable next link -> stop
+        break; // no usable next link (e.g. read-manga sub-page without its link)
       }
 
-      // Forward-only guard: never step to a page we've already loaded (the same
-      // page or an earlier one). Stops a backward/duplicate next link from
-      // stalling the walk before the dedup check even runs.
-      if (visitedPaths.has(pathKey(nextUrl))) {
+      // Forward-only guard. If we've already loaded/tried this page, skip past it
+      // on the numeric reader (a duplicate/backward link can't stall us);
+      // otherwise stop.
+      if (visitedPaths.has(pathnameKey(nextUrl))) {
+        if (imageIndexReader) {
+          expectedNext = (readerPagePosition(nextUrl) ?? expectedNext) + stride;
+          currentHtml = "";
+          complete = false;
+          continue;
+        }
         console.log(`[Mangago] next reader page ${nextUrl} already visited -> stop`);
         break;
       }
-      visitedPaths.add(pathKey(nextUrl));
+      visitedPaths.add(pathnameKey(nextUrl));
 
       const result = await fetchReaderPage(nextUrl, preferredOrigin);
-      if (!result) {
-        console.log(`[Mangago] reader page ${nextUrl} unavailable on all mirrors -> stop`);
-        complete = false;
-        break;
+      let progressed = false;
+      if (result) {
+        const imgsrcs = extractImgsrcsFromHtml(result.html);
+        if (imgsrcs) {
+          const pageImages = await decodeImgsrcsBlob(imgsrcs, deobfChapterJs, keyHex, ivHex);
+          if (pageImages.length > 0 && addImages(pageImages) > 0) {
+            progressed = true;
+            preferredOrigin = result.origin;
+            currentHtml = result.html;
+            currentUrl = result.url;
+            expectedNext = merged.length + 1;
+          }
+        }
       }
 
-      preferredOrigin = result.origin;
-      currentHtml = result.html;
-      currentUrl = result.url;
-
-      const imgsrcs = extractImgsrcsFromHtml(currentHtml);
-      if (!imgsrcs) {
-        console.log(`[Mangago] reader page ${currentUrl} had no imgsrcs -> stop`);
-        complete = false;
-        break;
+      if (progressed) {
+        consecutiveFailures = 0;
+        continue;
       }
 
-      const pageImages = await decodeImgsrcsBlob(imgsrcs, deobfChapterJs, keyHex, ivHex);
-      if (pageImages.length === 0) {
-        console.log(`[Mangago] reader page ${currentUrl} decoded 0 images -> stop`);
-        complete = false;
-        break;
-      }
-
-      // A page that only repeats images we already have (a duplicate window from
-      // a bad URL or a misbehaving mirror) means no forward progress. Stop
-      // instead of probing every remaining page.
-      const added = addImages(pageImages);
-      if (added === 0) {
-        console.log(`[Mangago] reader page ${currentUrl} added no new images -> stop`);
-        complete = false;
+      // This page failed (unavailable / no imgsrcs / decoded nothing / only
+      // duplicates). On the numeric image-index reader, skip the failed window
+      // and keep collecting the rest (gap-tolerant), bailing after a few
+      // failures in a row so a dead reader doesn't hammer every page. Other
+      // readers can't advance without this page's own link, so stop.
+      complete = false;
+      if (imageIndexReader) {
+        const skipTo = (readerPagePosition(nextUrl) ?? expectedNext) + stride;
+        console.log(`[Mangago] reader page ${nextUrl} failed -> skip to image ${skipTo}`);
+        expectedNext = skipTo;
+        currentHtml = "";
+        if (++consecutiveFailures >= 3) {
+          console.log(`[Mangago] 3 reader pages failed in a row -> stop`);
+          break;
+        }
+      } else {
+        console.log(`[Mangago] reader page ${nextUrl} failed and not skippable -> stop`);
         break;
       }
     }
