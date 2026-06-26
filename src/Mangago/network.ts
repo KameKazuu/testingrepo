@@ -132,46 +132,11 @@ export class MangagoInterceptor extends PaperbackInterceptor {
   }
 }
 
-// A hung mirror never throws — scheduleRequest just never resolves — so the
-// reader's fallback chain (try the next mirror) would stall forever waiting on
-// it. Racing each fetch against a timer turns a hang into a rejection so the
-// caller can move on. We can't cancel the underlying request, but we stop
-// awaiting it, which is all the walk needs.
-//
-// IMPORTANT: the timeout is opt-in (pass `timeoutMs`). It must NOT wrap browse
-// requests. The home page fires many discover sections plus their cover images
-// through the shared rate limiter at once, so a request can sit queued for
-// longer than the timeout even though the actual fetch is fast (~400ms) — a
-// blanket timeout there produces false "timed out after 15000ms" failures.
-// Only chapter-reading fetches (where a genuinely hung mirror would spin the
-// reader forever and a mirror fallback exists) opt in.
-export const FETCH_TIMEOUT_MS = 15000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`[Mangago] ${label} timed out after ${ms}ms`));
-    }, ms);
-
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      },
-    );
-  });
-}
-
 export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
-  timeoutMs?: number,
 ): Promise<string> {
-  const request = Application.scheduleRequest({
+  const [, data] = await Application.scheduleRequest({
     url,
     method: "GET",
     headers: {
@@ -180,10 +145,6 @@ export async function fetchText(
       ...headers,
     },
   });
-
-  const [, data] = timeoutMs
-    ? await withTimeout(request, timeoutMs, `fetch ${url}`)
-    : await request;
 
   return Application.arrayBufferToUTF8String(data);
 }
