@@ -133,19 +133,49 @@ export class MangagoInterceptor extends PaperbackInterceptor {
   }
 }
 
+// A hung mirror never throws — scheduleRequest just never resolves — so the
+// reader's fallback chain (try the next mirror) would stall forever waiting on
+// it. Racing each fetch against a timer turns a hang into a rejection so the
+// caller can move on. We can't cancel the underlying request, but we stop
+// awaiting it, which is all the walk needs.
+const FETCH_TIMEOUT_MS = 15000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[Mangago] ${label} timed out after ${ms}ms`));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
 ): Promise<string> {
-  const [, data] = await Application.scheduleRequest({
-    url,
-    method: "GET",
-    headers: {
-      referer: `${DOMAIN}/`,
-      "user-agent": DESKTOP_USER_AGENT,
-      ...headers,
-    },
-  });
+  const [, data] = await withTimeout(
+    Application.scheduleRequest({
+      url,
+      method: "GET",
+      headers: {
+        referer: `${DOMAIN}/`,
+        "user-agent": DESKTOP_USER_AGENT,
+        ...headers,
+      },
+    }),
+    FETCH_TIMEOUT_MS,
+    `fetch ${url}`,
+  );
 
   return Application.arrayBufferToUTF8String(data);
 }

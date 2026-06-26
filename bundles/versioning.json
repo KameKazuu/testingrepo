@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-06-26T10:48:21.248Z",
+  "buildTime": "2026-06-26T11:09:33.341Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -234,7 +234,7 @@
     {
       "name": "Mangago",
       "description": "Extension that pulls content from mangago.me.",
-      "version": "1.0.0-alpha.3",
+      "version": "1.0.0-alpha.4",
       "icon": "icon.png",
       "language": "en",
       "contentRating": "MATURE",
