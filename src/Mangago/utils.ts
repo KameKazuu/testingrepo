@@ -373,7 +373,11 @@ function decodeImgsrcsBlob(
   const encrypted = base64ToArrayBuffer(imgsrcsRaw);
 
   return aesCbcDecrypt(encrypted, decodeHex(keyHex), decodeHex(ivHex)).then((decryptedBuffer) => {
-    let decryptedText = new TextDecoder().decode(decryptedBuffer);
+    // Use Paperback's provided converter rather than a global TextDecoder: the
+    // on-device iOS runtime polyfills Application.* and Image/HTMLCanvasElement,
+    // but does not guarantee the WHATWG TextDecoder global (no other source in
+    // this repo relies on it). This blob is plain ASCII (comma-joined URLs).
+    let decryptedText = Application.arrayBufferToUTF8String(decryptedBuffer);
 
     const nulChar = String.fromCharCode(0);
     while (decryptedText.endsWith(nulChar)) {
