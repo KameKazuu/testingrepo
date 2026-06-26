@@ -105,6 +105,13 @@ export async function aesCbcDecrypt(
   // sources (madara) use. No external crypto dependency needed.
   const subtle = crypto.subtle;
 
+  // AES-CBC ciphertext must be a whole number of 16-byte blocks. Bail early with
+  // a clear message rather than letting WebCrypto throw an opaque
+  // InvalidAccessError on a truncated/corrupt blob.
+  if (encrypted.byteLength === 0 || encrypted.byteLength % 16 !== 0) {
+    throw new Error(`Invalid ciphertext length ${encrypted.byteLength} (not a multiple of 16)`);
+  }
+
   const cryptoKey = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, [
     "encrypt",
     "decrypt",
@@ -302,17 +309,26 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
 
   const img = new Image();
 
-  // Settle across the JSCore Image-polyfill behaviours (sync-complete or async
-  // onload/onerror). No timer/timeout — matches the working Comix descrambler.
+  // Settle once across all JSCore Image-polyfill behaviours (sync-complete,
+  // async onload/onerror, or neither). The timer here is a settle-guard, NOT a
+  // network/fetch timeout: if the polyfill never fires a callback, this rejects
+  // so interceptResponse returns the raw bytes instead of leaving the reader
+  // spinning forever.
   return await new Promise<HTMLImageElement>((resolve, reject) => {
-    if (img.complete && img.naturalWidth > 0) {
-      resolve(img);
-      return;
-    }
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Image load failed"));
+    let settled = false;
+    const done = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      action();
+    };
+    const timer = setTimeout(() => done(() => reject(new Error("image load timed out"))), 10000);
+    img.onload = () => done(() => resolve(img));
+    img.onerror = () => done(() => reject(new Error("Image load failed")));
     img.src = dataUrl;
-    if (img.complete && img.naturalWidth > 0) resolve(img);
+    if (img.complete && img.naturalWidth > 0) {
+      done(() => resolve(img));
+    }
   });
 }
 
@@ -589,12 +605,11 @@ function buildReaderPageUrl(
   }
 }
 
-// Fetch one reader page by URL, trying mirrors in order (preferred host first)
-// across two passes so a single transient blip on one host does not truncate
-// the whole chapter. Returns the page HTML (which contains both the imgsrcs blob
-// and the next_page link) plus the origin that served it, so the caller can
-// stick with a working mirror and stop re-probing dead ones (mangago.me 404s
-// every numeric reader page). No timers/timeout — retries are immediate.
+// Fetch one reader page by URL, trying mirrors in order (preferred host first).
+// Returns the page HTML (which contains both the imgsrcs blob and the next_page
+// link) plus the origin that served it, so the caller can stick with a working
+// mirror and stop re-probing dead ones (mangago.me 404s every numeric reader
+// page).
 async function fetchReaderPage(
   pageUrl: string,
   preferredOrigin: string | undefined,
@@ -607,7 +622,15 @@ async function fetchReaderPage(
   pushOrigin(originOf(pageUrl));
   for (const mirror of MANGAGO_READER_MIRRORS) pushOrigin(originOf(mirror));
 
-  for (let round = 0; round < 2; round++) {
+  // Retry across a few rounds with a short backoff between them. The backoff is
+  // a wait BETWEEN retries, NOT a fetch timeout: a reader page can transiently
+  // fail (rate-limit, -999 cancel, momentary network), and the walk treats one
+  // failed page as the end of the chapter. Without the pause all rounds fire
+  // within a few ms — before the blip clears — and the chapter truncates to
+  // page 1. Mirror rotation alone does not help when every mirror is briefly
+  // unhappy at the same instant.
+  const MAX_ROUNDS = 3;
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
     for (const origin of origins) {
       const url = withMirror(pageUrl, origin);
       try {
@@ -617,8 +640,11 @@ async function fetchReaderPage(
         });
         if (extractImgsrcsFromHtml(html)) return { html, url, origin };
       } catch {
-        // Try the next mirror / round.
+        // Try the next mirror.
       }
+    }
+    if (round < MAX_ROUNDS) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * round));
     }
   }
   return undefined;
@@ -749,7 +775,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
         nextUrl = resolved;
       } else if (curlTemplate && merged.length < totalPages) {
-        nextUrl = buildReaderPageUrl(curlTemplate, currentUrl, merged.length + 1, nextPageHref);
+        // No next_page link on this sub-page: best-effort stride guess (next
+        // image index) based off the CURRENT page's URL, not page 1's stale
+        // next href.
+        nextUrl = buildReaderPageUrl(curlTemplate, currentUrl, merged.length + 1);
       } else {
         break; // no link and nothing more expected -> done
       }
