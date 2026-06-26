@@ -1,3 +1,4 @@
+import CryptoJS from "crypto-js";
 import { DESKTOP_USER_AGENT } from "./models";
 import { FETCH_TIMEOUT_MS, fetchText } from "./network";
 
@@ -99,47 +100,35 @@ export async function aesCbcDecrypt(
   keyBytes: ArrayBuffer,
   ivBytes: ArrayBuffer,
 ): Promise<ArrayBuffer> {
-  // Native Web Crypto. `new SubtleCrypto()` is an illegal constructor in JSCore
-  // (this threw on every chapter = the broken reader). `crypto.subtle` is the
-  // form Paperback's window.crypto polyfill exposes and that shipping inkdex
-  // sources (madara) use. No external crypto dependency needed.
-  const subtle = crypto.subtle;
+  // CryptoJS AES-CBC + ZeroPadding — same scheme as keiyoushi (ZEROBYTEPADDING),
+  // Aidoku (NoPadding), and mangago's own chapter.js. No WebCrypto polyfill needed.
+  const key = arrayBufferToWordArray(keyBytes);
+  const iv = arrayBufferToWordArray(ivBytes);
+  const ciphertext = arrayBufferToWordArray(encrypted);
+  const decrypted = CryptoJS.AES.decrypt(
+    CryptoJS.lib.CipherParams.create({ ciphertext }),
+    key,
+    { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.ZeroPadding },
+  );
+  return wordArrayToArrayBuffer(decrypted);
+}
 
-  const cryptoKey = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, [
-    "encrypt",
-    "decrypt",
-  ]);
-
-  const ciphertext = new Uint8Array(encrypted);
-
-  // Mangago uses zero-byte padding (keiyoushi: AES/CBC/ZEROBYTEPADDING,
-  // Aidoku: NoPadding). WebCrypto AES-CBC only supports PKCS#7 and THROWS on
-  // zero-padded data, which silently kills some chapters. We append one
-  // synthetic block that decrypts to a valid full PKCS#7 pad block so
-  // WebCrypto strips exactly that block, then we strip trailing zeros.
-  const lastBlock = ciphertext.slice(ciphertext.length - 16);
-  const padBlock = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) {
-    padBlock[i] = 0x10 ^ (lastBlock[i] ?? 0);
+function arrayBufferToWordArray(buffer: ArrayBuffer): CryptoJS.lib.WordArray {
+  const u8 = new Uint8Array(buffer);
+  const words: number[] = [];
+  for (let i = 0; i < u8.length; i++) {
+    words[i >>> 2] = (words[i >>> 2] ?? 0) | (u8[i]! << (24 - (i % 4) * 8));
   }
+  return CryptoJS.lib.WordArray.create(words, u8.length);
+}
 
-  const zeroIv = new Uint8Array(16);
-  const encryptedPad = new Uint8Array(
-    await subtle.encrypt({ name: "AES-CBC", iv: zeroIv.buffer }, cryptoKey, padBlock.buffer),
-  );
-
-  const extended = new Uint8Array(ciphertext.length + 16);
-  extended.set(ciphertext, 0);
-  extended.set(encryptedPad.slice(0, 16), ciphertext.length);
-
-  const decrypted = new Uint8Array(
-    await subtle.decrypt({ name: "AES-CBC", iv: ivBytes }, cryptoKey, extended.buffer),
-  );
-
-  let end = decrypted.length;
-  while (end > 0 && decrypted[end - 1] === 0) end--;
-
-  return decrypted.slice(0, end).buffer;
+function wordArrayToArrayBuffer(wordArray: CryptoJS.lib.WordArray): ArrayBuffer {
+  const { words, sigBytes } = wordArray;
+  const u8 = new Uint8Array(sigBytes);
+  for (let i = 0; i < sigBytes; i++) {
+    u8[i] = (words[i >>> 2]! >>> (24 - (i % 4) * 8)) & 0xff;
+  }
+  return u8.buffer;
 }
 
 function base64ToArrayBuffer(value: string): ArrayBuffer {
@@ -302,9 +291,6 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
 
   const img = new Image();
 
-  // Settle once across all JSCore Image-polyfill behaviors (sync-complete,
-  // async onload/onerror, or neither) and time out so a non-firing polyfill can
-  // never hang interceptResponse and spin the reader.
   return await new Promise<HTMLImageElement>((resolve, reject) => {
     let settled = false;
     const done = (action: () => void): void => {
