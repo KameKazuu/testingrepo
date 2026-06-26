@@ -185,8 +185,13 @@ function sortingIdToMangagoSort(sortingOption?: SortingOption): string {
 class MangagoExtension implements MangagoImplementation {
   private interceptor = new MangagoInterceptor("mangago-interceptor");
 
+  // Mangago intermittently throttles bursts of reader requests, which truncates
+  // a chapter to page 1 ("random only 5 images"). keiyoushi/aidoku avoid this by
+  // rate-limiting the mangago host hard (keiyoushi uses 1 request/second). The
+  // multimode walk fires a burst of reader sub-pages, so keep this low. Images
+  // are exempt so the reader still loads pages at full speed.
   private rateLimiter = new BasicRateLimiter("mangago-rate-limiter", {
-    numberOfRequests: 5,
+    numberOfRequests: 2,
     bufferInterval: 1,
     ignoreImages: true,
   });
