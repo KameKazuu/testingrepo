@@ -85,25 +85,27 @@ function parseImageContext(url: string): MangagoImageContext | null {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    // Falls back to the hardcoded desktop UA if the API isn't available.
-    //
     // NOTE: We intentionally do NOT downgrade underscore image hosts
     // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP here. That
     // workaround is Android-only (keiyoushi); on iOS, App Transport Security
     // blocks plaintext HTTP, so the image never returns and the reader spins
     // forever ("infinite loading" / partial chapters). Keeping every request
     // on HTTPS is what makes scrambled images load reliably in the iOS app.
-    const ua =
-      request.headers?.["user-agent"] ??
-      (await Application.getDefaultUserAgent().catch(() => DESKTOP_USER_AGENT));
-
+    //
+    // Always send the DESKTOP user-agent — including on image requests. Image
+    // GETs are issued by the reader without a UA, so they used to fall through
+    // to Application.getDefaultUserAgent(), which on iOS returns the iPhone
+    // *mobile* UA. Mangago serves a different (stripped) experience to mobile
+    // clients, and aidoku confirmed images should be requested as a desktop
+    // browser. Forcing the desktop UA everywhere keeps image and HTML requests
+    // consistent.
     return {
       ...request,
       headers: {
         ...request.headers,
         referer: `${DOMAIN}/`,
         origin: DOMAIN,
-        "user-agent": ua,
+        "user-agent": DESKTOP_USER_AGENT,
       },
     };
   }
@@ -121,7 +123,7 @@ export class MangagoInterceptor extends PaperbackInterceptor {
         headers: {
           referer: `${DOMAIN}/`,
           origin: DOMAIN,
-          "user-agent": request.headers?.["user-agent"] ?? DESKTOP_USER_AGENT,
+          "user-agent": DESKTOP_USER_AGENT,
         },
       });
     }
