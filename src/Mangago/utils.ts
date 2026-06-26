@@ -353,6 +353,111 @@ export async function descrambleMangagoImage(
   return decodeDataUrlToArrayBuffer(canvas.toDataURL(mimeType));
 }
 
+function decodeImgsrcsBlob(
+  imgsrcsRaw: string,
+  deobfChapterJs: string,
+  keyHex: string,
+  ivHex: string,
+): Promise<string[]> {
+  const encrypted = base64ToArrayBuffer(imgsrcsRaw);
+
+  return aesCbcDecrypt(encrypted, decodeHex(keyHex), decodeHex(ivHex)).then((decryptedBuffer) => {
+    let decryptedText = new TextDecoder().decode(decryptedBuffer);
+
+    const nulChar = String.fromCharCode(0);
+    while (decryptedText.endsWith(nulChar)) {
+      decryptedText = decryptedText.slice(0, -1);
+    }
+
+    decryptedText = decryptedText.replace(/,+$/g, "");
+
+    const imageList = unscrambleImageList(decryptedText, deobfChapterJs);
+
+    return imageList
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  });
+}
+
+// Turn a raw image URL into the final URL, appending the descramble fragment
+// for scrambled (cspiclink) images so the interceptor can unscramble them.
+function annotateImageUrl(rawUrl: string, deobfChapterJs: string, cols: number): string {
+  const abs = absoluteUrl(rawUrl);
+
+  if (!abs.includes("cspiclink")) {
+    return abs;
+  }
+
+  if (!cols) {
+    console.log("[Mangago] cspiclink image found but cols missing");
+    return abs;
+  }
+
+  try {
+    const desckey = getDescramblingKey(deobfChapterJs, abs);
+    return `${abs}#desckey=${encodeURIComponent(desckey)}&cols=${encodeURIComponent(
+      String(cols),
+    )}`;
+  } catch (error) {
+    console.log(
+      `[Mangago] failed to get descrambling key: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return abs;
+  }
+}
+
+function extractTotalPages(html: string): number {
+  const match = /total_pages\s*=\s*(\d+)/.exec(html);
+  const value = match ? Number(match[1]) : 0;
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+// The reader-page URL template, e.g. "/chapter/35134/2096487/{page}/".
+function extractCurlTemplate(html: string): string | undefined {
+  const match = /<input[^>]*id=["']curl["'][^>]*value=["']([^"']+)["']/i.exec(html);
+  return match?.[1];
+}
+
+function extractChapterJsUrl(html: string): string | undefined {
+  const match =
+    html.match(/<script\b[^>]+src=["']([^"']*chapter\.js[^"']*)["'][^>]*>/i) ??
+    html.match(/src=["']([^"']*chapter\.js[^"']*)["']/i);
+  return match?.[1];
+}
+
+function extractImgsrcsFromHtml(html: string): string | undefined {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(
+    (m) => m[1] ?? "",
+  );
+  const imgsrcsScript = scripts.find((s) => s.includes("imgsrcs"));
+  return imgsrcsScript ? extractImgsrcs(imgsrcsScript) : undefined;
+}
+
+async function getCachedDeobfChapterJs(chapterJsUrl: string): Promise<string> {
+  const cached = chapterJsCache.get(chapterJsUrl);
+  if (cached) return cached;
+
+  const obfuscatedChapterJs = await fetchText(chapterJsUrl);
+  const deobf = sojsonV4Decode(obfuscatedChapterJs);
+  chapterJsCache.set(chapterJsUrl, deobf);
+  return deobf;
+}
+
+// Build the absolute URL for reader page N from the curl template, resolved
+// against the host the chapter HTML actually loaded from.
+function buildReaderPageUrl(template: string, baseUrl: string, page: number): string {
+  const path = template.replace("{page}", String(page));
+
+  try {
+    return new URL(path, baseUrl).toString();
+  } catch {
+    return absoluteUrl(path);
+  }
+}
+
 export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> {
   const cachedPages = mangagoPageUrlsCache.get(chapterUrl);
   if (cachedPages && cachedPages.length > 0) {
@@ -363,6 +468,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // other mirrors only if it fails or returns no imgsrcs. On the normal path
   // this is a single request, so it does not worsen rate limiting.
   let html = "";
+  let loadedUrl = chapterUrl;
   const tried = new Set<string>();
   const candidates = [chapterUrl, ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m))];
 
@@ -377,6 +483,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       });
       if (attempt.includes("imgsrcs")) {
         html = attempt;
+        loadedUrl = candidate;
         break;
       }
     } catch {
@@ -386,85 +493,98 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   if (!html) throw new Error("[Mangago] no mirror returned a usable chapter page");
 
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(
-    (m) => m[1] ?? "",
-  );
-
-  const imgsrcsScript = scripts.find((s) => s.includes("imgsrcs"));
-  if (!imgsrcsScript) throw new Error("Could not find imgsrcs script");
-
-  const imgsrcsRaw = extractImgsrcs(imgsrcsScript);
+  const imgsrcsRaw = extractImgsrcsFromHtml(html);
   if (!imgsrcsRaw) throw new Error("Could not extract imgsrcs");
 
-  const encrypted = base64ToArrayBuffer(imgsrcsRaw);
+  const chapterJsSrc = extractChapterJsUrl(html);
+  if (!chapterJsSrc) throw new Error("Could not find chapter.js URL");
 
-  const chapterJsMatch =
-    html.match(/<script\b[^>]+src=["']([^"']*chapter\.js[^"']*)["'][^>]*>/i) ??
-    html.match(/src=["']([^"']*chapter\.js[^"']*)["']/i);
-
-  if (!chapterJsMatch?.[1]) throw new Error("Could not find chapter.js URL");
-
-  const chapterJsUrl = absoluteUrl(chapterJsMatch[1]);
-
-  let deobfChapterJs = chapterJsCache.get(chapterJsUrl);
-  if (!deobfChapterJs) {
-    const obfuscatedChapterJs = await fetchText(chapterJsUrl);
-    deobfChapterJs = sojsonV4Decode(obfuscatedChapterJs);
-    chapterJsCache.set(chapterJsUrl, deobfChapterJs);
-  }
+  const chapterJsUrl = absoluteUrl(chapterJsSrc);
+  const deobfChapterJs = await getCachedDeobfChapterJs(chapterJsUrl);
 
   const keyHex = findHexEncodedVariable(deobfChapterJs, "key");
   const ivHex = findHexEncodedVariable(deobfChapterJs, "iv");
-
   if (!keyHex) throw new Error("Could not find AES key");
   if (!ivHex) throw new Error("Could not find AES IV");
 
-  const decryptedBuffer = await aesCbcDecrypt(encrypted, decodeHex(keyHex), decodeHex(ivHex));
-
-  let decryptedText = new TextDecoder().decode(decryptedBuffer);
-
-  const nulChar = String.fromCharCode(0);
-  while (decryptedText.endsWith(nulChar)) {
-    decryptedText = decryptedText.slice(0, -1);
-  }
-
-  decryptedText = decryptedText.replace(/,+$/g, "");
-
-  const imageList = unscrambleImageList(decryptedText, deobfChapterJs);
   const cols = findCols(deobfChapterJs);
 
-  const pages = imageList
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .map((url) => {
-      const abs = absoluteUrl(url);
+  // Images present on the first reader page.
+  const firstImages = await decodeImgsrcsBlob(imgsrcsRaw, deobfChapterJs, keyHex, ivHex);
 
-      if (!abs.includes("cspiclink")) {
-        return abs;
+  const totalPages = extractTotalPages(html);
+  const curlTemplate = extractCurlTemplate(html);
+
+  let rawImages: string[];
+
+  // Single-page chapter: the first page already holds every image (the common
+  // case). Take the exact original path — no extra requests.
+  if (!curlTemplate || totalPages <= firstImages.length || firstImages.length === 0) {
+    rawImages = firstImages;
+  } else {
+    // Multimode chapter: the first page holds only a slice (e.g. 5 of 78). Walk
+    // the remaining reader pages using the curl template and merge. Mangago's
+    // reader numbers pages by image index, so the next page number is always
+    // "images collected so far + 1" (e.g. 1, 6, 11, ...). Deriving it from the
+    // running count (rather than a fixed stride) stays correct even when pages
+    // hold uneven image counts.
+    const merged: string[] = [];
+    const seen = new Set<string>();
+
+    const addImages = (imgs: string[]): void => {
+      for (const img of imgs) {
+        if (!seen.has(img)) {
+          seen.add(img);
+          merged.push(img);
+        }
       }
+    };
 
-      if (!cols) {
-        console.log("[Mangago] cspiclink image found but cols missing");
-        return abs;
-      }
+    addImages(firstImages);
 
+    // Guard against runaway loops: at most one fetch per remaining page.
+    let safety = totalPages + 2;
+
+    while (merged.length < totalPages && safety-- > 0) {
+      const nextPage = merged.length + 1;
+      const pageUrl = buildReaderPageUrl(curlTemplate, loadedUrl, nextPage);
+
+      let pageHtml = "";
       try {
-        const desckey = getDescramblingKey(deobfChapterJs, abs);
-        return `${abs}#desckey=${encodeURIComponent(desckey)}&cols=${encodeURIComponent(
-          String(cols),
-        )}`;
+        pageHtml = await fetchText(pageUrl, {
+          "user-agent": DESKTOP_USER_AGENT,
+          cookie: "_m_superu=1",
+        });
       } catch (error) {
         console.log(
-          `[Mangago] failed to get descrambling key: ${
+          `[Mangago] multimode page ${nextPage} fetch failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
-        return abs;
+        break;
       }
-    });
 
-  if (pages.length > 0) {
+      const pageImgsrcs = extractImgsrcsFromHtml(pageHtml);
+      if (!pageImgsrcs) break;
+
+      const pageImages = await decodeImgsrcsBlob(pageImgsrcs, deobfChapterJs, keyHex, ivHex);
+      if (pageImages.length === 0) break;
+
+      const before = merged.length;
+      addImages(pageImages);
+
+      // No new images means we're stuck (duplicate page) — stop to avoid a loop.
+      if (merged.length === before) break;
+    }
+
+    rawImages = merged;
+  }
+
+  const pages = rawImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
+
+  // Only cache a result we believe is complete, so a partial/rate-limited run
+  // is never frozen in the cache. (totalPages == 0 means unknown -> trust it.)
+  if (pages.length > 0 && (totalPages === 0 || pages.length >= totalPages)) {
     mangagoPageUrlsCache.set(chapterUrl, pages);
   }
 
