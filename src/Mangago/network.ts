@@ -140,14 +140,6 @@ export class MangagoInterceptor extends PaperbackInterceptor {
           return {
             ...request,
             url: realUrl,
-            // Drop cookies on the rewrite. The placeholder is a mangago.zone
-            // reader URL, so the CookieStorageInterceptor (registered before
-            // this one) has already attached mangago/Cloudflare cookies to
-            // request.cookies. Without clearing them they'd ride the rewrite to
-            // the image CDN (cspiclink/mangapicgallery), which authenticates via
-            // the referer/origin headers below — not cookies — so the reader
-            // cookies are both unnecessary there and shouldn't leak cross-host.
-            cookies: {},
             headers: {
               ...request.headers,
               ...readerHeadersForUrl(realUrl),
@@ -167,8 +159,15 @@ export class MangagoInterceptor extends PaperbackInterceptor {
       }
       // Fall through with the placeholder unchanged: only this page fails to
       // load (and will retry when the reader requests it again), instead of the
-      // whole chapter breaking.
-      return request;
+      // whole chapter breaking. Still add standard headers so the fallback
+      // request has proper referer/origin/user-agent.
+      return {
+        ...request,
+        headers: {
+          ...request.headers,
+          ...readerHeadersForUrl(request.url),
+        },
+      };
     }
 
     // NOTE: We intentionally do NOT downgrade underscore image hosts
