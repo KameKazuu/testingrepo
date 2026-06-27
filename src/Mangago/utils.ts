@@ -826,8 +826,9 @@ async function decodeReaderPageImages(
 //
 // Instead we hand Paperback a complete page list immediately: positions covered
 // by page 1 are real image URLs, and every later position is a lightweight
-// placeholder ("mglazy:<readerPageUrl>"). When the reader scrolls to a
-// placeholder, interceptRequest calls resolveMangagoLazyPage(), which fetches
+// placeholder (the real reader-page URL plus a "?mglazy=1" marker). When the
+// reader scrolls to a placeholder, interceptRequest calls resolveMangagoLazyPage(),
+// which strips the marker, fetches
 // just that one reader page (with full mirror retry + backoff) and rewrites the
 // request to the real image URL. Each page is resolved independently and on
 // demand, so a single rotating host can no longer truncate the chapter, and the
@@ -839,7 +840,13 @@ async function decodeReaderPageImages(
 // satisfies its neighbours from cache (≈6 network fetches for a 32‑page
 // chapter, not 32).
 
-const LAZY_PLACEHOLDER_PREFIX = "mglazy:";
+// Lazy placeholders must be VALID http(s) URLs: Paperback's CookieStorageInterceptor
+// runs before ours and calls cookiesForUrl() on every page URL, which throws
+// "URL Hostname and Protocol are required" on a custom-scheme URL (the old
+// "mglazy:<url>" form had no hostname). So a placeholder is the real reader-page
+// URL with a marker query param; the cookie interceptor parses it happily, and our
+// interceptRequest detects the marker and rewrites it to the real image URL.
+const LAZY_MARKER_PARAM = "mglazy";
 
 type LazyChapterContext = {
   deobfChapterJs: string;
@@ -880,11 +887,18 @@ function readerBaseForLazy(url: string): string {
 
 function buildLazyPlaceholder(readerBaseUrl: string, position: number): string {
   const base = readerBaseUrl.endsWith("/") ? readerBaseUrl : `${readerBaseUrl}/`;
-  return `${LAZY_PLACEHOLDER_PREFIX}${base}${position}/`;
+  // Valid https URL (real reader page) + marker query param so the cookie
+  // interceptor can parse it; our interceptor strips the marker on resolve.
+  return `${base}${position}/?${LAZY_MARKER_PARAM}=1`;
 }
 
 export function isLazyPlaceholder(url: string): boolean {
-  return url.startsWith(LAZY_PLACEHOLDER_PREFIX);
+  return url.includes(`${LAZY_MARKER_PARAM}=1`);
+}
+
+// Strip the lazy marker to recover the real reader-page URL.
+function stripLazyMarker(url: string): string {
+  return url.replace(new RegExp(`[?&]${LAZY_MARKER_PARAM}=1\\b`), "").replace(/\?$/, "");
 }
 
 // Build a complete page list for a numeric multimode reader: page 1's images
@@ -975,16 +989,14 @@ async function bootstrapLazyContext(
   return context;
 }
 
-// Resolve a single lazy placeholder ("mglazy:<readerPageUrl>") to the real,
-// annotated image URL. Called from interceptRequest. Fetches the one reader page
-// (mirror retry + backoff inside fetchReaderPage), decodes it, fills the whole
-// window in the cache, and returns the image for the requested position.
+// Resolve a single lazy placeholder (reader-page URL + marker query) to the
+// real, annotated image URL. Called from interceptRequest. Fetches the one
+// reader page (mirror retry + backoff inside fetchReaderPage), decodes it, fills
+// the whole window in the cache, and returns the image for the requested position.
 export async function resolveMangagoLazyPage(
   placeholderOrUrl: string,
 ): Promise<string | undefined> {
-  const pageUrl = placeholderOrUrl.startsWith(LAZY_PLACEHOLDER_PREFIX)
-    ? placeholderOrUrl.slice(LAZY_PLACEHOLDER_PREFIX.length)
-    : placeholderOrUrl;
+  const pageUrl = stripLazyMarker(placeholderOrUrl);
 
   const position = readerPagePosition(pageUrl);
   if (!position) {
