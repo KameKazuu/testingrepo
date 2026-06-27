@@ -535,10 +535,18 @@ function extractMultimode(html: string): string {
 // last page of a chapter it points at the next chapter, which we detect and use
 // as the natural stop signal.
 function extractNextPageHref(html: string): string | undefined {
-  const anchor = /<a\b(?=[^>]*class=["'][^"']*next_page[^"']*["'])[^>]*>/i.exec(html)?.[0];
-  if (!anchor) return undefined;
-  const href = /\bhref=["']([^"']+)["']/i.exec(anchor)?.[1];
-  return href?.trim();
+  const anchors = [
+    /<a\b(?=[^>]*class=["'][^"']*next_page[^"']*["'])[^>]*>/i.exec(html)?.[0],
+    /<a\b(?=[^>]*id=["']pic_container["'])[^>]*>/i.exec(html)?.[0],
+    /<a\b(?=[^>]*alt=["']next page["'])[^>]*>/i.exec(html)?.[0],
+  ];
+
+  for (const anchor of anchors) {
+    const href = anchor ? /\bhref=["']([^"']+)["']/i.exec(anchor)?.[1]?.trim() : undefined;
+    if (href) return href;
+  }
+
+  return undefined;
 }
 
 // Identify a chapter (independent of which page within it) from a reader URL or
@@ -1069,8 +1077,13 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   }
 
   if (isMultimode && totalPages > 0 && rawImages.length < totalPages) {
-    throw new Error(
-      `[Mangago] incomplete multimode chapter: collected ${rawImages.length}/${totalPages} images`,
+    // Returning the successfully decoded URLs is better than throwing here:
+    // Paperback shows a blank loading spinner when getChapterDetails rejects,
+    // while a partial list still opens the reader and allows the user to read
+    // every window Mangago served. Partial results are deliberately not cached
+    // below, so reopening the chapter retries the missing windows.
+    console.log(
+      `[Mangago] returning partial multimode chapter: collected ${rawImages.length}/${totalPages} images`,
     );
   }
 
