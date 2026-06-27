@@ -1,0 +1,57 @@
+name: Bundle Sync
+
+# Keeps the committed bundles/ in sync with src/. The app reads the bundle from
+# raw repo content (sources.json bundleUrl -> raw.githubusercontent.com/.../bundles),
+# but editing src/** on GitHub (web editor / merged PRs that don't run the bundler)
+# leaves bundles/ stale, so the app keeps downloading an old build. This rebuilds
+# and commits bundles/ whenever source changes, so the shipped bundle always
+# matches the source. (bundle-deploy.yaml separately publishes to GitHub Pages.)
+
+on:
+  push:
+    branches:
+      - "0.9/stable"
+      - "[0-9].[0-9]/*"
+    paths:
+      # Only source/build inputs — NOT bundles/**, so the bot's own bundle
+      # commit below can't re-trigger this workflow (no loop).
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-sync:
+    name: Rebuild and commit bundles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bundle extensions
+        run: npm run bundle
+
+      - name: Commit rebuilt bundles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bundles
+          # [skip ci] keeps bundle-deploy from re-running on this bundles-only commit.
+          git diff --cached --quiet || git commit -m "Rebuild bundles for source changes [skip ci]"
+          git push
