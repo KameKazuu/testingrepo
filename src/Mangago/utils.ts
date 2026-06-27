@@ -865,6 +865,8 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const curlTemplate = extractCurlTemplate(html);
   const nextPageHref = extractNextPageHref(html);
   const multimodeFlag = extractMultimode(html);
+  const totalImagePages =
+    multimodeFlag === "1" && totalPages > 0 && firstImages.length >= totalPages ? 0 : totalPages;
 
   console.log(
     `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} multimode=${
@@ -874,6 +876,13 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   // A multimode reader holds only a slice of the chapter on page 1; the rest
   // live on the following reader pages reachable via the next_page link.
+  //
+  // Mangago's `total_pages` value is not stable across reader variants. Numeric
+  // readers report a total IMAGE count, while some manhwa/read-manga readers
+  // report a total READER-WINDOW count. If page 1 already contains at least
+  // that many images, treating the value as an image total would incorrectly
+  // stop after the first 5-image window. In that case, leave the image total
+  // open-ended and walk links until the site points at the next chapter.
   const isMultimode =
     (!!curlTemplate || !!nextPageHref) &&
     (multimodeFlag === "1" || (totalPages > 0 && firstImages.length < totalPages));
@@ -898,7 +907,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         if (!clean || seen.has(clean)) return;
 
         const page = positional ? index + 1 : startPage + index;
-        if (page < 1 || (totalPages > 0 && page > totalPages)) return;
+        if (page < 1 || (totalImagePages > 0 && page > totalImagePages)) return;
 
         seen.add(clean);
         pageSlots.set(page, clean);
@@ -908,8 +917,8 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     };
     const collectedCount = (): number => pageSlots.size;
     const nextMissingPage = (): number => {
-      if (totalPages > 0) {
-        for (let page = 1; page <= totalPages; page++) {
+      if (totalImagePages > 0) {
+        for (let page = 1; page <= totalImagePages; page++) {
           if (!pageSlots.has(page)) return page;
         }
       }
@@ -940,20 +949,32 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     let currentUrl = loadedUrl;
     let expectedNext = nextMissingPage(); // next image index still needed
     let consecutiveFailures = 0;
-    let safety = totalPages + 10;
+    let safety = (totalImagePages || totalPages || firstImages.length) + 10;
+    let exhaustedSafety = true;
 
     while (safety-- > 0) {
-      if (totalPages > 0 && collectedCount() >= totalPages) break; // collected them all
+      if (totalImagePages > 0 && collectedCount() >= totalImagePages) {
+        exhaustedSafety = false;
+        break; // collected them all
+      }
 
       let nextUrl: string | undefined;
       const nextHref = currentHtml ? extractNextPageHref(currentHtml) : undefined;
       if (nextHref) {
         const resolved = resolveUrl(nextHref, currentUrl);
-        if (readerChapterKey(resolved) !== chapterKey) break; // next chapter -> done
+        if (readerChapterKey(resolved) !== chapterKey) {
+          exhaustedSafety = false;
+          break; // next chapter -> done
+        }
         nextUrl = resolved;
-      } else if (curlTemplate && imageIndexReader && expectedNext <= totalPages) {
+      } else if (
+        curlTemplate &&
+        imageIndexReader &&
+        (totalImagePages === 0 || expectedNext <= totalImagePages)
+      ) {
         nextUrl = buildReaderPageUrl(curlTemplate, currentUrl || loadedUrl, expectedNext);
       } else {
+        exhaustedSafety = false;
         break; // no usable next link (e.g. read-manga sub-page without its link)
       }
 
@@ -968,6 +989,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           continue;
         }
         console.log(`[Mangago] next reader page ${nextUrl} already visited -> stop`);
+        exhaustedSafety = false;
         break;
       }
       visitedPaths.add(pathnameKey(nextUrl));
@@ -1012,15 +1034,18 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         currentHtml = "";
         if (++consecutiveFailures >= 3) {
           console.log(`[Mangago] 3 reader pages failed in a row -> stop`);
+          exhaustedSafety = false;
           break;
         }
       } else {
         console.log(`[Mangago] reader page ${nextUrl} failed and not skippable -> stop`);
+        exhaustedSafety = false;
         break;
       }
     }
+    if (exhaustedSafety) complete = false;
 
-    if (curlTemplate && totalPages > 0 && collectedCount() < totalPages) {
+    if (curlTemplate && totalImagePages > 0 && collectedCount() < totalImagePages) {
       const allowWindowFallback = imageIndexReader && collectedCount() === firstImages.length;
       console.log(
         `[Mangago] next_page walk only collected ${collectedCount()}/${totalPages}; trying direct curl crawl`,
@@ -1036,19 +1061,19 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         imageIndexReader ? Math.floor((missing - 1) / stride) * stride + 1 : missing;
       const markDirectTried = (start: number): void => {
         const windowSize = imageIndexReader ? stride : 1;
-        for (let page = start; page < start + windowSize && page <= totalPages; page++) {
+        for (let page = start; page < start + windowSize && page <= totalImagePages; page++) {
           directTriedSlots.add(page);
         }
       };
       const nextUntriedMissingPage = (): number | undefined => {
-        for (let page = 1; page <= totalPages; page++) {
+        for (let page = 1; page <= totalImagePages; page++) {
           if (!pageSlots.has(page) && !directTriedSlots.has(page)) return page;
         }
       };
 
       for (
         let missing = nextUntriedMissingPage();
-        missing !== undefined && collectedCount() < totalPages;
+        missing !== undefined && collectedCount() < totalImagePages;
         missing = nextUntriedMissingPage()
       ) {
         const page = fallbackStartFor(missing);
@@ -1072,7 +1097,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         visitedPaths.add(pathnameKey(result.url));
         const currentPage =
           extractCurrentReaderPage(result.html) ?? readerPagePosition(result.url) ?? page;
-        if (result.images.length >= totalPages) {
+        if (result.images.length >= totalImagePages) {
           addImagesAt(1, result.images, true);
         } else if (allowWindowFallback || currentPage === page) {
           addImagesAt(currentPage, result.images);
@@ -1081,32 +1106,35 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         console.log(
           `[Mangago] direct curl window ${page} -> current=${currentPage}, images=${
             result.images.filter(Boolean).length
-          }, collected=${collectedCount()}/${totalPages}`,
+          }, collected=${collectedCount()}/${totalImagePages}`,
         );
       }
     }
 
-    if (totalPages > 0) complete = collectedCount() >= totalPages;
+    if (totalImagePages > 0) complete = collectedCount() >= totalImagePages;
 
     console.log(
-      `[Mangago] multimode collected ${collectedCount()}/${totalPages} images (complete=${complete})`,
+      `[Mangago] multimode collected ${collectedCount()}/${
+        totalImagePages || "unknown"
+      } images (complete=${complete})`,
     );
     rawImages =
-      totalPages > 0
-        ? Array.from({ length: totalPages }, (_, index) => pageSlots.get(index + 1) ?? "").filter(
-            Boolean,
-          )
+      totalImagePages > 0
+        ? Array.from(
+            { length: totalImagePages },
+            (_, index) => pageSlots.get(index + 1) ?? "",
+          ).filter(Boolean)
         : [...pageSlots.entries()].sort(([a], [b]) => a - b).map(([, url]) => url);
   }
 
-  if (isMultimode && totalPages > 0 && rawImages.length < totalPages) {
+  if (isMultimode && totalImagePages > 0 && rawImages.length < totalImagePages) {
     // Returning the successfully decoded URLs is better than throwing here:
     // Paperback shows a blank loading spinner when getChapterDetails rejects,
     // while a partial list still opens the reader and allows the user to read
     // every window Mangago served. Partial results are deliberately not cached
     // below, so reopening the chapter retries the missing windows.
     console.log(
-      `[Mangago] returning partial multimode chapter: collected ${rawImages.length}/${totalPages} images`,
+      `[Mangago] returning partial multimode chapter: collected ${rawImages.length}/${totalImagePages} images`,
     );
   }
 
