@@ -1145,7 +1145,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // that many images, treating the value as an image total would incorrectly
   // stop after the first 5-image window. In that case, leave the image total
   // open-ended and walk links until the site points at the next chapter.
+  // If page 1 already decoded the full chapter (its image count reaches
+  // total_pages), this is a single-page reader regardless of the next_page link.
+  // read-manga "pg-N" readers ship EVERY image on every pg- page and only
+  // paginate the UI, so the next-link/same-chapter heuristic would otherwise
+  // misclassify them as multimode and trigger a pointless walk that re-fetches
+  // identical full pages (slow, and never cached because it makes no progress).
+  const pageOneHasAllImages = totalPages > 0 && firstImages.length >= totalPages;
   const isMultimode =
+    !pageOneHasAllImages &&
     (!!curlTemplate || !!nextPageHref) &&
     (multimodeFlag === "1" ||
       nextPageSameChapter ||
