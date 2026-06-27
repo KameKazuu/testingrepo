@@ -128,10 +128,11 @@ function readerHeadersForUrl(url: string): {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    // Lazy multimode pages arrive as "mglazy:<readerPageUrl>" placeholders (see
-    // utils.ts). Resolve the placeholder to the real image URL by fetching just
-    // that one reader page, then let the request proceed to the actual image so
-    // interceptResponse can descramble it from the "#desckey&cols" fragment.
+    // Lazy multimode pages arrive as placeholder URLs (the real reader-page URL
+    // plus a "?mglazy=1" marker; see utils.ts). Resolve the placeholder to the
+    // real image URL by fetching just that one reader page, then let the request
+    // proceed to the actual image so interceptResponse can descramble it from the
+    // "#desckey&cols" fragment.
     if (isLazyPlaceholder(request.url)) {
       try {
         const realUrl = await resolveMangagoLazyPage(request.url);
