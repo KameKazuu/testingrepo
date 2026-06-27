@@ -434,6 +434,7 @@ function decodeImgsrcsBlob(
   deobfChapterJs: string,
   keyHex: string,
   ivHex: string,
+  keepBlanks = false,
 ): Promise<string[]> {
   const encrypted = base64ToArrayBuffer(imgsrcsRaw);
 
@@ -453,10 +454,8 @@ function decodeImgsrcsBlob(
 
     const imageList = unscrambleImageList(decryptedText, deobfChapterJs);
 
-    return imageList
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
+    const images = imageList.split(",").map((x) => x.trim());
+    return keepBlanks ? images : images.filter(Boolean);
   });
 }
 
@@ -488,9 +487,32 @@ function annotateImageUrl(rawUrl: string, deobfChapterJs: string, cols: number):
 }
 
 function extractTotalPages(html: string): number {
-  const match = /total_pages\s*=\s*(\d+)/.exec(html);
-  const value = match ? Number(match[1]) : 0;
-  return Number.isFinite(value) && value > 0 ? value : 0;
+  const candidates = [
+    /total_pages\s*=\s*["']?(\d+)/.exec(html)?.[1],
+    /class=["'][^"']*multi_pg_tip[^"']*["'][^>]*>\s*\(\s*\d+\s*\/\s*(\d+)\s*\)/i.exec(html)?.[1],
+    /page\s+\d+\s+of\s+(\d+)/i.exec(html)?.[1],
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate ? Number(candidate) : 0;
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  return 0;
+}
+
+function extractCurrentReaderPage(html: string): number | undefined {
+  const candidates = [
+    /current_page\s*=\s*["']?(\d+)/.exec(html)?.[1],
+    /class=["'][^"']*multi_pg_tip[^"']*["'][^>]*>\s*\(\s*(\d+)\s*\/\s*\d+\s*\)/i.exec(html)?.[1],
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate ? Number(candidate) : 0;
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  return undefined;
 }
 
 // The reader-page URL template, e.g. "/chapter/35134/2096487/{page}/".
@@ -706,8 +728,14 @@ async function fetchReaderPage(
           cacheReaderHtml(pageUrl, html);
           return { html, url, origin };
         }
+        console.log(`[Mangago] ${url} returned HTML but no imgsrcs`);
       } catch (error) {
         if (error instanceof CloudflareError) cloudflareError = error;
+        console.log(
+          `[Mangago] reader fetch failed ${url}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
         // Otherwise try the next mirror.
       }
     }
@@ -721,6 +749,26 @@ async function fetchReaderPage(
   if (cloudflareError) throw cloudflareError;
 
   return undefined;
+}
+
+async function decodeReaderPageImages(
+  pageUrl: string,
+  preferredOrigin: string | undefined,
+  deobfChapterJs: string,
+  keyHex: string,
+  ivHex: string,
+  keepBlanks = false,
+): Promise<{ images: string[]; html: string; url: string; origin: string } | undefined> {
+  const result = await fetchReaderPage(pageUrl, preferredOrigin);
+  if (!result) return undefined;
+
+  const imgsrcs = extractImgsrcsFromHtml(result.html);
+  if (!imgsrcs) return undefined;
+
+  const images = await decodeImgsrcsBlob(imgsrcs, deobfChapterJs, keyHex, ivHex, keepBlanks);
+  if (!images.some(Boolean)) return undefined;
+
+  return { ...result, images };
 }
 
 export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> {
@@ -804,9 +852,8 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // A multimode reader holds only a slice of the chapter on page 1; the rest
   // live on the following reader pages reachable via the next_page link.
   const isMultimode =
-    totalPages > 1 &&
-    (multimodeFlag === "1" || firstImages.length < totalPages) &&
-    (!!curlTemplate || !!nextPageHref);
+    (!!curlTemplate || !!nextPageHref) &&
+    (multimodeFlag === "1" || (totalPages > 0 && firstImages.length < totalPages));
 
   let rawImages: string[];
   let complete = true;
@@ -819,21 +866,34 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       `[Mangago] multimode path -> walking reader pages (page 1 already loaded, total images=${totalPages})`,
     );
 
-    const merged: string[] = [];
+    const pageSlots = new Map<number, string>();
     const seen = new Set<string>();
-    const addImages = (imgs: string[]): number => {
+    const addImagesAt = (startPage: number, imgs: string[], positional = false): number => {
       let added = 0;
-      for (const img of imgs) {
-        if (!seen.has(img)) {
-          seen.add(img);
-          merged.push(img);
-          added++;
-        }
-      }
+      imgs.forEach((img, index) => {
+        const clean = img.trim();
+        if (!clean || seen.has(clean)) return;
+
+        const page = positional ? index + 1 : startPage + index;
+        if (page < 1 || (totalPages > 0 && page > totalPages)) return;
+
+        seen.add(clean);
+        pageSlots.set(page, clean);
+        added++;
+      });
       return added;
     };
+    const collectedCount = (): number => pageSlots.size;
+    const nextMissingPage = (): number => {
+      if (totalPages > 0) {
+        for (let page = 1; page <= totalPages; page++) {
+          if (!pageSlots.has(page)) return page;
+        }
+      }
+      return collectedCount() + 1;
+    };
 
-    addImages(firstImages);
+    addImagesAt(extractCurrentReaderPage(html) ?? 1, firstImages);
 
     // Follow the last successful reader page's own next_page link (exact, and it
     // handles variable window sizes and stops naturally when the link crosses
@@ -855,12 +915,12 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     let preferredOrigin = originOf(loadedUrl);
     let currentHtml = html; // HTML of the last reader page fetched successfully
     let currentUrl = loadedUrl;
-    let expectedNext = merged.length + 1; // next image index still needed
+    let expectedNext = nextMissingPage(); // next image index still needed
     let consecutiveFailures = 0;
     let safety = totalPages + 10;
 
     while (safety-- > 0) {
-      if (totalPages > 0 && merged.length >= totalPages) break; // collected them all
+      if (totalPages > 0 && collectedCount() >= totalPages) break; // collected them all
 
       let nextUrl: string | undefined;
       const nextHref = currentHtml ? extractNextPageHref(currentHtml) : undefined;
@@ -889,20 +949,26 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       }
       visitedPaths.add(pathnameKey(nextUrl));
 
-      const result = await fetchReaderPage(nextUrl, preferredOrigin);
+      const result = await decodeReaderPageImages(
+        nextUrl,
+        preferredOrigin,
+        deobfChapterJs,
+        keyHex,
+        ivHex,
+      );
       let progressed = false;
-      if (result) {
-        const imgsrcs = extractImgsrcsFromHtml(result.html);
-        if (imgsrcs) {
-          const pageImages = await decodeImgsrcsBlob(imgsrcs, deobfChapterJs, keyHex, ivHex);
-          if (pageImages.length > 0 && addImages(pageImages) > 0) {
-            progressed = true;
-            preferredOrigin = result.origin;
-            currentHtml = result.html;
-            currentUrl = result.url;
-            expectedNext = merged.length + 1;
-          }
-        }
+      if (
+        result &&
+        addImagesAt(
+          extractCurrentReaderPage(result.html) ?? readerPagePosition(result.url) ?? expectedNext,
+          result.images,
+        ) > 0
+      ) {
+        progressed = true;
+        preferredOrigin = result.origin;
+        currentHtml = result.html;
+        currentUrl = result.url;
+        expectedNext = nextMissingPage();
       }
 
       if (progressed) {
@@ -931,12 +997,58 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       }
     }
 
-    if (totalPages > 0 && merged.length < totalPages) complete = false;
+    if (curlTemplate && totalPages > 0 && collectedCount() < totalPages) {
+      const allowWindowFallback = imageIndexReader && collectedCount() === firstImages.length;
+      console.log(
+        `[Mangago] next_page walk only collected ${collectedCount()}/${totalPages}; trying direct curl crawl`,
+      );
+
+      for (let page = 2; page <= totalPages && collectedCount() < totalPages; page++) {
+        const fallbackUrl = buildReaderPageUrl(curlTemplate, loadedUrl, page, nextPageHref);
+        if (visitedPaths.has(pathnameKey(fallbackUrl))) continue;
+        visitedPaths.add(pathnameKey(fallbackUrl));
+
+        const result = await decodeReaderPageImages(
+          fallbackUrl,
+          preferredOrigin,
+          deobfChapterJs,
+          keyHex,
+          ivHex,
+          true,
+        );
+        if (!result) {
+          console.log(`[Mangago] direct curl page ${page} failed: ${fallbackUrl}`);
+          continue;
+        }
+
+        preferredOrigin = result.origin;
+        const currentPage =
+          extractCurrentReaderPage(result.html) ?? readerPagePosition(result.url) ?? page;
+        if (result.images.length >= totalPages) {
+          addImagesAt(1, result.images, true);
+        } else if (allowWindowFallback || currentPage === page) {
+          addImagesAt(currentPage, result.images);
+        }
+      }
+    }
+
+    if (totalPages > 0 && collectedCount() < totalPages) complete = false;
 
     console.log(
-      `[Mangago] multimode collected ${merged.length}/${totalPages} images (complete=${complete})`,
+      `[Mangago] multimode collected ${collectedCount()}/${totalPages} images (complete=${complete})`,
     );
-    rawImages = merged;
+    rawImages =
+      totalPages > 0
+        ? Array.from({ length: totalPages }, (_, index) => pageSlots.get(index + 1) ?? "").filter(
+            Boolean,
+          )
+        : [...pageSlots.entries()].sort(([a], [b]) => a - b).map(([, url]) => url);
+  }
+
+  if (isMultimode && totalPages > 0 && rawImages.length < totalPages) {
+    throw new Error(
+      `[Mangago] incomplete multimode chapter: collected ${rawImages.length}/${totalPages} images`,
+    );
   }
 
   const pages = rawImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
