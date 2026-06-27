@@ -9,6 +9,14 @@ import { fetchText } from "./network";
 const mangagoPageUrlsCache = new Map<string, string[]>();
 const chapterJsCache = new Map<string, string>();
 
+// Persistent (cross-launch) cache for the deobfuscated chapter.js, keyed by its
+// versioned URL (".../chapter.js?895"). The in-memory chapterJsCache above is
+// wiped on every app launch, so the first chapter opened each launch otherwise
+// re-downloads the ~91 KB script and re-runs sojsonV4Decode before the reader
+// can open. Persisting the already-deobfuscated result skips both. The key
+// includes the "?<version>", so a version bump auto-misses and refetches.
+const CHAPTER_JS_STATE_PREFIX = "mangago-chapterjs:";
+
 // ── CachedRequests-style dedup for reader-page HTML (keyed mirror-independently
 //    by path, short TTL). mangago throttles request bursts, and an incomplete
 //    chapter is re-walked on re-open (we deliberately don't cache partial page
@@ -626,13 +634,54 @@ function extractImgsrcsFromHtml(html: string): string | undefined {
   return imgsrcsScript ? extractImgsrcs(imgsrcsScript) : undefined;
 }
 
+// Validate a deobfuscated chapter.js before trusting it — especially one read
+// back from persistent state, which could be truncated or stale. Require every
+// marker the decode pipeline needs: the AES key/iv, the column count, and the
+// renImg / "key = key.split(" markers getDescramblingKey parses. If any is
+// missing, the caller refetches instead of silently breaking decode/descramble.
+function isUsableDeobfChapterJs(js: unknown): js is string {
+  return (
+    typeof js === "string" &&
+    js.length > 1000 &&
+    !!findHexEncodedVariable(js, "key") &&
+    !!findHexEncodedVariable(js, "iv") &&
+    findCols(js) > 0 &&
+    js.includes("var renImg = function(img,width,height,id){") &&
+    js.includes("key = key.split(")
+  );
+}
+
 async function getCachedDeobfChapterJs(chapterJsUrl: string): Promise<string> {
   const cached = chapterJsCache.get(chapterJsUrl);
   if (cached) return cached;
 
+  // Persistent cache (survives app launches), keyed by the versioned script URL.
+  // A version bump changes the key, so a stale script can't be re-served.
+  const stateKey = `${CHAPTER_JS_STATE_PREFIX}${chapterJsUrl}`;
+  try {
+    const persisted = Application.getState(stateKey);
+    if (isUsableDeobfChapterJs(persisted)) {
+      chapterJsCache.set(chapterJsUrl, persisted);
+      return persisted;
+    }
+  } catch {
+    // State read is only an optimization; fall through to fetch.
+  }
+
   const obfuscatedChapterJs = await fetchText(chapterJsUrl);
   const deobf = sojsonV4Decode(obfuscatedChapterJs);
   chapterJsCache.set(chapterJsUrl, deobf);
+
+  // Only persist a value we've validated, so a bad decode is never frozen into
+  // state and re-served on the next launch.
+  if (isUsableDeobfChapterJs(deobf)) {
+    try {
+      Application.setState(deobf, stateKey);
+    } catch {
+      // Persisting is an optimization; ignore storage failures.
+    }
+  }
+
   return deobf;
 }
 
@@ -1081,7 +1130,12 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     }
 
     try {
-      await paceReaderFetch();
+      // No paceReaderFetch() here: this is the single initial chapter-page fetch
+      // (at most one request per mirror), not the reader sub-page burst. The
+      // 350 ms pace would just add latency to every chapter open; the
+      // BasicRateLimiter (5/s) still guards against bursts. The pace is kept
+      // where it matters — inside fetchReaderPage (walk + lazy sub-page
+      // resolution), which is what the burst-truncation fix relies on.
       const attempt = await fetchText(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
