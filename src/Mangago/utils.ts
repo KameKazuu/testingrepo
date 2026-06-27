@@ -19,6 +19,18 @@ const chapterJsCache = new Map<string, string>();
 const READER_HTML_TTL_MS = 5 * 60 * 1000;
 const readerHtmlCache = new Map<string, { html: string; expires: number }>();
 
+const READER_FETCH_MIN_INTERVAL_MS = 350;
+let lastReaderFetchAt = 0;
+
+async function paceReaderFetch(): Promise<void> {
+  const now = Date.now();
+  const waitMs = READER_FETCH_MIN_INTERVAL_MS - (now - lastReaderFetchAt);
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  lastReaderFetchAt = Date.now();
+}
+
 function pathnameKey(url: string): string {
   try {
     return new URL(url).pathname;
@@ -728,6 +740,7 @@ async function fetchReaderPage(
     for (const origin of origins) {
       const url = withMirror(pageUrl, origin);
       try {
+        await paceReaderFetch();
         const html = await fetchText(url, {
           "user-agent": DESKTOP_USER_AGENT,
           cookie: "_m_superu=1",
@@ -807,6 +820,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     }
 
     try {
+      await paceReaderFetch();
       const attempt = await fetchText(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
