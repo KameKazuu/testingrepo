@@ -42,6 +42,7 @@ import {
   parseChapters,
   parseListings,
   parseMangaDetails,
+  parseZoneCarousel,
 } from "./parsers";
 import { getMangagoPageUrls } from "./utils";
 
@@ -53,6 +54,9 @@ type MangagoImplementation = Extension &
   SettingsFormProviding &
   CloudflareBypassRequestProviding;
 
+// These four carousels are sourced from the mangago.zone homepage / zone genre
+// pages (curated, manhwa-heavy "Top" lists), which are richer than the
+// mangago.me genre listings the other carousels use.
 const DISCOVER_ZONE_SECTION_IDS = new Set([
   "weeks_top",
   "months_top",
@@ -116,15 +120,16 @@ function buildGenreFilterUrl(
   return `${DOMAIN}/genre/${pathGenres}/${page}/?${params.join("&")}`;
 }
 
-function discoverItemLimit(sectionId: string): number {
+function discoverItemLimit(sectionId: string): number | undefined {
+  // Sections named "Top N" stay capped to that N by design.
   if (sectionId === "top_mystery") return 10;
   if (sectionId.startsWith("top_")) return 5;
-  if (sectionId === "weeks_top" || sectionId === "months_top") return 10;
 
-  // Discover carousels should be quick previews, not an endless paged browse.
-  // Loading every available page from several enabled sections at app startup
-  // makes the source feel slow and can trigger Mangago throttling.
-  return 20;
+  // Everything else (Featured, New Chapters, Popular, Week's/Month's Top)
+  // returns the whole page and keeps paginating on scroll instead of being
+  // truncated to a 20-item preview. Only one page is fetched up front; further
+  // pages load lazily as the user scrolls, so startup cost is unchanged.
+  return undefined;
 }
 
 function genreSlugFromTopSection(sectionId: string): string {
@@ -151,14 +156,21 @@ function buildDiscoverUrl(sectionId: string, page: number): string {
       return buildGenreUrl(domain, "all", page, "comment_count");
 
     case "weeks_top":
-      return buildGenreUrl(domain, "all", page, "week");
-
     case "months_top":
-      return buildGenreUrl(domain, "all", page, "month");
+      // Week's/Month's Top are homepage carousels on mangago.zone (no /genre/
+      // equivalent); parseZoneCarousel picks the right one out by heading.
+      return `${DISCOVER_DOMAIN}/`;
 
     default:
       if (sectionId.startsWith("top_")) {
-        return buildGenreUrl(domain, genreSlugFromTopSection(sectionId), page, "view");
+        const genre = genreSlugFromTopSection(sectionId);
+        if (DISCOVER_ZONE_SECTION_IDS.has(sectionId)) {
+          // Zone genre pages match on the title-cased genre (e.g. /genre/Supernatural/).
+          return `${DISCOVER_DOMAIN}/genre/${encodeURIComponent(
+            getGenreTitle(genre),
+          )}/${page}/?f=1&o=1&sortby=view`;
+        }
+        return buildGenreUrl(domain, genre, page, "view");
       }
 
       return buildGenreUrl(domain, "all", page, "view");
@@ -314,7 +326,24 @@ class MangagoExtension implements MangagoImplementation {
 
     const html = await fetchText(url);
     const limit = discoverItemLimit(sectionId);
-    const searchItems = parseListings(html).slice(0, limit);
+
+    // mangago.zone carousels use a title-less mobile layout that parseListings
+    // can't read; parseZoneCarousel handles those. Week's/Month's Top are
+    // homepage sections selected by heading, the zone genre tops are whole-page.
+    let parsed: ReturnType<typeof parseListings>;
+    if (sectionId === "weeks_top") {
+      parsed = parseZoneCarousel(html, /week'?s\s+top/i);
+    } else if (sectionId === "months_top") {
+      parsed = parseZoneCarousel(html, /month'?s\s+top/i);
+    } else if (DISCOVER_ZONE_SECTION_IDS.has(sectionId)) {
+      parsed = parseZoneCarousel(html);
+    } else {
+      parsed = parseListings(html);
+    }
+
+    // slice(0, undefined) returns the whole list, so uncapped sections keep
+    // every item on the page.
+    const searchItems = parsed.slice(0, limit);
 
     const items: DiscoverSectionItem[] = searchItems.map((item) => {
       if (discoverSectionType(sectionId) === DiscoverSectionType.featured) {
@@ -336,9 +365,13 @@ class MangagoExtension implements MangagoImplementation {
       };
     });
 
+    // Uncapped sections paginate: hand back the next page cursor whenever the
+    // fetched page advertises a next page. Capped "Top N" sections and the
+    // single-page zone homepage carousels (no pager) stop after one page.
     return {
       items,
-      metadata: undefined,
+      metadata:
+        limit === undefined && hasNextPage(html) ? { ...metadata, page: page + 1 } : undefined,
     };
   }
 

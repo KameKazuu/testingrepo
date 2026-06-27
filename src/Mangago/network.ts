@@ -201,6 +201,13 @@ export class MangagoInterceptor extends PaperbackInterceptor {
       });
     }
 
+    // Only scrambled reader images live on the cspiclink host and need
+    // descrambling. Cover thumbnails (mangapicgallery) and every other plain
+    // image skip the descramble path — and, importantly, the per-image
+    // Application.getState lookup parseImageContext would otherwise do — so they
+    // return as fast as the network delivers them.
+    if (!request.url.includes("cspiclink")) return data;
+
     const context = parseImageContext(request.url);
 
     if (!context) return data;
