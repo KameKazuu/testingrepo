@@ -26,7 +26,6 @@ import {
 
 import { MangagoAdvancedSearchForm, MangagoSettingsForm } from "./forms";
 import {
-  DISCOVER_DOMAIN,
   DISCOVER_SECTION_OPTIONS,
   DOMAIN,
   GENRE_OPTIONS,
@@ -42,7 +41,6 @@ import {
   parseChapters,
   parseListings,
   parseMangaDetails,
-  parseZoneCarousel,
 } from "./parsers";
 import { getMangagoPageUrls } from "./utils";
 
@@ -54,15 +52,10 @@ type MangagoImplementation = Extension &
   SettingsFormProviding &
   CloudflareBypassRequestProviding;
 
-// These four carousels are sourced from the mangago.zone homepage / zone genre
-// pages (curated, manhwa-heavy "Top" lists), which are richer than the
-// mangago.me genre listings the other carousels use.
-const DISCOVER_ZONE_SECTION_IDS = new Set([
-  "weeks_top",
-  "months_top",
-  "top_supernatural",
-  "top_mystery",
-]);
+// These genre tops add the "Webtoons" tag so they list only manhwa/manhua,
+// mirroring mangago.zone's curated, manhwa-heavy "Top" carousels — but sourced
+// from mangago.me so the items carry titles.
+const MANHWA_TOP_SECTION_IDS = new Set(["top_supernatural", "top_mystery"]);
 
 const DISCOVER_SECTION_ALIASES: Record<string, string> = {
   popular: "popular_manga",
@@ -71,10 +64,6 @@ const DISCOVER_SECTION_ALIASES: Record<string, string> = {
 
 function normalizeDiscoverSectionId(sectionId: string): string {
   return DISCOVER_SECTION_ALIASES[sectionId] ?? sectionId;
-}
-
-function discoverDomainForSection(sectionId: string): string {
-  return DISCOVER_ZONE_SECTION_IDS.has(sectionId) ? DISCOVER_DOMAIN : DOMAIN;
 }
 
 function discoverSectionType(sectionId: string): DiscoverSectionType {
@@ -143,37 +132,30 @@ function buildGenreUrl(domain: string, genre: string, page: number, sortby?: str
 }
 
 function buildDiscoverUrl(sectionId: string, page: number): string {
-  const domain = discoverDomainForSection(sectionId);
-
   switch (sectionId) {
     case "featured_manga":
-      return buildGenreUrl(domain, "all", page, "view");
+      return buildGenreUrl(DOMAIN, "all", page, "view");
 
     case "new_chapters":
-      return buildGenreUrl(domain, "all", page, "update_date");
+      return buildGenreUrl(DOMAIN, "all", page, "update_date");
 
     case "popular_manga":
-      return buildGenreUrl(domain, "all", page, "comment_count");
-
-    case "weeks_top":
-    case "months_top":
-      // Week's/Month's Top are homepage carousels on mangago.zone (no /genre/
-      // equivalent); parseZoneCarousel picks the right one out by heading.
-      return `${DISCOVER_DOMAIN}/`;
+      return buildGenreUrl(DOMAIN, "all", page, "comment_count");
 
     default:
       if (sectionId.startsWith("top_")) {
         const genre = genreSlugFromTopSection(sectionId);
-        if (DISCOVER_ZONE_SECTION_IDS.has(sectionId)) {
-          // Zone genre pages match on the title-cased genre (e.g. /genre/Supernatural/).
-          return `${DISCOVER_DOMAIN}/genre/${encodeURIComponent(
-            getGenreTitle(genre),
+        if (MANHWA_TOP_SECTION_IDS.has(sectionId)) {
+          // mangago's genre filter ANDs comma-joined genres, so "<Genre>,Webtoons"
+          // restricts the genre top to manhwa/manhua (like mangago.zone's lists).
+          return `${DOMAIN}/genre/${encodeURIComponent(getGenreTitle(genre))},${encodeURIComponent(
+            "Webtoons",
           )}/${page}/?f=1&o=1&sortby=view`;
         }
-        return buildGenreUrl(domain, genre, page, "view");
+        return buildGenreUrl(DOMAIN, genre, page, "view");
       }
 
-      return buildGenreUrl(domain, "all", page, "view");
+      return buildGenreUrl(DOMAIN, "all", page, "view");
   }
 }
 
@@ -327,23 +309,9 @@ class MangagoExtension implements MangagoImplementation {
     const html = await fetchText(url);
     const limit = discoverItemLimit(sectionId);
 
-    // mangago.zone carousels use a title-less mobile layout that parseListings
-    // can't read; parseZoneCarousel handles those. Week's/Month's Top are
-    // homepage sections selected by heading, the zone genre tops are whole-page.
-    let parsed: ReturnType<typeof parseListings>;
-    if (sectionId === "weeks_top") {
-      parsed = parseZoneCarousel(html, /week'?s\s+top/i);
-    } else if (sectionId === "months_top") {
-      parsed = parseZoneCarousel(html, /month'?s\s+top/i);
-    } else if (DISCOVER_ZONE_SECTION_IDS.has(sectionId)) {
-      parsed = parseZoneCarousel(html);
-    } else {
-      parsed = parseListings(html);
-    }
-
     // slice(0, undefined) returns the whole list, so uncapped sections keep
     // every item on the page.
-    const searchItems = parsed.slice(0, limit);
+    const searchItems = parseListings(html).slice(0, limit);
 
     const items: DiscoverSectionItem[] = searchItems.map((item) => {
       if (discoverSectionType(sectionId) === DiscoverSectionType.featured) {

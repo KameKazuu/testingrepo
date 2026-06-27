@@ -9,6 +9,14 @@ import { fetchText } from "./network";
 const mangagoPageUrlsCache = new Map<string, string[]>();
 const chapterJsCache = new Map<string, string>();
 
+// Persistent (cross-launch) cache for the deobfuscated chapter.js, keyed by its
+// versioned URL (".../chapter.js?895"). The in-memory chapterJsCache above is
+// wiped on every app launch, so the first chapter opened each launch otherwise
+// re-downloads the ~91 KB script and re-runs sojsonV4Decode before the reader
+// can open. Persisting the already-deobfuscated result skips both. The key
+// includes the "?<version>", so a version bump auto-misses and refetches.
+const CHAPTER_JS_STATE_PREFIX = "mangago-chapterjs:";
+
 // ── CachedRequests-style dedup for reader-page HTML (keyed mirror-independently
 //    by path, short TTL). mangago throttles request bursts, and an incomplete
 //    chapter is re-walked on re-open (we deliberately don't cache partial page
@@ -626,13 +634,54 @@ function extractImgsrcsFromHtml(html: string): string | undefined {
   return imgsrcsScript ? extractImgsrcs(imgsrcsScript) : undefined;
 }
 
+// Validate a deobfuscated chapter.js before trusting it — especially one read
+// back from persistent state, which could be truncated or stale. Require every
+// marker the decode pipeline needs: the AES key/iv, the column count, and the
+// renImg / "key = key.split(" markers getDescramblingKey parses. If any is
+// missing, the caller refetches instead of silently breaking decode/descramble.
+function isUsableDeobfChapterJs(js: unknown): js is string {
+  return (
+    typeof js === "string" &&
+    js.length > 1000 &&
+    !!findHexEncodedVariable(js, "key") &&
+    !!findHexEncodedVariable(js, "iv") &&
+    findCols(js) > 0 &&
+    js.includes("var renImg = function(img,width,height,id){") &&
+    js.includes("key = key.split(")
+  );
+}
+
 async function getCachedDeobfChapterJs(chapterJsUrl: string): Promise<string> {
   const cached = chapterJsCache.get(chapterJsUrl);
   if (cached) return cached;
 
+  // Persistent cache (survives app launches), keyed by the versioned script URL.
+  // A version bump changes the key, so a stale script can't be re-served.
+  const stateKey = `${CHAPTER_JS_STATE_PREFIX}${chapterJsUrl}`;
+  try {
+    const persisted = Application.getState(stateKey);
+    if (isUsableDeobfChapterJs(persisted)) {
+      chapterJsCache.set(chapterJsUrl, persisted);
+      return persisted;
+    }
+  } catch {
+    // State read is only an optimization; fall through to fetch.
+  }
+
   const obfuscatedChapterJs = await fetchText(chapterJsUrl);
   const deobf = sojsonV4Decode(obfuscatedChapterJs);
   chapterJsCache.set(chapterJsUrl, deobf);
+
+  // Only persist a value we've validated, so a bad decode is never frozen into
+  // state and re-served on the next launch.
+  if (isUsableDeobfChapterJs(deobf)) {
+    try {
+      Application.setState(deobf, stateKey);
+    } catch {
+      // Persisting is an optimization; ignore storage failures.
+    }
+  }
+
   return deobf;
 }
 
@@ -826,8 +875,9 @@ async function decodeReaderPageImages(
 //
 // Instead we hand Paperback a complete page list immediately: positions covered
 // by page 1 are real image URLs, and every later position is a lightweight
-// placeholder ("mglazy:<readerPageUrl>"). When the reader scrolls to a
-// placeholder, interceptRequest calls resolveMangagoLazyPage(), which fetches
+// placeholder (the real reader-page URL plus a "?mglazy=1" marker). When the
+// reader scrolls to a placeholder, interceptRequest calls resolveMangagoLazyPage(),
+// which strips the marker, fetches
 // just that one reader page (with full mirror retry + backoff) and rewrites the
 // request to the real image URL. Each page is resolved independently and on
 // demand, so a single rotating host can no longer truncate the chapter, and the
@@ -839,7 +889,13 @@ async function decodeReaderPageImages(
 // satisfies its neighbours from cache (≈6 network fetches for a 32‑page
 // chapter, not 32).
 
-const LAZY_PLACEHOLDER_PREFIX = "mglazy:";
+// Lazy placeholders must be VALID http(s) URLs: Paperback's CookieStorageInterceptor
+// runs before ours and calls cookiesForUrl() on every page URL, which throws
+// "URL Hostname and Protocol are required" on a custom-scheme URL (the old
+// "mglazy:<url>" form had no hostname). So a placeholder is the real reader-page
+// URL with a marker query param; the cookie interceptor parses it happily, and our
+// interceptRequest detects the marker and rewrites it to the real image URL.
+const LAZY_MARKER_PARAM = "mglazy";
 
 type LazyChapterContext = {
   deobfChapterJs: string;
@@ -880,11 +936,18 @@ function readerBaseForLazy(url: string): string {
 
 function buildLazyPlaceholder(readerBaseUrl: string, position: number): string {
   const base = readerBaseUrl.endsWith("/") ? readerBaseUrl : `${readerBaseUrl}/`;
-  return `${LAZY_PLACEHOLDER_PREFIX}${base}${position}/`;
+  // Valid https URL (real reader page) + marker query param so the cookie
+  // interceptor can parse it; our interceptor strips the marker on resolve.
+  return `${base}${position}/?${LAZY_MARKER_PARAM}=1`;
 }
 
 export function isLazyPlaceholder(url: string): boolean {
-  return url.startsWith(LAZY_PLACEHOLDER_PREFIX);
+  return url.includes(`${LAZY_MARKER_PARAM}=1`);
+}
+
+// Strip the lazy marker to recover the real reader-page URL.
+function stripLazyMarker(url: string): string {
+  return url.replace(new RegExp(`[?&]${LAZY_MARKER_PARAM}=1\\b`), "").replace(/\?$/, "");
 }
 
 // Build a complete page list for a numeric multimode reader: page 1's images
@@ -975,16 +1038,14 @@ async function bootstrapLazyContext(
   return context;
 }
 
-// Resolve a single lazy placeholder ("mglazy:<readerPageUrl>") to the real,
-// annotated image URL. Called from interceptRequest. Fetches the one reader page
-// (mirror retry + backoff inside fetchReaderPage), decodes it, fills the whole
-// window in the cache, and returns the image for the requested position.
+// Resolve a single lazy placeholder (reader-page URL + marker query) to the
+// real, annotated image URL. Called from interceptRequest. Fetches the one
+// reader page (mirror retry + backoff inside fetchReaderPage), decodes it, fills
+// the whole window in the cache, and returns the image for the requested position.
 export async function resolveMangagoLazyPage(
   placeholderOrUrl: string,
 ): Promise<string | undefined> {
-  const pageUrl = placeholderOrUrl.startsWith(LAZY_PLACEHOLDER_PREFIX)
-    ? placeholderOrUrl.slice(LAZY_PLACEHOLDER_PREFIX.length)
-    : placeholderOrUrl;
+  const pageUrl = stripLazyMarker(placeholderOrUrl);
 
   const position = readerPagePosition(pageUrl);
   if (!position) {
@@ -1069,7 +1130,12 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     }
 
     try {
-      await paceReaderFetch();
+      // No paceReaderFetch() here: this is the single initial chapter-page fetch
+      // (at most one request per mirror), not the reader sub-page burst. The
+      // 350 ms pace would just add latency to every chapter open; the
+      // BasicRateLimiter (5/s) still guards against bursts. The pace is kept
+      // where it matters — inside fetchReaderPage (walk + lazy sub-page
+      // resolution), which is what the burst-truncation fix relies on.
       const attempt = await fetchText(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
@@ -1145,15 +1211,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // that many images, treating the value as an image total would incorrectly
   // stop after the first 5-image window. In that case, leave the image total
   // open-ended and walk links until the site points at the next chapter.
-  // If page 1 already decoded the full chapter (its image count reaches
-  // total_pages), this is a single-page reader regardless of the next_page link.
-  // read-manga "pg-N" readers ship EVERY image on every pg- page and only
-  // paginate the UI, so the next-link/same-chapter heuristic would otherwise
-  // misclassify them as multimode and trigger a pointless walk that re-fetches
-  // identical full pages (slow, and never cached because it makes no progress).
-  const pageOneHasAllImages = totalPages > 0 && firstImages.length >= totalPages;
   const isMultimode =
-    !pageOneHasAllImages &&
     (!!curlTemplate || !!nextPageHref) &&
     (multimodeFlag === "1" ||
       nextPageSameChapter ||

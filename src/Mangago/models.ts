@@ -1,6 +1,5 @@
 export const DOMAIN = "https://www.mangago.me";
 export const READER_DOMAIN = "https://www.mangago.zone";
-export const DISCOVER_DOMAIN = "https://www.mangago.zone";
 
 export const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
@@ -134,8 +133,6 @@ export const DISCOVER_SECTION_OPTIONS = [
   { id: "top_josei", title: "Josei Manga Top 5" },
   { id: "top_fantasy", title: "Fantasy Manga Top 5" },
   { id: "top_school_life", title: "School Life Manga Top 5" },
-  { id: "weeks_top", title: "Week's Top" },
-  { id: "months_top", title: "Month's Top" },
   { id: "top_supernatural", title: "Supernatural Manga Top 5" },
   { id: "top_mystery", title: "Mystery Manga Top 10" },
   { id: "genres", title: "Genres" },
