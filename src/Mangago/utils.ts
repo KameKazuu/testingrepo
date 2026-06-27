@@ -1224,9 +1224,28 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // rotated reader hosts mid-walk. read-manga "pg-N" readers (below) still use
   // the synchronous walk, which handles their variable, non-image-index windows.
   if (isMultimode && imageIndexTemplate && totalPages > firstImages.length) {
+    // The curl template is authoritative for the reader's URL structure (e.g.
+    // "/chapter/35134/2135160/{page}/"). When the chapter was fetched via a
+    // read-manga/pg-N URL (common for br_chapter user uploads) but the server
+    // responded with a /chapter/ numeric reader, loadedUrl still holds the
+    // read-manga path — making readerBaseForLazy, readerPagePosition, and
+    // readerChapterKey all produce wrong results. Derive the actual reader
+    // base from the curl template so every lazy placeholder, cache key, and
+    // position extraction works correctly.
+    let lazyBaseUrl = loadedUrl;
+    if (curlTemplate) {
+      const curlBase = curlTemplate.replace(/\{page\}\/?$/, "");
+      const resolved = resolveUrl(curlBase, loadedUrl);
+      // Only override if resolution produced a valid /chapter/ URL; keep
+      // loadedUrl for any edge case where the template resolves oddly.
+      if (resolved.includes("/chapter/")) {
+        lazyBaseUrl = resolved;
+      }
+    }
+
     return buildLazyPageList(
       chapterUrl,
-      loadedUrl,
+      lazyBaseUrl,
       firstImages,
       totalPages,
       deobfChapterJs,
