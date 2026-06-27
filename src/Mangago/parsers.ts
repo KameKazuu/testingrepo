@@ -388,60 +388,6 @@ export function parseListings(html: string): SearchResultItem[] {
   return items;
 }
 
-// mangago.zone carousels (homepage "Top" lists and zone /genre/ pages) use a
-// stripped mobile layout: each item is a <div class="updatesli"> with a
-// <a class="thm-effect" href=".../work/<id>/"> and a lazy <img data-src> cover,
-// but NO title/alt text (titles load via JS hover). The desktop parseListings
-// requires a title and would drop every item, so this keeps the title-less,
-// cover-only items the same way the site itself displays them.
-//
-// When `heading` is given (homepage), only the carousel under the matching <h2>
-// is parsed; otherwise (zone genre page) every result item on the page is used.
-export function parseZoneCarousel(html: string, heading?: RegExp): SearchResultItem[] {
-  const $ = cheerio.load(html);
-  const items: SearchResultItem[] = [];
-  const seen = new Set<string>();
-
-  const collect = ($scope: cheerio.Cheerio<any>): void => {
-    $scope.find(".updatesli").each((_, element) => {
-      const $item = $(element);
-      const $link = $item.find("a[href*='/work/'], a.thm-effect").first();
-      if ($link.length === 0) return;
-
-      const href = $link.attr("href") ?? "";
-      const mangaId = toPathname(href);
-      if (!mangaId || seen.has(mangaId)) return;
-
-      const $img = $item.find("img").first();
-      const imageUrl = absoluteUrl(
-        $img.attr("data-src") ??
-          $img.attr("data-cfsrc") ??
-          $img.attr("data-lazy-src") ??
-          $img.attr("src") ??
-          "",
-      );
-
-      const title = ($link.attr("title") ?? $img.attr("alt") ?? "").replace(/\s+/g, " ").trim();
-
-      seen.add(mangaId);
-      items.push({ mangaId, title, imageUrl });
-    });
-  };
-
-  if (heading) {
-    // The heading <h2> and its carousel share a section wrapper
-    // (h2 -> bold div -> section div that also holds the .pic_list).
-    const headingEl = $("h2")
-      .toArray()
-      .find((el) => heading.test($(el).text()));
-    if (headingEl) collect($(headingEl).parent().parent());
-  } else {
-    collect($("body"));
-  }
-
-  return items;
-}
-
 export function hasNextPage(html: string): boolean {
   const $ = cheerio.load(html);
 

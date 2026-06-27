@@ -134,8 +134,6 @@ export const DISCOVER_SECTION_OPTIONS = [
   { id: "top_josei", title: "Josei Manga Top 5" },
   { id: "top_fantasy", title: "Fantasy Manga Top 5" },
   { id: "top_school_life", title: "School Life Manga Top 5" },
-  { id: "weeks_top", title: "Week's Top" },
-  { id: "months_top", title: "Month's Top" },
   { id: "top_supernatural", title: "Supernatural Manga Top 5" },
   { id: "top_mystery", title: "Mystery Manga Top 10" },
   { id: "genres", title: "Genres" },
