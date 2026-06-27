@@ -885,6 +885,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const totalPages = extractTotalPages(html);
   const curlTemplate = usableCurlTemplate(extractCurlTemplate(html)) ?? extractPcurlTemplate(html);
   const nextPageHref = extractNextPageHref(html);
+  const firstPageChapterKey = readerChapterKey(loadedUrl);
+  const nextPageSameChapter = nextPageHref
+    ? readerChapterKey(resolveUrl(nextPageHref, loadedUrl)) === firstPageChapterKey
+    : false;
   const multimodeFlag = extractMultimode(html);
   const imageIndexTemplate = !!curlTemplate && isImageIndexTemplate(curlTemplate);
   const totalImagePages =
@@ -893,11 +897,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         ? 0
         : totalPages
       : 0;
+  const totalReaderPages =
+    curlTemplate && !imageIndexTemplate && totalPages > 0 && firstImages.length < totalPages
+      ? totalPages
+      : 0;
 
   console.log(
     `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} multimode=${
       multimodeFlag || "(none)"
-    } curl=${curlTemplate ?? "none"} next=${nextPageHref ?? "none"}`,
+    } curl=${curlTemplate ?? "none"} next=${nextPageHref ?? "none"} nextSameChapter=${nextPageSameChapter}`,
   );
 
   // A multimode reader holds only a slice of the chapter on page 1; the rest
@@ -911,7 +919,9 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // open-ended and walk links until the site points at the next chapter.
   const isMultimode =
     (!!curlTemplate || !!nextPageHref) &&
-    (multimodeFlag === "1" || (totalPages > 0 && firstImages.length < totalPages));
+    (multimodeFlag === "1" ||
+      nextPageSameChapter ||
+      (totalPages > 0 && firstImages.length < totalPages));
 
   let rawImages: string[];
   let complete = true;
@@ -961,7 +971,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     // chapter (gap-tolerant, like the MangaFox extension). read-manga "pg-N"
     // readers use the template's reader-page number instead, because each
     // pg-N window can contain several images (commonly 5).
-    const chapterKey = readerChapterKey(loadedUrl);
+    const chapterKey = firstPageChapterKey;
     // Pages already loaded/attempted, keyed mirror-independently by path, so the
     // walk only ever moves forward (a backward/duplicate link can't stall it).
     const visitedPaths = new Set<string>([pathnameKey(loadedUrl)]);
@@ -978,7 +988,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       ? nextMissingPage()
       : (extractCurrentReaderPage(html) ?? readMangaPagePosition(loadedUrl) ?? 1) + 1;
     let consecutiveFailures = 0;
-    let safety = (totalImagePages || totalPages || firstImages.length) + 10;
+    let safety = Math.max(totalImagePages, totalReaderPages, firstImages.length, 50) + 25;
     let exhaustedSafety = true;
 
     while (safety-- > 0) {
@@ -986,9 +996,9 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         exhaustedSafety = false;
         break; // collected them all
       }
-      if (!imageIndexReader && totalPages > 0 && expectedNext > totalPages) {
+      if (!imageIndexReader && totalReaderPages > 0 && expectedNext > totalReaderPages) {
         exhaustedSafety = false;
-        break; // visited every reader-page window
+        break; // visited every known reader-page window
       }
 
       let nextUrl: string | undefined;
@@ -1005,7 +1015,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         curlTemplate &&
         (imageIndexReader
           ? totalImagePages === 0 || expectedNext <= totalImagePages
-          : totalPages === 0 || expectedNext <= totalPages)
+          : totalReaderPages === 0 || expectedNext <= totalReaderPages)
       ) {
         nextUrl = buildReaderPageUrl(curlTemplate, currentUrl || loadedUrl, expectedNext);
       }
@@ -1025,7 +1035,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           complete = false;
           continue;
         }
-        if (curlTemplate && (totalPages === 0 || expectedNext <= totalPages)) {
+        if (curlTemplate && (totalReaderPages === 0 || expectedNext <= totalReaderPages)) {
           currentHtml = "";
           expectedNext++;
           complete = false;
@@ -1089,7 +1099,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           exhaustedSafety = false;
           break;
         }
-      } else if (curlTemplate && (totalPages === 0 || expectedNext < totalPages)) {
+      } else if (curlTemplate && (totalReaderPages === 0 || expectedNext < totalReaderPages)) {
         const skipTo = (readMangaPagePosition(nextUrl) ?? expectedNext) + 1;
         console.log(`[Mangago] reader page ${nextUrl} failed -> skip to reader page ${skipTo}`);
         expectedNext = skipTo;
