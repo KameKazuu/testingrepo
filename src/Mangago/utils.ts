@@ -1151,9 +1151,9 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-// Fetch the chapter HTML, trying the stable reader mirrors first. This avoids
-// letting mangago.me seed lazy placeholders for numeric reader pages, since
-// mangago.me currently 404s /chapter/<mid>/<cid>/<page>/ URLs.
+  // Fetch the chapter HTML, trying the stable reader mirrors first. This avoids
+  // letting mangago.me seed lazy placeholders for numeric reader pages, since
+  // mangago.me currently 404s /chapter/<mid>/<cid>/<page>/ URLs.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
