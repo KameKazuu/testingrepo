@@ -191,7 +191,7 @@ class MangagoExtension implements MangagoImplementation {
   // multimode walk fires a burst of reader sub-pages, so keep this low. Images
   // are exempt so the reader still loads pages at full speed.
   private rateLimiter = new BasicRateLimiter("mangago-rate-limiter", {
-    numberOfRequests: 2,
+    numberOfRequests: 1,
     bufferInterval: 1,
     ignoreImages: true,
   });
@@ -353,7 +353,10 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const chapterUrl = chapterUrlFromId(chapter.chapterId);
+    const originalChapterUrl = (
+      chapter as Chapter & { additionalInfo?: { originalChapterUrl?: string } }
+    ).additionalInfo?.originalChapterUrl;
+    const chapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
     const pages = await getMangagoPageUrls(chapterUrl);
 
     return {
