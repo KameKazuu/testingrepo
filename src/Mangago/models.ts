@@ -1,6 +1,5 @@
 export const DOMAIN = "https://www.mangago.me";
 export const READER_DOMAIN = "https://www.mangago.zone";
-export const DISCOVER_DOMAIN = "https://www.mangago.zone";
 
 export const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
