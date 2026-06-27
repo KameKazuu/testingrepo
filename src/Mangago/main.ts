@@ -116,12 +116,15 @@ function buildGenreFilterUrl(
   return `${DOMAIN}/genre/${pathGenres}/${page}/?${params.join("&")}`;
 }
 
-function discoverItemLimit(sectionId: string): number | undefined {
+function discoverItemLimit(sectionId: string): number {
   if (sectionId === "top_mystery") return 10;
   if (sectionId.startsWith("top_")) return 5;
   if (sectionId === "weeks_top" || sectionId === "months_top") return 10;
 
-  return undefined;
+  // Discover carousels should be quick previews, not an endless paged browse.
+  // Loading every available page from several enabled sections at app startup
+  // makes the source feel slow and can trigger Mangago throttling.
+  return 20;
 }
 
 function genreSlugFromTopSection(sectionId: string): string {
@@ -185,13 +188,12 @@ function sortingIdToMangagoSort(sortingOption?: SortingOption): string {
 class MangagoExtension implements MangagoImplementation {
   private interceptor = new MangagoInterceptor("mangago-interceptor");
 
-  // Mangago intermittently throttles bursts of reader requests, which truncates
-  // a chapter to page 1 ("random only 5 images"). keiyoushi/aidoku avoid this by
-  // rate-limiting the mangago host hard (keiyoushi uses 1 request/second). The
-  // multimode walk fires a burst of reader sub-pages, so keep this low. Images
-  // are exempt so the reader still loads pages at full speed.
+  // Keep a light global limiter for Mangago HTML/API traffic, but do not make
+  // the whole source crawl at reader speed. The previous 1 request/second limit
+  // serialized discover/search/detail requests and made covers/carousels appear
+  // stuck. Reader page walking has its own targeted pacing in utils.ts.
   private rateLimiter = new BasicRateLimiter("mangago-rate-limiter", {
-    numberOfRequests: 1,
+    numberOfRequests: 5,
     bufferInterval: 1,
     ignoreImages: true,
   });
@@ -336,7 +338,7 @@ class MangagoExtension implements MangagoImplementation {
 
     return {
       items,
-      metadata: limit === undefined && hasNextPage(html) ? { page: page + 1 } : undefined,
+      metadata: undefined,
     };
   }
 
