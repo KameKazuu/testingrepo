@@ -1004,24 +1004,33 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         `[Mangago] next_page walk only collected ${collectedCount()}/${totalPages}; trying direct curl crawl`,
       );
 
-      // Retry the exact missing page slots instead of blindly skipping URLs the
-      // next_page walk attempted. A transient failure on /6/ can leave pages
-      // 6-10 empty; if direct crawl treats that attempted URL as off-limits, it
-      // can still throw a 5/10 incomplete chapter even though /6/ now returns
-      // usable HTML.
-      const directTriedPages = new Set<number>();
+      // Retry missing slots by reader window. Numeric image-index URLs address a
+      // whole reader window, not an individual image page; a transient failure
+      // on /6/ can leave pages 6-10 empty, and retrying /7/, /8/, /9/, etc.
+      // just hammers non-existent windows. Non-image-index readers still use
+      // the exact missing page because their URLs are page-specific.
+      const directTriedSlots = new Set<number>();
+      const fallbackStartFor = (missing: number): number =>
+        imageIndexReader ? Math.floor((missing - 1) / stride) * stride + 1 : missing;
+      const markDirectTried = (start: number): void => {
+        const windowSize = imageIndexReader ? stride : 1;
+        for (let page = start; page < start + windowSize && page <= totalPages; page++) {
+          directTriedSlots.add(page);
+        }
+      };
       const nextUntriedMissingPage = (): number | undefined => {
         for (let page = 1; page <= totalPages; page++) {
-          if (!pageSlots.has(page) && !directTriedPages.has(page)) return page;
+          if (!pageSlots.has(page) && !directTriedSlots.has(page)) return page;
         }
       };
 
       for (
-        let page = nextUntriedMissingPage();
-        page !== undefined && collectedCount() < totalPages;
-        page = nextUntriedMissingPage()
+        let missing = nextUntriedMissingPage();
+        missing !== undefined && collectedCount() < totalPages;
+        missing = nextUntriedMissingPage()
       ) {
-        directTriedPages.add(page);
+        const page = fallbackStartFor(missing);
+        markDirectTried(page);
         const fallbackUrl = buildReaderPageUrl(curlTemplate, loadedUrl, page, nextPageHref);
 
         const result = await decodeReaderPageImages(
@@ -1033,7 +1042,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           true,
         );
         if (!result) {
-          console.log(`[Mangago] direct curl page ${page} failed: ${fallbackUrl}`);
+          console.log(`[Mangago] direct curl window ${page} failed: ${fallbackUrl}`);
           continue;
         }
 
@@ -1048,7 +1057,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
 
         console.log(
-          `[Mangago] direct curl page ${page} -> current=${currentPage}, images=${
+          `[Mangago] direct curl window ${page} -> current=${currentPage}, images=${
             result.images.filter(Boolean).length
           }, collected=${collectedCount()}/${totalPages}`,
         );
