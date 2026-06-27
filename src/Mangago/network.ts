@@ -92,12 +92,33 @@ function originForUrl(url: string): string {
   }
 }
 
+function isMangagoReaderHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host === "mangago.me" ||
+      host.endsWith(".mangago.me") ||
+      host === "mangago.zone" ||
+      host.endsWith(".mangago.zone") ||
+      host === "youhim.me" ||
+      host.endsWith(".youhim.me")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function readerHeadersForUrl(url: string): {
   referer: string;
   origin: string;
   "user-agent": string;
 } {
-  const origin = originForUrl(url);
+  // Reader HTML may come from any active Mangago mirror, so preserve that
+  // mirror in the headers for Cloudflare/canonical-host compatibility. Image
+  // CDN hosts, however, commonly expect the reader site as the referer instead
+  // of their own CDN origin, so keep those anchored to the primary Mangago
+  // domain.
+  const origin = isMangagoReaderHost(url) ? originForUrl(url) : DOMAIN;
   return {
     referer: `${origin}/`,
     origin,

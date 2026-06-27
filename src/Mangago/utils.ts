@@ -725,6 +725,7 @@ async function fetchReaderPage(
           cookie: "_m_superu=1",
         });
         if (extractImgsrcsFromHtml(html)) {
+          console.log(`[Mangago] reader fetch OK ${url}`);
           cacheReaderHtml(pageUrl, html);
           return { html, url, origin };
         }
@@ -1003,10 +1004,25 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         `[Mangago] next_page walk only collected ${collectedCount()}/${totalPages}; trying direct curl crawl`,
       );
 
-      for (let page = 2; page <= totalPages && collectedCount() < totalPages; page++) {
+      // Retry the exact missing page slots instead of blindly skipping URLs the
+      // next_page walk attempted. A transient failure on /6/ can leave pages
+      // 6-10 empty; if direct crawl treats that attempted URL as off-limits, it
+      // can still throw a 5/10 incomplete chapter even though /6/ now returns
+      // usable HTML.
+      const directTriedPages = new Set<number>();
+      const nextUntriedMissingPage = (): number | undefined => {
+        for (let page = 1; page <= totalPages; page++) {
+          if (!pageSlots.has(page) && !directTriedPages.has(page)) return page;
+        }
+      };
+
+      for (
+        let page = nextUntriedMissingPage();
+        page !== undefined && collectedCount() < totalPages;
+        page = nextUntriedMissingPage()
+      ) {
+        directTriedPages.add(page);
         const fallbackUrl = buildReaderPageUrl(curlTemplate, loadedUrl, page, nextPageHref);
-        if (visitedPaths.has(pathnameKey(fallbackUrl))) continue;
-        visitedPaths.add(pathnameKey(fallbackUrl));
 
         const result = await decodeReaderPageImages(
           fallbackUrl,
@@ -1022,6 +1038,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
 
         preferredOrigin = result.origin;
+        visitedPaths.add(pathnameKey(result.url));
         const currentPage =
           extractCurrentReaderPage(result.html) ?? readerPagePosition(result.url) ?? page;
         if (result.images.length >= totalPages) {
@@ -1029,10 +1046,16 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         } else if (allowWindowFallback || currentPage === page) {
           addImagesAt(currentPage, result.images);
         }
+
+        console.log(
+          `[Mangago] direct curl page ${page} -> current=${currentPage}, images=${
+            result.images.filter(Boolean).length
+          }, collected=${collectedCount()}/${totalPages}`,
+        );
       }
     }
 
-    if (totalPages > 0 && collectedCount() < totalPages) complete = false;
+    if (totalPages > 0) complete = collectedCount() >= totalPages;
 
     console.log(
       `[Mangago] multimode collected ${collectedCount()}/${totalPages} images (complete=${complete})`,
@@ -1055,7 +1078,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   // Only cache a result we believe is complete, so a partial/rate-limited run
   // is never frozen in the cache. Single-page is always complete; multimode is
-  // complete only if every reader page was fetched successfully.
+  // complete only if every expected page slot was filled, including by fallback.
   if (pages.length > 0 && complete) {
     mangagoPageUrlsCache.set(chapterUrl, pages);
   }
