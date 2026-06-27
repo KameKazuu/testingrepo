@@ -140,6 +140,14 @@ export class MangagoInterceptor extends PaperbackInterceptor {
           return {
             ...request,
             url: realUrl,
+            // Drop cookies on the rewrite. The placeholder is a mangago.zone
+            // reader URL, so the CookieStorageInterceptor (registered before
+            // this one) has already attached mangago/Cloudflare cookies to
+            // request.cookies. Without clearing them they'd ride the rewrite to
+            // the image CDN (cspiclink/mangapicgallery), which authenticates via
+            // the referer/origin headers below — not cookies — so the reader
+            // cookies are both unnecessary there and shouldn't leak cross-host.
+            cookies: {},
             headers: {
               ...request.headers,
               ...readerHeadersForUrl(realUrl),
