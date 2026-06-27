@@ -814,6 +814,234 @@ async function decodeReaderPageImages(
   return { ...result, images };
 }
 
+// ── Lazy per-page resolution (keiyoushi / MangaPlus pattern) ──────────────
+//
+// A numeric multimode reader ("/chapter/<mid>/<cid>/{page}/") only ships ONE
+// window of images in each reader page's `imgsrcs` (commonly 5). Page 1 holds
+// positions 1‑5, page /6/ holds 6‑10, and so on. The previous approach walked
+// every window synchronously inside getChapterDetails; that burst raced
+// Mangago's mid‑chapter host rotation (.zone ⇄ youhim.me) and silently dropped
+// the pages whose fetch happened to land on a rotating host — the chapter then
+// opened with only the first few images.
+//
+// Instead we hand Paperback a complete page list immediately: positions covered
+// by page 1 are real image URLs, and every later position is a lightweight
+// placeholder ("mglazy:<readerPageUrl>"). When the reader scrolls to a
+// placeholder, interceptRequest calls resolveMangagoLazyPage(), which fetches
+// just that one reader page (with full mirror retry + backoff) and rewrites the
+// request to the real image URL. Each page is resolved independently and on
+// demand, so a single rotating host can no longer truncate the chapter, and the
+// reader opens instantly instead of blocking on a multi‑page walk.
+//
+// Verified invariant (live, multiple titles): fetching reader page /N/ returns
+// a decoded list whose index N‑1 is exactly the image for position N, and the
+// same fetch fills the rest of that window — so resolving one placeholder
+// satisfies its neighbours from cache (≈6 network fetches for a 32‑page
+// chapter, not 32).
+
+const LAZY_PLACEHOLDER_PREFIX = "mglazy:";
+
+type LazyChapterContext = {
+  deobfChapterJs: string;
+  keyHex: string;
+  ivHex: string;
+  cols: number;
+  readerBaseUrl: string;
+  preferredOrigin?: string;
+};
+
+// chapterKey (e.g. "c:2093560") -> decode context, so a placeholder can be
+// resolved without re-deriving the AES key / chapter.js on every page.
+const lazyChapterContextCache = new Map<string, LazyChapterContext>();
+
+// "<chapterKey>#<position>" -> final annotated image URL. Filled whenever any
+// window is decoded, so neighbouring positions in the same window are cache hits.
+const lazyWindowCache = new Map<string, string>();
+
+function lazyWindowKey(chapterKey: string, position: number): string {
+  return `${chapterKey}#${position}`;
+}
+
+// Canonical reader base for a chapter URL: ".../chapter/<mid>/<cid>/" with any
+// trailing page position and query/hash stripped. Page 1 (no trailing position)
+// is returned unchanged apart from normalisation.
+function readerBaseForLazy(url: string): string {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    u.pathname = u.pathname.replace(/\/chapter\/(\d+)\/(\d+)\/\d+\/?$/, "/chapter/$1/$2/");
+    if (!u.pathname.endsWith("/")) u.pathname += "/";
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+function buildLazyPlaceholder(readerBaseUrl: string, position: number): string {
+  const base = readerBaseUrl.endsWith("/") ? readerBaseUrl : `${readerBaseUrl}/`;
+  return `${LAZY_PLACEHOLDER_PREFIX}${base}${position}/`;
+}
+
+export function isLazyPlaceholder(url: string): boolean {
+  return url.startsWith(LAZY_PLACEHOLDER_PREFIX);
+}
+
+// Build a complete page list for a numeric multimode reader: page 1's images
+// are real URLs, every later position is a placeholder resolved on demand.
+function buildLazyPageList(
+  chapterUrl: string,
+  loadedUrl: string,
+  firstImages: string[],
+  totalPages: number,
+  deobfChapterJs: string,
+  keyHex: string,
+  ivHex: string,
+  cols: number,
+): string[] {
+  const chapterKey = readerChapterKey(loadedUrl);
+  const readerBaseUrl = readerBaseForLazy(loadedUrl);
+
+  lazyChapterContextCache.set(chapterKey, {
+    deobfChapterJs,
+    keyHex,
+    ivHex,
+    cols,
+    readerBaseUrl,
+    preferredOrigin: originOf(loadedUrl),
+  });
+
+  // Pre-fill the window cache with page 1's images so those positions never
+  // need a network round-trip even if requested through the resolver.
+  firstImages.forEach((img, index) => {
+    if (img) {
+      lazyWindowCache.set(
+        lazyWindowKey(chapterKey, index + 1),
+        annotateImageUrl(img, deobfChapterJs, cols),
+      );
+    }
+  });
+
+  const pages: string[] = [];
+  for (let position = 1; position <= totalPages; position++) {
+    if (position <= firstImages.length && firstImages[position - 1]) {
+      pages.push(annotateImageUrl(firstImages[position - 1]!, deobfChapterJs, cols));
+    } else {
+      pages.push(buildLazyPlaceholder(readerBaseUrl, position));
+    }
+  }
+
+  console.log(
+    `[Mangago] lazy page list for ${chapterUrl}: ${firstImages.length} direct + ${
+      pages.length - firstImages.length
+    } lazy (total ${pages.length})`,
+  );
+
+  // The list is complete (every position has an entry); caching it avoids
+  // re-fetching page 1 on re-open. Placeholders still resolve lazily each time.
+  if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
+
+  return pages;
+}
+
+// Rebuild the decode context for a chapter from its reader base (page 1). Used
+// when a placeholder is resolved but the in-memory context was never populated
+// or has been evicted (e.g. the page list was served from cache after a
+// restart).
+async function bootstrapLazyContext(
+  chapterKey: string,
+  readerBaseUrl: string,
+): Promise<LazyChapterContext | undefined> {
+  const page1 = await fetchReaderPage(readerBaseUrl, undefined);
+  if (!page1) return undefined;
+
+  const chapterJsSrc = extractChapterJsUrl(page1.html);
+  if (!chapterJsSrc) return undefined;
+
+  const deobfChapterJs = await getCachedDeobfChapterJs(resolveUrl(chapterJsSrc, page1.url));
+  const keyHex = findHexEncodedVariable(deobfChapterJs, "key");
+  const ivHex = findHexEncodedVariable(deobfChapterJs, "iv");
+  if (!keyHex || !ivHex) return undefined;
+
+  const context: LazyChapterContext = {
+    deobfChapterJs,
+    keyHex,
+    ivHex,
+    cols: findCols(deobfChapterJs),
+    readerBaseUrl,
+    preferredOrigin: page1.origin || originOf(page1.url),
+  };
+  lazyChapterContextCache.set(chapterKey, context);
+  return context;
+}
+
+// Resolve a single lazy placeholder ("mglazy:<readerPageUrl>") to the real,
+// annotated image URL. Called from interceptRequest. Fetches the one reader page
+// (mirror retry + backoff inside fetchReaderPage), decodes it, fills the whole
+// window in the cache, and returns the image for the requested position.
+export async function resolveMangagoLazyPage(
+  placeholderOrUrl: string,
+): Promise<string | undefined> {
+  const pageUrl = placeholderOrUrl.startsWith(LAZY_PLACEHOLDER_PREFIX)
+    ? placeholderOrUrl.slice(LAZY_PLACEHOLDER_PREFIX.length)
+    : placeholderOrUrl;
+
+  const position = readerPagePosition(pageUrl);
+  if (!position) {
+    console.log(`[Mangago] lazy resolve: no position in ${pageUrl}`);
+    return undefined;
+  }
+
+  const chapterKey = readerChapterKey(pageUrl);
+
+  const cachedImage = lazyWindowCache.get(lazyWindowKey(chapterKey, position));
+  if (cachedImage) return cachedImage;
+
+  let context = lazyChapterContextCache.get(chapterKey);
+  if (!context) {
+    context = await bootstrapLazyContext(chapterKey, readerBaseForLazy(pageUrl));
+    if (!context) {
+      console.log(`[Mangago] lazy resolve: could not build context for ${pageUrl}`);
+      return undefined;
+    }
+  }
+
+  const result = await decodeReaderPageImages(
+    pageUrl,
+    context.preferredOrigin,
+    context.deobfChapterJs,
+    context.keyHex,
+    context.ivHex,
+    true, // keepBlanks: preserve positional indices (index i -> position i+1)
+  );
+
+  if (!result) {
+    console.log(`[Mangago] lazy resolve: reader page ${pageUrl} returned nothing`);
+    return undefined;
+  }
+
+  // Stick to whichever mirror served this page for subsequent windows.
+  context.preferredOrigin = result.origin || context.preferredOrigin;
+
+  // Fill the whole window so neighbouring positions are cache hits.
+  result.images.forEach((img, index) => {
+    const clean = img.trim();
+    if (!clean) return;
+    const key = lazyWindowKey(chapterKey, index + 1);
+    if (!lazyWindowCache.has(key)) {
+      lazyWindowCache.set(key, annotateImageUrl(clean, context!.deobfChapterJs, context!.cols));
+    }
+  });
+
+  const resolved = lazyWindowCache.get(lazyWindowKey(chapterKey, position));
+  if (resolved) return resolved;
+
+  // Fallback: the page came back but its own position was blank (shouldn't
+  // happen given the verified invariant). Use index position-1 directly if set.
+  const direct = result.images[position - 1];
+  return direct ? annotateImageUrl(direct.trim(), context.deobfChapterJs, context.cols) : undefined;
+}
+
 export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> {
   const cachedPages = mangagoPageUrlsCache.get(chapterUrl);
   if (cachedPages && cachedPages.length > 0) {
@@ -922,6 +1150,25 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     (multimodeFlag === "1" ||
       nextPageSameChapter ||
       (totalPages > 0 && firstImages.length < totalPages));
+
+  // Numeric image-index multimode reader ("/chapter/<mid>/<cid>/{page}/"): each
+  // reader page ships only one window of images, so resolve the remaining
+  // positions lazily (on scroll) instead of walking every window up front. This
+  // is the path that previously truncated to the first few images when Mangago
+  // rotated reader hosts mid-walk. read-manga "pg-N" readers (below) still use
+  // the synchronous walk, which handles their variable, non-image-index windows.
+  if (isMultimode && imageIndexTemplate && totalPages > firstImages.length) {
+    return buildLazyPageList(
+      chapterUrl,
+      loadedUrl,
+      firstImages,
+      totalPages,
+      deobfChapterJs,
+      keyHex,
+      ivHex,
+      cols,
+    );
+  }
 
   let rawImages: string[];
   let complete = true;
