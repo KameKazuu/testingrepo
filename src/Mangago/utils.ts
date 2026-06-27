@@ -1075,6 +1075,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   }
 
   const pages = rawImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
+  console.log(`[Mangago] returning ${pages.length} final page URLs for ${chapterUrl}`);
 
   // Only cache a result we believe is complete, so a partial/rate-limited run
   // is never frozen in the cache. Single-page is always complete; multimode is
