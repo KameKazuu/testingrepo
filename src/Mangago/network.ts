@@ -83,6 +83,28 @@ function parseImageContext(url: string): MangagoImageContext | null {
   return context;
 }
 
+function originForUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return DOMAIN;
+  }
+}
+
+function readerHeadersForUrl(url: string): {
+  referer: string;
+  origin: string;
+  "user-agent": string;
+} {
+  const origin = originForUrl(url);
+  return {
+    referer: `${origin}/`,
+    origin,
+    "user-agent": DESKTOP_USER_AGENT,
+  };
+}
+
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
     // NOTE: We intentionally do NOT downgrade underscore image hosts
@@ -103,9 +125,7 @@ export class MangagoInterceptor extends PaperbackInterceptor {
       ...request,
       headers: {
         ...request.headers,
-        referer: `${DOMAIN}/`,
-        origin: DOMAIN,
-        "user-agent": DESKTOP_USER_AGENT,
+        ...readerHeadersForUrl(request.url),
       },
     };
   }
@@ -121,9 +141,7 @@ export class MangagoInterceptor extends PaperbackInterceptor {
         url: request.url,
         method: request.method ?? "GET",
         headers: {
-          referer: `${DOMAIN}/`,
-          origin: DOMAIN,
-          "user-agent": DESKTOP_USER_AGENT,
+          ...readerHeadersForUrl(request.url),
         },
       });
     }
@@ -158,8 +176,7 @@ export async function fetchText(
     url,
     method: "GET",
     headers: {
-      referer: `${DOMAIN}/`,
-      "user-agent": DESKTOP_USER_AGENT,
+      ...readerHeadersForUrl(url),
       ...headers,
     },
   });
