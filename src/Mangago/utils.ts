@@ -105,6 +105,40 @@ function withMirror(url: string, mirror: string): string {
   }
 }
 
+function stableReaderMirror(): string {
+  return MANGAGO_READER_MIRRORS[0] ?? "https://www.mangago.zone";
+}
+
+function isBrokenNumericReaderHost(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+
+    return host === "mangago.me" || host.endsWith(".mangago.me");
+  } catch {
+    return false;
+  }
+}
+
+function safeNumericReaderUrl(url: string): string {
+  return isBrokenNumericReaderHost(url) ? withMirror(url, stableReaderMirror()) : url;
+}
+
+// Build reader-page candidates with the stable reader mirror first.
+//
+// Do not try the incoming chapter URL first. Some call paths can still hand us a
+// mangago.me chapter URL, and mangago.me currently 404s numeric reader sub-pages
+// like /chapter/<mid>/<cid>/6/. Put .zone first, then youhim.me, then .me.
+function readerCandidatesFor(url: string): string[] {
+  const candidates = MANGAGO_READER_MIRRORS.map((mirror) => withMirror(url, mirror));
+
+  if (!candidates.includes(url)) {
+    candidates.push(url);
+  }
+
+  return [...new Set(candidates)];
+}
+
 export function absoluteUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -935,9 +969,14 @@ function readerBaseForLazy(url: string): string {
 }
 
 function buildLazyPlaceholder(readerBaseUrl: string, position: number): string {
-  const base = readerBaseUrl.endsWith("/") ? readerBaseUrl : `${readerBaseUrl}/`;
+  const safeReaderBaseUrl = safeNumericReaderUrl(readerBaseUrl);
+  const base = safeReaderBaseUrl.endsWith("/") ? safeReaderBaseUrl : `${safeReaderBaseUrl}/`;
+
   // Valid https URL (real reader page) + marker query param so the cookie
   // interceptor can parse it; our interceptor strips the marker on resolve.
+  //
+  // If the reader base somehow came from mangago.me, force it to the stable
+  // reader mirror. Keep youhim.me untouched because it can be a valid mirror.
   return `${base}${position}/?${LAZY_MARKER_PARAM}=1`;
 }
 
@@ -1045,7 +1084,10 @@ async function bootstrapLazyContext(
 export async function resolveMangagoLazyPage(
   placeholderOrUrl: string,
 ): Promise<string | undefined> {
-  const pageUrl = stripLazyMarker(placeholderOrUrl);
+  // Normalize even stale cached placeholders before resolving. This protects
+  // users who already have mangago.me lazy placeholders in-memory/on-screen from
+  // falling through to the real network request and hitting Alamofire 404.
+  const pageUrl = safeNumericReaderUrl(stripLazyMarker(placeholderOrUrl));
 
   const position = readerPagePosition(pageUrl);
   if (!position) {
@@ -1109,14 +1151,14 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter HTML, trying the chapter's own host first and then the
-  // other mirrors only if it fails or returns no imgsrcs. On the normal path
-  // this is a single request, so it does not worsen rate limiting.
+// Fetch the chapter HTML, trying the stable reader mirrors first. This avoids
+// letting mangago.me seed lazy placeholders for numeric reader pages, since
+// mangago.me currently 404s /chapter/<mid>/<cid>/<page>/ URLs.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
-  const candidates = [chapterUrl, ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m))];
+  const candidates = readerCandidatesFor(chapterUrl);
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
