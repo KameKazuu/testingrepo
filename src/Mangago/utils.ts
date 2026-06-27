@@ -62,6 +62,11 @@ function readerPagePosition(url: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+function readMangaPagePosition(url: string): number | undefined {
+  const match = /\/pg-(\d+)\/?$/i.exec(pathnameKey(url));
+  return match ? Number(match[1]) : undefined;
+}
+
 // Reader mirrors in preference order. mangago.me is LAST: it currently 404s
 // every numeric reader page (/chapter/ID/CID/N/) even though it serves cover
 // and search pages fine, so for the reader walk we treat it as a last resort.
@@ -533,6 +538,22 @@ function extractCurlTemplate(html: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+// Some read-manga reader pages now ship an unusable curl value of "/" and put
+// the actual current page URL in the pcurl JavaScript variable instead. Turn
+// that concrete pg-N URL into the same {page} template the walker expects.
+function extractPcurlTemplate(html: string): string | undefined {
+  const match = /\bpcurl\s*=\s*["']([^"']*\/pg-)\d+(\/[^"']*)?["']/.exec(html);
+  if (!match?.[1]) return undefined;
+
+  return `${match[1]}{page}${match[2] ?? ""}`;
+}
+
+function usableCurlTemplate(template: string | undefined): string | undefined {
+  if (!template || !template.includes("{page}")) return undefined;
+
+  return template;
+}
+
 // The site's own multimode flag: `_multimode = "1"` for paginated readers
 // (page 1 holds only a slice of the chapter), `""` for single-page readers
 // (page 1 holds every image).
@@ -862,11 +883,16 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const firstImages = await decodeImgsrcsBlob(imgsrcsRaw, deobfChapterJs, keyHex, ivHex);
 
   const totalPages = extractTotalPages(html);
-  const curlTemplate = extractCurlTemplate(html);
+  const curlTemplate = usableCurlTemplate(extractCurlTemplate(html)) ?? extractPcurlTemplate(html);
   const nextPageHref = extractNextPageHref(html);
   const multimodeFlag = extractMultimode(html);
+  const imageIndexTemplate = !!curlTemplate && isImageIndexTemplate(curlTemplate);
   const totalImagePages =
-    multimodeFlag === "1" && totalPages > 0 && firstImages.length >= totalPages ? 0 : totalPages;
+    !curlTemplate || imageIndexTemplate
+      ? multimodeFlag === "1" && totalPages > 0 && firstImages.length >= totalPages
+        ? 0
+        : totalPages
+      : 0;
 
   console.log(
     `[Mangago] chapter ${chapterUrl} | firstImages=${firstImages.length} total_pages=${totalPages} multimode=${
@@ -933,7 +959,8 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     // image-index reader only — to the curl template at the next expected image
     // index and SKIP the failed window instead of dropping the rest of the
     // chapter (gap-tolerant, like the MangaFox extension). read-manga "pg-N"
-    // pages can't be advanced without their own link, so those still stop.
+    // readers use the template's reader-page number instead, because each
+    // pg-N window can contain several images (commonly 5).
     const chapterKey = readerChapterKey(loadedUrl);
     // Pages already loaded/attempted, keyed mirror-independently by path, so the
     // walk only ever moves forward (a backward/duplicate link can't stall it).
@@ -942,12 +969,14 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     // Window size = how many images page 1 carried; used to step past a failed
     // page on the numeric reader.
     const stride = Math.max(1, firstImages.length);
-    const imageIndexReader = !!curlTemplate && isImageIndexTemplate(curlTemplate);
+    const imageIndexReader = imageIndexTemplate;
 
     let preferredOrigin = originOf(loadedUrl);
     let currentHtml = html; // HTML of the last reader page fetched successfully
     let currentUrl = loadedUrl;
-    let expectedNext = nextMissingPage(); // next image index still needed
+    let expectedNext = imageIndexReader
+      ? nextMissingPage()
+      : (extractCurrentReaderPage(html) ?? readMangaPagePosition(loadedUrl) ?? 1) + 1;
     let consecutiveFailures = 0;
     let safety = (totalImagePages || totalPages || firstImages.length) + 10;
     let exhaustedSafety = true;
@@ -957,25 +986,33 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         exhaustedSafety = false;
         break; // collected them all
       }
+      if (!imageIndexReader && totalPages > 0 && expectedNext > totalPages) {
+        exhaustedSafety = false;
+        break; // visited every reader-page window
+      }
 
       let nextUrl: string | undefined;
       const nextHref = currentHtml ? extractNextPageHref(currentHtml) : undefined;
       if (nextHref) {
         const resolved = resolveUrl(nextHref, currentUrl);
-        if (readerChapterKey(resolved) !== chapterKey) {
-          exhaustedSafety = false;
-          break; // next chapter -> done
+        if (readerChapterKey(resolved) === chapterKey) {
+          nextUrl = resolved;
         }
-        nextUrl = resolved;
-      } else if (
+      }
+
+      if (
+        !nextUrl &&
         curlTemplate &&
-        imageIndexReader &&
-        (totalImagePages === 0 || expectedNext <= totalImagePages)
+        (imageIndexReader
+          ? totalImagePages === 0 || expectedNext <= totalImagePages
+          : totalPages === 0 || expectedNext <= totalPages)
       ) {
         nextUrl = buildReaderPageUrl(curlTemplate, currentUrl || loadedUrl, expectedNext);
-      } else {
+      }
+
+      if (!nextUrl) {
         exhaustedSafety = false;
-        break; // no usable next link (e.g. read-manga sub-page without its link)
+        break; // next chapter or no usable next link/template -> done
       }
 
       // Forward-only guard. If we've already loaded/tried this page, skip past it
@@ -985,6 +1022,12 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         if (imageIndexReader) {
           expectedNext = (readerPagePosition(nextUrl) ?? expectedNext) + stride;
           currentHtml = "";
+          complete = false;
+          continue;
+        }
+        if (curlTemplate && (totalPages === 0 || expectedNext <= totalPages)) {
+          currentHtml = "";
+          expectedNext++;
           complete = false;
           continue;
         }
@@ -1005,7 +1048,11 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       if (
         result &&
         addImagesAt(
-          extractCurrentReaderPage(result.html) ?? readerPagePosition(result.url) ?? expectedNext,
+          imageIndexReader
+            ? (extractCurrentReaderPage(result.html) ??
+                readerPagePosition(result.url) ??
+                expectedNext)
+            : collectedCount() + 1,
           result.images,
         ) > 0
       ) {
@@ -1013,7 +1060,11 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         preferredOrigin = result.origin;
         currentHtml = result.html;
         currentUrl = result.url;
-        expectedNext = nextMissingPage();
+        expectedNext = imageIndexReader
+          ? nextMissingPage()
+          : (extractCurrentReaderPage(result.html) ??
+              readMangaPagePosition(result.url) ??
+              expectedNext) + 1;
       }
 
       if (progressed) {
@@ -1024,12 +1075,23 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // This page failed (unavailable / no imgsrcs / decoded nothing / only
       // duplicates). On the numeric image-index reader, skip the failed window
       // and keep collecting the rest (gap-tolerant), bailing after a few
-      // failures in a row so a dead reader doesn't hammer every page. Other
-      // readers can't advance without this page's own link, so stop.
+      // failures in a row so a dead reader doesn't hammer every page. read-manga
+      // pg-N readers skip to the next reader window instead of confusing reader
+      // page numbers with image indexes.
       complete = false;
       if (imageIndexReader) {
         const skipTo = (readerPagePosition(nextUrl) ?? expectedNext) + stride;
         console.log(`[Mangago] reader page ${nextUrl} failed -> skip to image ${skipTo}`);
+        expectedNext = skipTo;
+        currentHtml = "";
+        if (++consecutiveFailures >= 3) {
+          console.log(`[Mangago] 3 reader pages failed in a row -> stop`);
+          exhaustedSafety = false;
+          break;
+        }
+      } else if (curlTemplate && (totalPages === 0 || expectedNext < totalPages)) {
+        const skipTo = (readMangaPagePosition(nextUrl) ?? expectedNext) + 1;
+        console.log(`[Mangago] reader page ${nextUrl} failed -> skip to reader page ${skipTo}`);
         expectedNext = skipTo;
         currentHtml = "";
         if (++consecutiveFailures >= 3) {
