@@ -1,15 +1,18 @@
 export const DOMAIN = "https://www.mangago.me";
 
-// Forced ONLY on reader pages and images — exactly like Aidoku's get_page_list,
-// where the desktop UA returns the COMPLETE read-manga page in one shot. The
-// manga-detail / chapter-list request gets NO UA override, so it inherits the
-// app's default UA (iOS = mobile) — again exactly like Aidoku, whose chapter-list
-// request sets no UA at all. mangago serves read-manga reader URLs
-// (/read-manga/<slug>/uu/<chapter>/pg-N/) to that default/mobile catalog, but the
-// legacy numeric /chapter/<mid>/<cid>/ URLs (which www.mangago.me 404s) to a
-// desktop catalog — which is why forcing desktop everywhere broke chapter lists.
+// Forced on reader pages and images, where the desktop UA returns the COMPLETE
+// read-manga page in one shot (exactly like Aidoku's get_page_list reader fetch).
 export const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+
+// Used for the manga-detail / chapter-list request. mangago serves the chapter
+// list as read-manga reader URLs to a MOBILE client and as the legacy numeric
+// /chapter/ URLs (404'd by www.mangago.me) to a desktop client. Aidoku/keiyoushi
+// get read-manga URLs because their iOS runtime's default UA is the iPhone UA;
+// we hardcode it because Application.getDefaultUserAgent() returns a DESKTOP UA
+// in this app, which produced numeric URLs and broke chapter loading.
+export const MOBILE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 
 export type MangagoSearchMetadata = {
   page?: number;
