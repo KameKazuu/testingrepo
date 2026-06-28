@@ -5,7 +5,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN, MOBILE_USER_AGENT, type MangagoImageContext } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -92,14 +92,14 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
-// The manga DETAIL page (/read-manga/<slug>/) — and only it — must be fetched
-// with the MOBILE user-agent so its chapter-list links come back as the
-// read-manga reader URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) that
-// www.mangago.me serves, instead of the legacy numeric /chapter/<mid>/<cid>/
-// URLs (served only by the old .zone mirror and 404'd by www.mangago.me).
-// Reader pages and images stay on the desktop UA, which returns the complete
-// read-manga page in one request.
-function usesMobileUa(url: string): boolean {
+// The manga DETAIL page (/read-manga/<slug>/) — and only it — must NOT have its
+// user-agent overridden, so it inherits the app's default UA (iOS = mobile),
+// exactly like Aidoku's chapter-list request (which sets no UA). mangago then
+// returns read-manga reader URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) instead
+// of the legacy numeric /chapter/<mid>/<cid>/ URLs (404'd by www.mangago.me).
+// Every other page (reader, search, images) gets the desktop UA, which returns
+// the complete read-manga page in one request.
+function isMangaDetailPage(url: string): boolean {
   try {
     const parsed = new URL(url, DOMAIN);
     const host = parsed.hostname.toLowerCase();
@@ -113,15 +113,14 @@ function usesMobileUa(url: string): boolean {
 function readerHeadersForUrl(url: string): {
   referer: string;
   origin: string;
-  "user-agent": string;
+  "user-agent"?: string;
 } {
-  // Everything now flows through www.mangago.me (no mirrors), so anchor the
-  // referer/origin to the canonical domain and pick the UA by page type.
-  return {
-    referer: `${DOMAIN}/`,
-    origin: DOMAIN,
-    "user-agent": usesMobileUa(url) ? MOBILE_USER_AGENT : DESKTOP_USER_AGENT,
-  };
+  // Everything flows through www.mangago.me (no mirrors), so anchor referer /
+  // origin to the canonical domain. Leave the manga-detail page's UA alone (so it
+  // inherits the default/mobile UA and returns read-manga URLs); force desktop
+  // everywhere else.
+  const base = { referer: `${DOMAIN}/`, origin: DOMAIN };
+  return isMangaDetailPage(url) ? base : { ...base, "user-agent": DESKTOP_USER_AGENT };
 }
 
 // Apply our headers (page-type UA via readerHeadersForUrl, referer/origin) and
