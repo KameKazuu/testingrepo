@@ -1,5 +1,11 @@
 export const DOMAIN = "https://www.mangago.me";
-export const READER_DOMAIN = "https://www.mangago.zone";
+// Single-host experiment: route the reader through www.mangago.me only, exactly
+// like Aidoku (which uses mangago.me for everything and serves complete page-1
+// read-manga chapters). The .zone mirror serves the legacy *windowed* numeric
+// reader (_multimode="1", ~5 images/window) which is what truncated chapters.
+// Mirrors (mangago.zone / youhim.me) are temporarily removed; if this breaks
+// any title, the next PR restores READER_DOMAIN = mangago.zone + the mirror list.
+export const READER_DOMAIN = "https://www.mangago.me";
 
 export const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";

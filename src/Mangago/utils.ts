@@ -1,7 +1,7 @@
 import { CloudflareError } from "@paperback/types";
 
 import { DESKTOP_USER_AGENT, DOMAIN } from "./models";
-import { fetchText } from "./network";
+import { fetchText, fetchTextWithUrl } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
 //    extension from refetching on every retry/re-open, which is the main
@@ -78,11 +78,11 @@ function readMangaPagePosition(url: string): number | undefined {
 // Reader mirrors in preference order. mangago.me is LAST: it currently 404s
 // every numeric reader page (/chapter/ID/CID/N/) even though it serves cover
 // and search pages fine, so for the reader walk we treat it as a last resort.
-const MANGAGO_READER_MIRRORS = [
-  "https://www.mangago.zone",
-  "https://www.youhim.me",
-  "https://www.mangago.me",
-];
+// Single-host experiment: www.mangago.me only (Aidoku's model). The .zone /
+// youhim.me mirrors are temporarily removed — .zone in particular served the
+// windowed numeric reader that truncated chapters. Restore them in a follow-up
+// PR if any title regresses.
+const MANGAGO_READER_MIRRORS = ["https://www.mangago.me"];
 
 function originOf(url: string): string | undefined {
   try {
@@ -869,19 +869,14 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter HTML, trying the canonical desktop site
-  // (www.mangago.me) FIRST. With the desktop UA + _m_superu=1 cookie we send
-  // everywhere, mangago.me serves the COMPLETE page-1 imgsrcs — this is exactly
+  // Fetch the chapter HTML from www.mangago.me only (single-host experiment).
+  // With the desktop UA + _m_superu=1 cookie we send everywhere, mangago.me
+  // serves the COMPLETE page-1 imgsrcs for read-manga readers — this is exactly
   // what Aidoku does (it only ever uses mangago.me) and why it never needs a
-  // windowed walk. The mirrors (mangago.zone / youhim.me) are tried only as a
-  // fallback when mangago.me fails, is Cloudflare-walled, or returns no
-  // imgsrcs; the zone reader in particular tends to serve the windowed
-  // (_multimode="1") variant, so preferring it was causing truncated chapters.
-  //
-  // NOTE: the numeric sub-page WALK below still prefers mangago.zone, because
-  // mangago.me 404s numeric /chapter/<id>/N/ sub-pages — that preference lives
-  // in MANGAGO_READER_MIRRORS and is unchanged. This reordering only affects the
-  // single initial chapter-page request. On the normal path that is one request.
+  // windowed walk. MANGAGO_READER_MIRRORS is currently mangago.me-only, so all
+  // candidates resolve to mangago.me; the .zone / youhim.me mirrors were removed
+  // because .zone served the windowed numeric reader that truncated chapters.
+  // (If a title regresses, the follow-up PR restores the mirror list.)
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
@@ -910,14 +905,18 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // BasicRateLimiter (5/s) still guards against bursts. The pace is kept
       // where it matters — inside fetchReaderPage (walk + lazy sub-page
       // resolution), which is what the burst-truncation fix relies on.
-      const attempt = await fetchText(candidate, {
+      const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
       });
       if (attempt.includes("imgsrcs")) {
         cacheReaderHtml(candidate, attempt);
         html = attempt;
-        loadedUrl = candidate;
+        // Use the FINAL URL (after any mangago.me numeric -> read-manga
+        // redirect) so the page walk keys off the reader page we actually
+        // landed on; otherwise same-chapter next_page links won't match the
+        // stale request URL and the walk stops after the first window.
+        loadedUrl = finalUrl;
         break;
       }
     } catch (error) {
