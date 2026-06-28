@@ -225,7 +225,7 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async handleRedirect(request: Request, _response: Response): Promise<Request> {
-    return await applyMangagoHeaders(request);
+    return applyMangagoHeaders(request);
   }
 
   async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {
