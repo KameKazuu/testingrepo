@@ -75,15 +75,6 @@ function readMangaPagePosition(url: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-// Reader mirrors in preference order. mangago.me is LAST: it currently 404s
-// every numeric reader page (/chapter/ID/CID/N/) even though it serves cover
-// and search pages fine, so for the reader walk we treat it as a last resort.
-// Single-host experiment: www.mangago.me only (Aidoku's model). The .zone /
-// youhim.me mirrors are temporarily removed — .zone in particular served the
-// windowed numeric reader that truncated chapters. Restore them in a follow-up
-// PR if any title regresses.
-const MANGAGO_READER_MIRRORS = ["https://www.mangago.me"];
-
 function originOf(url: string): string | undefined {
   try {
     const u = new URL(url);
@@ -791,7 +782,7 @@ async function fetchReaderPage(
   };
   pushOrigin(preferredOrigin);
   pushOrigin(originOf(pageUrl));
-  for (const mirror of MANGAGO_READER_MIRRORS) pushOrigin(originOf(mirror));
+  pushOrigin(DOMAIN);
 
   // Retry across a few rounds with a short backoff between them. The backoff is
   // a wait BETWEEN retries, NOT a fetch timeout: a reader page can transiently
@@ -869,23 +860,17 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter HTML from www.mangago.me only (single-host experiment).
-  // With the desktop UA + _m_superu=1 cookie we send everywhere, mangago.me
-  // serves the COMPLETE page-1 imgsrcs for read-manga readers — this is exactly
-  // what Aidoku does (it only ever uses mangago.me) and why it never needs a
-  // windowed walk. MANGAGO_READER_MIRRORS is currently mangago.me-only, so all
-  // candidates resolve to mangago.me; the .zone / youhim.me mirrors were removed
-  // because .zone served the windowed numeric reader that truncated chapters.
-  // (If a title regresses, the follow-up PR restores the mirror list.)
+  // Fetch the chapter HTML from www.mangago.me only — no mirrors. The chapter
+  // list is parsed with the mobile UA so these are read-manga reader URLs, which
+  // www.mangago.me serves directly (and, with the desktop UA + _m_superu=1 we
+  // send on the reader request, returns the COMPLETE page in one shot, exactly
+  // like Aidoku). Force the canonical host in case a stale .zone/youhim URL is
+  // still stored in the library.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
-  const candidates = [
-    withMirror(chapterUrl, DOMAIN),
-    chapterUrl,
-    ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m)),
-  ];
+  const candidates = [withMirror(chapterUrl, DOMAIN), chapterUrl];
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
