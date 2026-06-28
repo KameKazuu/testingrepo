@@ -92,13 +92,16 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
-// The manga DETAIL page (/read-manga/<slug>/) — and only it — must NOT have its
-// user-agent overridden, so it inherits the app's default UA (iOS = mobile),
-// exactly like Aidoku's chapter-list request (which sets no UA). mangago then
-// returns read-manga reader URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) instead
-// of the legacy numeric /chapter/<mid>/<cid>/ URLs (404'd by www.mangago.me).
-// Every other page (reader, search, images) gets the desktop UA, which returns
-// the complete read-manga page in one request.
+// The manga DETAIL page (/read-manga/<slug>/) — and only it — is fetched with
+// the app's DEFAULT user-agent (Application.getDefaultUserAgent(), the standard
+// Inkdex convention), which on iOS is the iPhone (mobile) UA. mangago returns
+// the read-manga reader URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) to that
+// mobile catalog, but the legacy numeric /chapter/<mid>/<cid>/ URLs (404'd by
+// www.mangago.me) to a desktop catalog. This matches Aidoku, whose chapter-list
+// request goes out with the iPhone default UA on the wire. NOTE: we must set the
+// default UA EXPLICITLY — merely omitting the header does not reliably yield the
+// mobile default. Every other page (reader, search, images) is forced to the
+// desktop UA, which returns the complete read-manga reader page in one request.
 function isMangaDetailPage(url: string): boolean {
   try {
     const parsed = new URL(url, DOMAIN);
@@ -110,17 +113,22 @@ function isMangaDetailPage(url: string): boolean {
   }
 }
 
-function readerHeadersForUrl(url: string): {
+async function readerHeadersForUrl(url: string): Promise<{
   referer: string;
   origin: string;
-  "user-agent"?: string;
-} {
+  "user-agent": string;
+}> {
   // Everything flows through www.mangago.me (no mirrors), so anchor referer /
-  // origin to the canonical domain. Leave the manga-detail page's UA alone (so it
-  // inherits the default/mobile UA and returns read-manga URLs); force desktop
-  // everywhere else.
-  const base = { referer: `${DOMAIN}/`, origin: DOMAIN };
-  return isMangaDetailPage(url) ? base : { ...base, "user-agent": DESKTOP_USER_AGENT };
+  // origin to the canonical domain. Use the default (mobile on iOS) UA on the
+  // manga-detail page so its chapter list comes back as read-manga URLs; force
+  // desktop everywhere else.
+  return {
+    referer: `${DOMAIN}/`,
+    origin: DOMAIN,
+    "user-agent": isMangaDetailPage(url)
+      ? await Application.getDefaultUserAgent()
+      : DESKTOP_USER_AGENT,
+  };
 }
 
 // Apply our headers (page-type UA via readerHeadersForUrl, referer/origin) and
@@ -140,12 +148,12 @@ function readerHeadersForUrl(url: string): {
 // get it; image CDN hosts (cspiclink, mangapicgallery) are excluded because
 // they don't need it and must not receive Mangago cookies (that leak
 // previously broke hotlinked images).
-export function applyMangagoHeaders(request: Request): Request {
+export async function applyMangagoHeaders(request: Request): Promise<Request> {
   return {
     ...request,
     headers: {
       ...request.headers,
-      ...readerHeadersForUrl(request.url),
+      ...(await readerHeadersForUrl(request.url)),
     },
     cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };
@@ -153,7 +161,7 @@ export function applyMangagoHeaders(request: Request): Request {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    return applyMangagoHeaders(request);
+    return await applyMangagoHeaders(request);
   }
 
   override async interceptResponse(
@@ -167,7 +175,7 @@ export class MangagoInterceptor extends PaperbackInterceptor {
         url: request.url,
         method: request.method ?? "GET",
         headers: {
-          ...readerHeadersForUrl(request.url),
+          ...(await readerHeadersForUrl(request.url)),
         },
       });
     }
@@ -221,7 +229,7 @@ export async function fetchTextWithUrl(
     url,
     method: "GET",
     headers: {
-      ...readerHeadersForUrl(url),
+      ...(await readerHeadersForUrl(url)),
       ...headers,
     },
   });
