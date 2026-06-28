@@ -943,8 +943,19 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
   const canonical = canonicalReaderUrl(chapterUrl);
+  // For a numeric reader, try BOTH mirrors regardless of which one `canonical`
+  // already points at. canonicalReaderUrl now preserves an existing mirror host
+  // (so a chapter stays on the mirror that served it), but that must not cost us
+  // the fallback: if the preferred mirror is momentarily down, the other mirror
+  // still serves the page. The `tried` set below dedupes, so listing both is
+  // free when canonical already equals one of them.
   const candidates = isNumericReaderPath(pathnameKey(canonical))
-    ? [canonical, withMirror(canonical, READER_MIRROR_FALLBACK), chapterUrl]
+    ? [
+        canonical,
+        withMirror(canonical, READER_MIRROR),
+        withMirror(canonical, READER_MIRROR_FALLBACK),
+        chapterUrl,
+      ]
     : [canonical, chapterUrl];
 
   for (const candidate of candidates) {
