@@ -661,6 +661,17 @@ function readerChapterKey(u: string): string {
   return path;
 }
 
+// Mangago's "not found" page returns HTTP 404 with a recognizable body. Detect
+// it so the walker can treat the page as DEFINITIVELY absent and stop retrying
+// it — a 404 is not a transient failure, so re-fetching it just hammers the site
+// (the repeated requests the rate limiter is wrongly blamed for).
+function isMangago404Page(html: string): boolean {
+  return (
+    /<title>\s*404\s*-\s*mangago\s*<\/title>/i.test(html) ||
+    /the page you have requested is not available/i.test(html)
+  );
+}
+
 function resolveUrl(url: string, baseUrl: string): string {
   try {
     return new URL(url, baseUrl).toString();
@@ -890,6 +901,11 @@ async function fetchReaderPage(
 
   const MAX_ROUNDS = 3;
   for (let round = 1; round <= MAX_ROUNDS; round++) {
+    // Did any origin fail in a way worth retrying (network blip, rate-limit, a
+    // non-404 empty page)? A definitive 404 is NOT retryable, so if every origin
+    // 404s we stop after this round instead of re-hammering the same dead page.
+    let sawRetryableFailure = false;
+
     for (const origin of origins) {
       const url = withMirror(pageUrl, origin);
       try {
@@ -903,9 +919,15 @@ async function fetchReaderPage(
           cacheReaderHtml(pageUrl, html);
           return { html, url, origin };
         }
-        console.log(`[Mangago] ${url} returned HTML but no imgsrcs`);
+        if (isMangago404Page(html)) {
+          console.log(`[Mangago] ${url} -> 404 page (not retrying)`);
+        } else {
+          sawRetryableFailure = true;
+          console.log(`[Mangago] ${url} returned HTML but no imgsrcs`);
+        }
       } catch (error) {
         if (error instanceof CloudflareError) cloudflareError = error;
+        sawRetryableFailure = true;
         console.log(
           `[Mangago] reader fetch failed ${url}: ${
             error instanceof Error ? error.message : String(error)
@@ -914,6 +936,10 @@ async function fetchReaderPage(
         // Otherwise try the next mirror.
       }
     }
+
+    // Every origin definitively 404'd this page — further rounds would just
+    // re-request a page the site will never serve. Give up now.
+    if (!sawRetryableFailure) break;
     if (round < MAX_ROUNDS) {
       await new Promise((resolve) => setTimeout(resolve, 400 * round));
     }
@@ -1335,6 +1361,11 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
       };
 
+      // Stop the fallback crawl after a few dead windows in a row. When a numeric
+      // reader is gone entirely, every window 404s; without this the crawl walks
+      // the whole chapter's worth of missing slots, which is the request storm
+      // the user sees. A working chapter only ever has a few transient gaps.
+      let crawlFailures = 0;
       for (
         let missing = nextUntriedMissingPage();
         missing !== undefined && collectedCount() < totalImagePages;
@@ -1354,8 +1385,13 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         );
         if (!result) {
           console.log(`[Mangago] direct curl window ${page} failed: ${fallbackUrl}`);
+          if (++crawlFailures >= 3) {
+            console.log(`[Mangago] 3 direct curl windows failed in a row -> stop crawl`);
+            break;
+          }
           continue;
         }
+        crawlFailures = 0;
 
         preferredOrigin = result.origin;
         visitedPaths.add(pathnameKey(result.url));
