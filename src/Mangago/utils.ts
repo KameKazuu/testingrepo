@@ -933,18 +933,32 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   const cols = findCols(deobfChapterJs);
 
-  // Decode page 1's imgsrcs POSITIONALLY (keep blanks). Mangago ships the full
-  // positional image list on every reader page, with blank entries for positions
-  // that belong to other windows. The presence of blanks is the authoritative
-  // "this is a windowed multimode reader" signal (this is exactly what keiyoushi
-  // and Aidoku key off of).
+  // Decode page 1's imgsrcs POSITIONALLY (keep blanks). Mangago commonly ships
+  // the full positional image list on page 1 (with blank entries for positions
+  // that belong to other windows), so the presence of blanks is one windowed
+  // signal — exactly what keiyoushi and Aidoku key off of.
   const firstPositional = await decodeImgsrcsBlob(imgsrcsRaw, deobfChapterJs, keyHex, ivHex, true);
   const firstImages = firstPositional.filter((url) => url.trim() !== "");
 
-  // Eager fast path: page 1 already holds the whole chapter (no blank slots), so
-  // return real image URLs directly — no walk, no placeholders. This is the
-  // common case and the entire strategy Aidoku uses, plus keiyoushi's fast path.
-  if (firstPositional.length > 0 && firstImages.length === firstPositional.length) {
+  // The site's own windowing flag is the SECOND, authoritative signal. Some
+  // numeric/.zone readers emit exactly one window's worth of real URLs with NO
+  // blank padding while total_pages is far larger, so "no blanks" alone would
+  // wrongly treat that single window as the whole chapter and return e.g. 5 of
+  // 83 images. `_multimode = "1"` means page 1 is only a slice regardless of
+  // blanks. (With the _m_superu=1 cookie + desktop UA we now send everywhere,
+  // most readers report `_multimode = ""` and serve the full list on page 1.)
+  const multimodeFlag = extractMultimode(html);
+
+  // Eager fast path: page 1 already holds the whole chapter — return the real
+  // image URLs directly, no walk, no placeholders. This is the common case and
+  // the entire strategy Aidoku uses, plus keiyoushi's fast path. Gate it on BOTH
+  // signals agreeing: the site does not flag the reader as windowed AND there
+  // are no blank slots. Anything else falls through to the eager walk below.
+  if (
+    multimodeFlag !== "1" &&
+    firstPositional.length > 0 &&
+    firstImages.length === firstPositional.length
+  ) {
     const pages = firstImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
     console.log(`[Mangago] page 1 complete -> ${pages.length} images (eager)`);
     if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
@@ -958,7 +972,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const nextPageSameChapter = nextPageHref
     ? readerChapterKey(resolveUrl(nextPageHref, loadedUrl)) === firstPageChapterKey
     : false;
-  const multimodeFlag = extractMultimode(html);
   const imageIndexTemplate = !!curlTemplate && isImageIndexTemplate(curlTemplate);
   const totalImagePages =
     !curlTemplate || imageIndexTemplate
