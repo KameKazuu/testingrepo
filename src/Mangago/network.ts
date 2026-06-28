@@ -5,7 +5,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN, MOBILE_USER_AGENT, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -83,26 +83,28 @@ function parseImageContext(url: string): MangagoImageContext | null {
   return context;
 }
 
-function originForUrl(url: string): string {
+function isMangagoHost(url: string): boolean {
   try {
-    const parsed = new URL(url);
-    return `${parsed.protocol}//${parsed.host}`;
+    const host = new URL(url, DOMAIN).hostname.toLowerCase();
+    return host === "mangago.me" || host.endsWith(".mangago.me");
   } catch {
-    return DOMAIN;
+    return false;
   }
 }
 
-function isMangagoReaderHost(url: string): boolean {
+// The manga DETAIL page (/read-manga/<slug>/) — and only it — must be fetched
+// with the MOBILE user-agent so its chapter-list links come back as the
+// read-manga reader URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) that
+// www.mangago.me serves, instead of the legacy numeric /chapter/<mid>/<cid>/
+// URLs (served only by the old .zone mirror and 404'd by www.mangago.me).
+// Reader pages and images stay on the desktop UA, which returns the complete
+// read-manga page in one request.
+function usesMobileUa(url: string): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    return (
-      host === "mangago.me" ||
-      host.endsWith(".mangago.me") ||
-      host === "mangago.zone" ||
-      host.endsWith(".mangago.zone") ||
-      host === "youhim.me" ||
-      host.endsWith(".youhim.me")
-    );
+    const parsed = new URL(url, DOMAIN);
+    const host = parsed.hostname.toLowerCase();
+    if (host !== "mangago.me" && !host.endsWith(".mangago.me")) return false;
+    return /^\/read-manga\/[^/]+\/?$/.test(parsed.pathname);
   } catch {
     return false;
   }
@@ -113,26 +115,19 @@ function readerHeadersForUrl(url: string): {
   origin: string;
   "user-agent": string;
 } {
-  // Reader HTML may come from any active Mangago mirror, so preserve that
-  // mirror in the headers for Cloudflare/canonical-host compatibility. Image
-  // CDN hosts, however, commonly expect the reader site as the referer instead
-  // of their own CDN origin, so keep those anchored to the primary Mangago
-  // domain.
-  const origin = isMangagoReaderHost(url) ? originForUrl(url) : DOMAIN;
+  // Everything now flows through www.mangago.me (no mirrors), so anchor the
+  // referer/origin to the canonical domain and pick the UA by page type.
   return {
-    referer: `${origin}/`,
-    origin,
-    "user-agent": DESKTOP_USER_AGENT,
+    referer: `${DOMAIN}/`,
+    origin: DOMAIN,
+    "user-agent": usesMobileUa(url) ? MOBILE_USER_AGENT : DESKTOP_USER_AGENT,
   };
 }
 
-// Force the DESKTOP user-agent (+ referer/origin) onto a request, and the
-// _m_superu=1 cookie onto reader-host requests. Shared by interceptRequest AND
-// the redirect handler so that a request keeps the desktop identity even after
-// mangago.me redirects it (e.g. a numeric /chapter/ URL canonicalized to the
-// /read-manga/ desktop reader — without this the redirect target could fall
-// back to the app's iPhone UA and mangago.me would serve a stripped/windowed
-// page).
+// Apply our headers (page-type UA via readerHeadersForUrl, referer/origin) and
+// the _m_superu=1 cookie to a www.mangago.me request. Shared by interceptRequest
+// AND the redirect handler so a request keeps these headers even after a
+// redirect (the app only runs interceptRequest on the initial request).
 //
 // NOTE: We intentionally do NOT downgrade underscore image hosts
 // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP. That workaround is
@@ -142,9 +137,10 @@ function readerHeadersForUrl(url: string): {
 //
 // The _m_superu=1 flag is merged into request.cookies (NOT overwritten) so it
 // sits alongside any Cloudflare-bypass cookies the CookieStorageInterceptor
-// injected — the map spread is purely additive. Image CDN hosts (cspiclink,
-// mangapicgallery) are excluded: they don't need it and must not receive
-// Mangago cookies (that leak previously broke hotlinked images).
+// injected — the map spread is purely additive. Only www.mangago.me requests
+// get it; image CDN hosts (cspiclink, mangapicgallery) are excluded because
+// they don't need it and must not receive Mangago cookies (that leak
+// previously broke hotlinked images).
 export function applyMangagoHeaders(request: Request): Request {
   return {
     ...request,
@@ -152,9 +148,7 @@ export function applyMangagoHeaders(request: Request): Request {
       ...request.headers,
       ...readerHeadersForUrl(request.url),
     },
-    cookies: isMangagoReaderHost(request.url)
-      ? { ...request.cookies, _m_superu: "1" }
-      : request.cookies,
+    cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };
 }
 
