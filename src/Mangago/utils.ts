@@ -1,6 +1,6 @@
 import { CloudflareError } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN } from "./models";
 import { fetchText } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
@@ -869,14 +869,28 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter HTML, trying the chapter's own host first and then the
-  // other mirrors only if it fails or returns no imgsrcs. On the normal path
-  // this is a single request, so it does not worsen rate limiting.
+  // Fetch the chapter HTML, trying the canonical desktop site
+  // (www.mangago.me) FIRST. With the desktop UA + _m_superu=1 cookie we send
+  // everywhere, mangago.me serves the COMPLETE page-1 imgsrcs — this is exactly
+  // what Aidoku does (it only ever uses mangago.me) and why it never needs a
+  // windowed walk. The mirrors (mangago.zone / youhim.me) are tried only as a
+  // fallback when mangago.me fails, is Cloudflare-walled, or returns no
+  // imgsrcs; the zone reader in particular tends to serve the windowed
+  // (_multimode="1") variant, so preferring it was causing truncated chapters.
+  //
+  // NOTE: the numeric sub-page WALK below still prefers mangago.zone, because
+  // mangago.me 404s numeric /chapter/<id>/N/ sub-pages — that preference lives
+  // in MANGAGO_READER_MIRRORS and is unchanged. This reordering only affects the
+  // single initial chapter-page request. On the normal path that is one request.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
-  const candidates = [chapterUrl, ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m))];
+  const candidates = [
+    withMirror(chapterUrl, DOMAIN),
+    chapterUrl,
+    ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m)),
+  ];
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
