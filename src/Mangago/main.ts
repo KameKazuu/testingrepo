@@ -390,20 +390,47 @@ class MangagoExtension implements MangagoImplementation {
     const originalChapterUrl = (
       chapter as Chapter & { additionalInfo?: { originalChapterUrl?: string } }
     ).additionalInfo?.originalChapterUrl;
-    let chapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
+    const initialChapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
 
     // Self-heal stale numeric chapter IDs. www.mangago.me only serves the
     // read-manga reader and 404s the legacy numeric /chapter/<mid>/<cid>/ reader,
     // so a library entry saved before the read-manga switch (numeric ID) would
     // 404 forever. Re-resolve it to the read-manga URL by matching this chapter
-    // in the manga's freshly parsed (mobile-UA) chapter list. New entries are
-    // already read-manga and skip this entirely.
+    // in the manga's freshly parsed chapter list. New entries are already
+    // read-manga and skip this entirely.
+    let chapterUrl = initialChapterUrl;
     if (isNumericChapterReaderUrl(chapterUrl)) {
       const resolved = await this.resolveReadMangaChapterUrl(chapter);
       if (resolved) chapterUrl = resolved;
     }
 
-    const pages = await getMangagoPageUrls(chapterUrl);
+    // Walk a reader URL but swallow non-Cloudflare failures so we can fall back
+    // to another candidate. A Cloudflare challenge still propagates so the app
+    // opens the bypass flow.
+    const softWalk = async (url: string): Promise<string[]> => {
+      try {
+        return await getMangagoPageUrls(url);
+      } catch (error) {
+        if (error instanceof CloudflareError) throw error;
+        return [];
+      }
+    };
+
+    let pages: string[];
+    if (chapterUrl !== initialChapterUrl) {
+      // We upgraded to the read-manga reader. Try it, but if it yields nothing,
+      // fall back to walking the ORIGINAL numeric reader directly — that path
+      // reliably returns at least page 1's images from the mirror hosts, so a
+      // chapter still opens instead of failing outright (the pre-upgrade
+      // behavior). The fallback is a hard walk so a real error (e.g. Cloudflare)
+      // still surfaces to the app rather than showing an empty reader.
+      pages = await softWalk(chapterUrl);
+      if (pages.length === 0) {
+        pages = await getMangagoPageUrls(initialChapterUrl);
+      }
+    } else {
+      pages = await getMangagoPageUrls(chapterUrl);
+    }
 
     return {
       id: chapter.chapterId,
