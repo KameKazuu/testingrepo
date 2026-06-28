@@ -8,7 +8,7 @@ import {
 } from "@paperback/types";
 import * as cheerio from "cheerio";
 
-import { DOMAIN, READER_DOMAIN } from "./models";
+import { DOMAIN } from "./models";
 import { absoluteUrl, extractMangaId } from "./utils";
 
 const KNOWN_GROUPS = [
@@ -266,33 +266,19 @@ function originalChapterUrlFromHref(href: string, chapterId: string): string {
   return chapterUrlFromId(chapterId);
 }
 
-function routeReaderUrlToMirror(url: string): string {
-  const mangagoReaderMatch =
-    /^(?:https?:)?\/\/(?:www\.)?(?:mangago\.me|mangago\.zone|youhim\.me)(\/(?:chapter|read-manga)\/[^#?]*)([^#]*)?(#.*)?$/i.exec(
-      url,
-    );
-
-  if (mangagoReaderMatch) {
-    return `${READER_DOMAIN}${mangagoReaderMatch[1]}${mangagoReaderMatch[2] ?? ""}${
-      mangagoReaderMatch[3] ?? ""
-    }`;
-  }
-
+// Normalize any reader URL onto www.mangago.me. We no longer use the .zone /
+// youhim.me mirrors at all — the read-manga reader is served by www.mangago.me
+// directly — so a reader URL parsed or stored against any host (including a
+// stale .zone/youhim entry in someone's library) is rewritten onto the
+// canonical domain.
+function normalizeReaderUrl(url: string): string {
   try {
     const parsed = new URL(url, DOMAIN);
-    const host = parsed.hostname.toLowerCase();
-    const isMangagoMirror =
-      host === "mangago.me" ||
-      host.endsWith(".mangago.me") ||
-      host === "mangago.zone" ||
-      host.endsWith(".mangago.zone") ||
-      host === "youhim.me" ||
-      host.endsWith(".youhim.me");
     const isReaderPath =
       parsed.pathname.startsWith("/chapter/") || parsed.pathname.startsWith("/read-manga/");
 
-    if (isMangagoMirror && isReaderPath) {
-      return `${READER_DOMAIN}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (isReaderPath) {
+      return `${DOMAIN}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
 
     return url;
@@ -303,7 +289,7 @@ function routeReaderUrlToMirror(url: string): string {
       url.startsWith("chapter/") ||
       url.startsWith("read-manga/")
     ) {
-      return `${READER_DOMAIN}${url.startsWith("/") ? url : `/${url}`}`;
+      return `${DOMAIN}${url.startsWith("/") ? url : `/${url}`}`;
     }
 
     return url;
@@ -406,23 +392,9 @@ export function mangaUrlFromId(mangaId: string): string {
 }
 
 export function chapterUrlFromId(chapterId: string): string {
-  if (chapterId.startsWith("http")) return routeReaderUrlToMirror(chapterId);
+  if (chapterId.startsWith("http")) return normalizeReaderUrl(chapterId);
 
-  // Keiyoushi #16599: reader shortcut paths only resolve on mirror domains.
-  // Live Paperback testing also shows canonical read-manga reader pages can
-  // return 403 while the same path on mangago.zone returns imgsrcs.
-  if (
-    chapterId.startsWith("/chapter/") ||
-    chapterId.startsWith("/read-manga/") ||
-    chapterId.startsWith("chapter/") ||
-    chapterId.startsWith("read-manga/")
-  ) {
-    return `${READER_DOMAIN}${chapterId.startsWith("/") ? chapterId : `/${chapterId}`}`;
-  }
-
-  return routeReaderUrlToMirror(
-    `${DOMAIN}${chapterId.startsWith("/") ? chapterId : `/${chapterId}`}`,
-  );
+  return normalizeReaderUrl(`${DOMAIN}${chapterId.startsWith("/") ? chapterId : `/${chapterId}`}`);
 }
 
 export function parseMangaDetails(html: string, mangaId: string): SourceManga {

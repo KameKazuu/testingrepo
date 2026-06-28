@@ -1,14 +1,21 @@
 export const DOMAIN = "https://www.mangago.me";
-// Single-host experiment: route the reader through www.mangago.me only, exactly
-// like Aidoku (which uses mangago.me for everything and serves complete page-1
-// read-manga chapters). The .zone mirror serves the legacy *windowed* numeric
-// reader (_multimode="1", ~5 images/window) which is what truncated chapters.
-// Mirrors (mangago.zone / youhim.me) are temporarily removed; if this breaks
-// any title, the next PR restores READER_DOMAIN = mangago.zone + the mirror list.
-export const READER_DOMAIN = "https://www.mangago.me";
 
 export const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+
+// Mangago serves DIFFERENT chapter URLs depending on the user-agent:
+//   - desktop UA  -> the legacy numeric reader (/chapter/<mid>/<cid>/), which
+//     www.mangago.me now 404s (it only lives on the old .zone mirror, windowed).
+//   - mobile UA   -> the read-manga reader (/read-manga/<slug>/uu/<chapter>/pg-N/),
+//     which www.mangago.me serves directly and completely.
+// keiyoushi/Tachimanga use a mobile UA for everything and get the read-manga
+// reader; Aidoku confirms the read-manga reader is the one that works. So we
+// fetch the catalog (manga page / chapter list) with the mobile UA to obtain
+// read-manga chapter URLs. The reader pages and scrambled images are still
+// requested with the desktop UA, which returns the COMPLETE read-manga page in
+// one shot (Aidoku's behaviour) instead of a mobile-windowed slice.
+export const MOBILE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1";
 
 export type MangagoSearchMetadata = {
   page?: number;
