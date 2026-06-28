@@ -841,16 +841,35 @@ async function fetchReaderPage(
     return { html: cachedHtml, url: pageUrl, origin: preferredOrigin ?? originOf(pageUrl) ?? "" };
   }
 
+  const numericPage = isNumericReaderPath(pathnameKey(pageUrl));
+
+  // www.mangago.me 404s EVERY numeric reader page. When a chapter's page 1 is the
+  // read-manga reader (host www.mangago.me) but its pagination template points at
+  // the numeric reader, preferredOrigin/originOf would be www.mangago.me — and
+  // withMirror() below would then slam each numeric sub-page back onto
+  // www.mangago.me and 404. So for numeric paths we drop any main-domain origin
+  // and only ever fetch from the mirrors that actually serve them.
+  const isMainDomainOrigin = (o: string): boolean => {
+    try {
+      const host = new URL(o).hostname.toLowerCase();
+      return host === "mangago.me" || host === "www.mangago.me";
+    } catch {
+      return false;
+    }
+  };
+
   const origins: string[] = [];
   const pushOrigin = (o: string | undefined): void => {
-    if (o && !origins.includes(o)) origins.push(o);
+    if (!o) return;
+    if (numericPage && isMainDomainOrigin(o)) return;
+    if (!origins.includes(o)) origins.push(o);
   };
   pushOrigin(preferredOrigin);
   pushOrigin(originOf(pageUrl));
   // Numeric reader pages 404 on www.mangago.me, so fall back across the mirror
   // hosts that actually serve them — NOT the main domain. read-manga pages are
   // served by www.mangago.me, so fall back there for those.
-  if (isNumericReaderPath(pathnameKey(pageUrl))) {
+  if (numericPage) {
     pushOrigin(READER_MIRROR);
     pushOrigin(READER_MIRROR_FALLBACK);
   } else {

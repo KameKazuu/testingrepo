@@ -14,31 +14,6 @@ import {
 } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
-// Backstop: www.mangago.me 404s EVERY legacy numeric reader path
-// (/chapter/<mid>/<cid>/...). Those pages are only served by the mirror hosts.
-// Route any such request onto the mirror at the network layer — covering BOTH
-// the initial interceptRequest AND redirect followups — so no code path or
-// server-side redirect can ever leave a numeric reader page pointed at
-// www.mangago.me. read-manga paths and image-CDN hosts are left untouched. This
-// guarantees correctness even if a next_page link or curl template slips a
-// www.mangago.me numeric URL through.
-function routeNumericReaderToMirror(url: string): string {
-  try {
-    const u = new URL(url, DOMAIN);
-    const host = u.hostname.toLowerCase();
-    const onMainDomain = host === "mangago.me" || host === "www.mangago.me";
-    if (onMainDomain && /^\/chapter\/\d+\/\d+/.test(u.pathname)) {
-      const mirror = new URL(READER_MIRROR);
-      u.protocol = mirror.protocol;
-      u.host = mirror.host;
-      return u.toString();
-    }
-    return url;
-  } catch {
-    return url;
-  }
-}
-
 // Remember each image's descramble context (desckey + cols) keyed by its
 // clean, fragment-less URL. On a retry the reader sometimes drops the
 // "#desckey=...&cols=..." fragment; without this the retried image would come
@@ -189,19 +164,15 @@ function readerHeadersForUrl(_url: string): {
 // mangapicgallery) are excluded because they don't need it and must not receive
 // Mangago cookies (that leak previously broke hotlinked images).
 export async function applyMangagoHeaders(request: Request): Promise<Request> {
-  // Reroute numeric reader pages off www.mangago.me (which 404s them) and onto
-  // the mirror BEFORE applying headers, so the headers/cookies are computed for
-  // the host we actually hit. Applies to redirect followups too (shared handler).
-  const url = routeNumericReaderToMirror(request.url);
-
   return {
     ...request,
-    url,
     headers: {
       ...request.headers,
-      ...readerHeadersForUrl(url),
+      ...readerHeadersForUrl(request.url),
     },
-    cookies: isMangagoReaderHost(url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
+    cookies: isMangagoReaderHost(request.url)
+      ? { ...request.cookies, _m_superu: "1" }
+      : request.cookies,
   };
 }
 
