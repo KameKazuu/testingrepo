@@ -53,6 +53,17 @@ type MangagoImplementation = Extension &
   SettingsFormProviding &
   CloudflareBypassRequestProviding;
 
+// The legacy numeric reader (/chapter/<mid>/<cid>/...) is 404'd by
+// www.mangago.me — only the read-manga reader works. Used to detect stale
+// library chapter IDs that need re-resolving.
+function isNumericChapterReaderUrl(url: string): boolean {
+  try {
+    return /^\/chapter\/\d+\/\d+/.test(new URL(url, DOMAIN).pathname);
+  } catch {
+    return false;
+  }
+}
+
 // These genre tops add the "Webtoons" tag so they list only manhwa/manhua,
 // mirroring mangago.zone's curated, manhwa-heavy "Top" carousels — but sourced
 // from mangago.me so the items carry titles.
@@ -373,7 +384,19 @@ class MangagoExtension implements MangagoImplementation {
     const originalChapterUrl = (
       chapter as Chapter & { additionalInfo?: { originalChapterUrl?: string } }
     ).additionalInfo?.originalChapterUrl;
-    const chapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
+    let chapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
+
+    // Self-heal stale numeric chapter IDs. www.mangago.me only serves the
+    // read-manga reader and 404s the legacy numeric /chapter/<mid>/<cid>/ reader,
+    // so a library entry saved before the read-manga switch (numeric ID) would
+    // 404 forever. Re-resolve it to the read-manga URL by matching this chapter
+    // in the manga's freshly parsed (mobile-UA) chapter list. New entries are
+    // already read-manga and skip this entirely.
+    if (isNumericChapterReaderUrl(chapterUrl)) {
+      const resolved = await this.resolveReadMangaChapterUrl(chapter);
+      if (resolved) chapterUrl = resolved;
+    }
+
     const pages = await getMangagoPageUrls(chapterUrl);
 
     return {
@@ -381,6 +404,29 @@ class MangagoExtension implements MangagoImplementation {
       mangaId: chapter.sourceManga.mangaId,
       pages,
     };
+  }
+
+  // Find this chapter in the manga's current (read-manga) chapter list and
+  // return its reader URL, matching on chapter number + title so we land on the
+  // exact same chapter. Used only to rescue stale numeric IDs.
+  private async resolveReadMangaChapterUrl(chapter: Chapter): Promise<string | undefined> {
+    try {
+      const urlOf = (c: Chapter): string =>
+        (c as Chapter & { additionalInfo?: { originalChapterUrl?: string } }).additionalInfo
+          ?.originalChapterUrl ?? chapterUrlFromId(c.chapterId);
+
+      const fresh = (await this.getChapters(chapter.sourceManga)).filter(
+        (c) => !isNumericChapterReaderUrl(urlOf(c)),
+      );
+
+      const match =
+        fresh.find((c) => c.chapNum === chapter.chapNum && c.title === chapter.title) ??
+        fresh.find((c) => c.chapNum === chapter.chapNum);
+
+      return match ? urlOf(match) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async cloudflareBypassCompleted(
