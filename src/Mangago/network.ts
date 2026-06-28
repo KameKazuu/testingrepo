@@ -5,7 +5,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN, MOBILE_USER_AGENT, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -92,16 +92,16 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
-// The manga DETAIL page (/read-manga/<slug>/) — and only it — is fetched with
-// the app's DEFAULT user-agent (Application.getDefaultUserAgent(), the standard
-// Inkdex convention), which on iOS is the iPhone (mobile) UA. mangago returns
-// the read-manga reader URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) to that
-// mobile catalog, but the legacy numeric /chapter/<mid>/<cid>/ URLs (404'd by
-// www.mangago.me) to a desktop catalog. This matches Aidoku, whose chapter-list
-// request goes out with the iPhone default UA on the wire. NOTE: we must set the
-// default UA EXPLICITLY — merely omitting the header does not reliably yield the
-// mobile default. Every other page (reader, search, images) is forced to the
-// desktop UA, which returns the complete read-manga reader page in one request.
+// The manga DETAIL page (/read-manga/<slug>/) — and only it — is fetched with a
+// MOBILE iPhone user-agent. mangago serves its chapter list as read-manga reader
+// URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) to a mobile client, but the legacy
+// numeric /chapter/<mid>/<cid>/ URLs (404'd by www.mangago.me) to a desktop one.
+// This replicates exactly what Aidoku/keiyoushi send on the wire: their runtime's
+// DEFAULT UA on iOS is the iPhone UA, so their chapter-list request is mobile.
+// We hardcode it rather than rely on Application.getDefaultUserAgent(), which on
+// this app returns a DESKTOP UA (so the default produced numeric URLs and broke
+// chapter loading). Every other page (reader, search, images) keeps the desktop
+// UA, which returns the complete read-manga reader page in one request.
 function isMangaDetailPage(url: string): boolean {
   try {
     const parsed = new URL(url, DOMAIN);
@@ -113,21 +113,18 @@ function isMangaDetailPage(url: string): boolean {
   }
 }
 
-async function readerHeadersForUrl(url: string): Promise<{
+function readerHeadersForUrl(url: string): {
   referer: string;
   origin: string;
   "user-agent": string;
-}> {
+} {
   // Everything flows through www.mangago.me (no mirrors), so anchor referer /
-  // origin to the canonical domain. Use the default (mobile on iOS) UA on the
-  // manga-detail page so its chapter list comes back as read-manga URLs; force
-  // desktop everywhere else.
+  // origin to the canonical domain. Mobile UA on the manga-detail page so its
+  // chapter list comes back as read-manga URLs; desktop UA everywhere else.
   return {
     referer: `${DOMAIN}/`,
     origin: DOMAIN,
-    "user-agent": isMangaDetailPage(url)
-      ? await Application.getDefaultUserAgent()
-      : DESKTOP_USER_AGENT,
+    "user-agent": isMangaDetailPage(url) ? MOBILE_USER_AGENT : DESKTOP_USER_AGENT,
   };
 }
 
@@ -148,12 +145,12 @@ async function readerHeadersForUrl(url: string): Promise<{
 // get it; image CDN hosts (cspiclink, mangapicgallery) are excluded because
 // they don't need it and must not receive Mangago cookies (that leak
 // previously broke hotlinked images).
-export async function applyMangagoHeaders(request: Request): Promise<Request> {
+export function applyMangagoHeaders(request: Request): Request {
   return {
     ...request,
     headers: {
       ...request.headers,
-      ...(await readerHeadersForUrl(request.url)),
+      ...readerHeadersForUrl(request.url),
     },
     cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };
@@ -161,7 +158,7 @@ export async function applyMangagoHeaders(request: Request): Promise<Request> {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    return await applyMangagoHeaders(request);
+    return applyMangagoHeaders(request);
   }
 
   override async interceptResponse(
@@ -175,7 +172,7 @@ export class MangagoInterceptor extends PaperbackInterceptor {
         url: request.url,
         method: request.method ?? "GET",
         headers: {
-          ...(await readerHeadersForUrl(request.url)),
+          ...readerHeadersForUrl(request.url),
         },
       });
     }
@@ -229,7 +226,7 @@ export async function fetchTextWithUrl(
     url,
     method: "GET",
     headers: {
-      ...(await readerHeadersForUrl(url)),
+      ...readerHeadersForUrl(url),
       ...headers,
     },
   });
