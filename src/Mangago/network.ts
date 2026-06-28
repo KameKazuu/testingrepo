@@ -146,12 +146,33 @@ export class MangagoInterceptor extends PaperbackInterceptor {
     // clients, and aidoku confirmed images should be requested as a desktop
     // browser. Forcing the desktop UA everywhere keeps image and HTML requests
     // consistent.
+    const headers = {
+      ...request.headers,
+      ...readerHeadersForUrl(request.url),
+    };
+
+    // Send Mangago's "show every image on one reader page" flag (_m_superu=1)
+    // on every reader-host request. This is the desktop behaviour Aidoku and
+    // keiyoushi rely on: with it set, page 1's imgsrcs carries the WHOLE chapter
+    // (no blank windows), which is exactly what our eager fast path expects.
+    // Without it, Mangago serves a mobile-style windowed imgsrcs and pages go
+    // missing.
+    //
+    // It is merged into request.cookies (NOT overwritten) so it sits alongside
+    // any Cloudflare-bypass cookies the CookieStorageInterceptor already
+    // injected — the map spread is purely additive and never drops them.
+    //
+    // Image CDN hosts (cspiclink, mangapicgallery) are intentionally excluded:
+    // they don't need the flag and must not receive Mangago cookies, which is
+    // what previously leaked onto hotlinked images and broke them.
+    const cookies = isMangagoReaderHost(request.url)
+      ? { ...request.cookies, _m_superu: "1" }
+      : request.cookies;
+
     return {
       ...request,
-      headers: {
-        ...request.headers,
-        ...readerHeadersForUrl(request.url),
-      },
+      headers,
+      cookies,
     };
   }
 
