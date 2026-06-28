@@ -212,7 +212,19 @@ export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
 ): Promise<string> {
-  const [, data] = await Application.scheduleRequest({
+  return (await fetchTextWithUrl(url, headers)).text;
+}
+
+// Like fetchText, but also returns the FINAL response URL after redirects.
+// mangago.me canonicalizes numeric /chapter/ reader URLs by redirecting to the
+// /read-manga/ reader; callers that then walk reader pages must key off this
+// final URL, not the original request URL, or same-chapter next_page links on
+// the redirected (read-manga) page won't match and the walk stops early.
+export async function fetchTextWithUrl(
+  url: string,
+  headers: { [key: string]: string } = {},
+): Promise<{ text: string; finalUrl: string }> {
+  const [response, data] = await Application.scheduleRequest({
     url,
     method: "GET",
     headers: {
@@ -221,5 +233,8 @@ export async function fetchText(
     },
   });
 
-  return Application.arrayBufferToUTF8String(data);
+  return {
+    text: Application.arrayBufferToUTF8String(data),
+    finalUrl: response.url || url,
+  };
 }

@@ -1,7 +1,7 @@
 import { CloudflareError } from "@paperback/types";
 
 import { DESKTOP_USER_AGENT, DOMAIN } from "./models";
-import { fetchText } from "./network";
+import { fetchText, fetchTextWithUrl } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
 //    extension from refetching on every retry/re-open, which is the main
@@ -905,14 +905,18 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // BasicRateLimiter (5/s) still guards against bursts. The pace is kept
       // where it matters — inside fetchReaderPage (walk + lazy sub-page
       // resolution), which is what the burst-truncation fix relies on.
-      const attempt = await fetchText(candidate, {
+      const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
       });
       if (attempt.includes("imgsrcs")) {
         cacheReaderHtml(candidate, attempt);
         html = attempt;
-        loadedUrl = candidate;
+        // Use the FINAL URL (after any mangago.me numeric -> read-manga
+        // redirect) so the page walk keys off the reader page we actually
+        // landed on; otherwise same-chapter next_page links won't match the
+        // stale request URL and the walk stops after the first window.
+        loadedUrl = finalUrl;
         break;
       }
     } catch (error) {
