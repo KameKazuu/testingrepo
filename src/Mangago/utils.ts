@@ -1,6 +1,6 @@
 import { CloudflareError } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, READER_DOMAIN } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN } from "./models";
 import { fetchText } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
@@ -863,270 +863,34 @@ async function decodeReaderPageImages(
   return { ...result, images };
 }
 
-// ── Lazy per-page resolution (keiyoushi / MangaPlus pattern) ──────────────
-//
-// A numeric multimode reader ("/chapter/<mid>/<cid>/{page}/") only ships ONE
-// window of images in each reader page's `imgsrcs` (commonly 5). Page 1 holds
-// positions 1‑5, page /6/ holds 6‑10, and so on. The previous approach walked
-// every window synchronously inside getChapterDetails; that burst raced
-// Mangago's mid‑chapter host rotation (.zone ⇄ youhim.me) and silently dropped
-// the pages whose fetch happened to land on a rotating host — the chapter then
-// opened with only the first few images.
-//
-// Instead we hand Paperback a complete page list immediately: positions covered
-// by page 1 are real image URLs, and every later position is a lightweight
-// placeholder (the real reader-page URL plus a "?mglazy=1" marker). When the
-// reader scrolls to a placeholder, interceptRequest calls resolveMangagoLazyPage(),
-// which strips the marker, fetches
-// just that one reader page (with full mirror retry + backoff) and rewrites the
-// request to the real image URL. Each page is resolved independently and on
-// demand, so a single rotating host can no longer truncate the chapter, and the
-// reader opens instantly instead of blocking on a multi‑page walk.
-//
-// Verified invariant (live, multiple titles): fetching reader page /N/ returns
-// a decoded list whose index N‑1 is exactly the image for position N, and the
-// same fetch fills the rest of that window — so resolving one placeholder
-// satisfies its neighbours from cache (≈6 network fetches for a 32‑page
-// chapter, not 32).
-
-// Lazy placeholders must be VALID http(s) URLs: Paperback's CookieStorageInterceptor
-// runs before ours and calls cookiesForUrl() on every page URL, which throws
-// "URL Hostname and Protocol are required" on a custom-scheme URL (the old
-// "mglazy:<url>" form had no hostname). So a placeholder is the real reader-page
-// URL with a marker query param; the cookie interceptor parses it happily, and our
-// interceptRequest detects the marker and rewrites it to the real image URL.
-const LAZY_MARKER_PARAM = "mglazy";
-
-type LazyChapterContext = {
-  deobfChapterJs: string;
-  keyHex: string;
-  ivHex: string;
-  cols: number;
-  readerBaseUrl: string;
-  preferredOrigin?: string;
-};
-
-// chapterKey (e.g. "c:2093560") -> decode context, so a placeholder can be
-// resolved without re-deriving the AES key / chapter.js on every page.
-const lazyChapterContextCache = new Map<string, LazyChapterContext>();
-
-// "<chapterKey>#<position>" -> final annotated image URL. Filled whenever any
-// window is decoded, so neighbouring positions in the same window are cache hits.
-const lazyWindowCache = new Map<string, string>();
-
-function lazyWindowKey(chapterKey: string, position: number): string {
-  return `${chapterKey}#${position}`;
-}
-
-// Canonical reader base for a chapter URL: ".../chapter/<mid>/<cid>/" with any
-// trailing page position and query/hash stripped, and host normalised to the
-// primary reader domain. mangago.me serves the initial chapter page (page 1)
-// but 404s every numeric sub-page (/chapter/ID/CID/N/), so lazy placeholders
-// and bootstrap fetches must always target a mirror that handles the full
-// reader path set. Without this, chapters whose initial fetch landed on
-// mangago.me generate placeholders that 404 on scroll.
-function readerBaseForLazy(url: string): string {
-  try {
-    const u = new URL(url);
-    u.search = "";
-    u.hash = "";
-    u.pathname = u.pathname.replace(/\/chapter\/(\d+)\/(\d+)\/\d+\/?$/, "/chapter/$1/$2/");
-    if (!u.pathname.endsWith("/")) u.pathname += "/";
-    // Always route to the reader domain that serves sub-pages.
-    const rd = new URL(READER_DOMAIN);
-    u.protocol = rd.protocol;
-    u.host = rd.host;
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-function buildLazyPlaceholder(readerBaseUrl: string, position: number): string {
-  const base = readerBaseUrl.endsWith("/") ? readerBaseUrl : `${readerBaseUrl}/`;
-  // Valid https URL (real reader page) + marker query param so the cookie
-  // interceptor can parse it; our interceptor strips the marker on resolve.
-  return `${base}${position}/?${LAZY_MARKER_PARAM}=1`;
-}
-
-export function isLazyPlaceholder(url: string): boolean {
-  return url.includes(`${LAZY_MARKER_PARAM}=1`);
-}
-
-// Strip the lazy marker to recover the real reader-page URL.
-function stripLazyMarker(url: string): string {
-  return url.replace(new RegExp(`[?&]${LAZY_MARKER_PARAM}=1\\b`), "").replace(/\?$/, "");
-}
-
-// Build a complete page list for a numeric multimode reader: page 1's images
-// are real URLs, every later position is a placeholder resolved on demand.
-function buildLazyPageList(
-  chapterUrl: string,
-  loadedUrl: string,
-  firstImages: string[],
-  totalPages: number,
-  deobfChapterJs: string,
-  keyHex: string,
-  ivHex: string,
-  cols: number,
-): string[] {
-  const chapterKey = readerChapterKey(loadedUrl);
-  const readerBaseUrl = readerBaseForLazy(loadedUrl);
-
-  lazyChapterContextCache.set(chapterKey, {
-    deobfChapterJs,
-    keyHex,
-    ivHex,
-    cols,
-    readerBaseUrl,
-    // Prefer the reader domain for sub-page fetches. The initial chapter page
-    // may have loaded from mangago.me, which 404s every numeric sub-page.
-    preferredOrigin: originOf(readerBaseUrl) ?? originOf(loadedUrl),
-  });
-
-  // Pre-fill the window cache with page 1's images so those positions never
-  // need a network round-trip even if requested through the resolver.
-  firstImages.forEach((img, index) => {
-    if (img) {
-      lazyWindowCache.set(
-        lazyWindowKey(chapterKey, index + 1),
-        annotateImageUrl(img, deobfChapterJs, cols),
-      );
-    }
-  });
-
-  const pages: string[] = [];
-  for (let position = 1; position <= totalPages; position++) {
-    if (position <= firstImages.length && firstImages[position - 1]) {
-      pages.push(annotateImageUrl(firstImages[position - 1]!, deobfChapterJs, cols));
-    } else {
-      pages.push(buildLazyPlaceholder(readerBaseUrl, position));
-    }
-  }
-
-  console.log(
-    `[Mangago] lazy page list for ${chapterUrl}: ${firstImages.length} direct + ${
-      pages.length - firstImages.length
-    } lazy (total ${pages.length})`,
-  );
-
-  // The list is complete (every position has an entry); caching it avoids
-  // re-fetching page 1 on re-open. Placeholders still resolve lazily each time.
-  if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
-
-  return pages;
-}
-
-// Rebuild the decode context for a chapter from its reader base (page 1). Used
-// when a placeholder is resolved but the in-memory context was never populated
-// or has been evicted (e.g. the page list was served from cache after a
-// restart).
-async function bootstrapLazyContext(
-  chapterKey: string,
-  readerBaseUrl: string,
-): Promise<LazyChapterContext | undefined> {
-  const page1 = await fetchReaderPage(readerBaseUrl, undefined);
-  if (!page1) return undefined;
-
-  const chapterJsSrc = extractChapterJsUrl(page1.html);
-  if (!chapterJsSrc) return undefined;
-
-  const deobfChapterJs = await getCachedDeobfChapterJs(resolveUrl(chapterJsSrc, page1.url));
-  const keyHex = findHexEncodedVariable(deobfChapterJs, "key");
-  const ivHex = findHexEncodedVariable(deobfChapterJs, "iv");
-  if (!keyHex || !ivHex) return undefined;
-
-  const context: LazyChapterContext = {
-    deobfChapterJs,
-    keyHex,
-    ivHex,
-    cols: findCols(deobfChapterJs),
-    readerBaseUrl,
-    preferredOrigin: page1.origin || originOf(page1.url),
-  };
-  lazyChapterContextCache.set(chapterKey, context);
-  return context;
-}
-
-// Resolve a single lazy placeholder (reader-page URL + marker query) to the
-// real, annotated image URL. Called from interceptRequest. Fetches the one
-// reader page (mirror retry + backoff inside fetchReaderPage), decodes it, fills
-// the whole window in the cache, and returns the image for the requested position.
-export async function resolveMangagoLazyPage(
-  placeholderOrUrl: string,
-): Promise<string | undefined> {
-  const pageUrl = stripLazyMarker(placeholderOrUrl);
-
-  const position = readerPagePosition(pageUrl);
-  if (!position) {
-    console.log(`[Mangago] lazy resolve: no position in ${pageUrl}`);
-    return undefined;
-  }
-
-  const chapterKey = readerChapterKey(pageUrl);
-
-  const cachedImage = lazyWindowCache.get(lazyWindowKey(chapterKey, position));
-  if (cachedImage) return cachedImage;
-
-  let context = lazyChapterContextCache.get(chapterKey);
-  if (!context) {
-    context = await bootstrapLazyContext(chapterKey, readerBaseForLazy(pageUrl));
-    if (!context) {
-      console.log(`[Mangago] lazy resolve: could not build context for ${pageUrl}`);
-      return undefined;
-    }
-  }
-
-  const result = await decodeReaderPageImages(
-    pageUrl,
-    context.preferredOrigin,
-    context.deobfChapterJs,
-    context.keyHex,
-    context.ivHex,
-    true, // keepBlanks: preserve positional indices (index i -> position i+1)
-  );
-
-  if (!result) {
-    console.log(`[Mangago] lazy resolve: reader page ${pageUrl} returned nothing`);
-    return undefined;
-  }
-
-  // Stick to whichever mirror served this page for subsequent windows.
-  context.preferredOrigin = result.origin || context.preferredOrigin;
-
-  // Fill the whole window so neighbouring positions are cache hits.
-  result.images.forEach((img, index) => {
-    const clean = img.trim();
-    if (!clean) return;
-    const key = lazyWindowKey(chapterKey, index + 1);
-    if (!lazyWindowCache.has(key)) {
-      lazyWindowCache.set(key, annotateImageUrl(clean, context!.deobfChapterJs, context!.cols));
-    }
-  });
-
-  const resolved = lazyWindowCache.get(lazyWindowKey(chapterKey, position));
-  if (resolved) return resolved;
-
-  // Fallback: the page came back but its own position was blank (shouldn't
-  // happen given the verified invariant). Use index position-1 directly if set.
-  const direct = result.images[position - 1];
-  return direct ? annotateImageUrl(direct.trim(), context.deobfChapterJs, context.cols) : undefined;
-}
-
 export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> {
   const cachedPages = mangagoPageUrlsCache.get(chapterUrl);
   if (cachedPages && cachedPages.length > 0) {
     return cachedPages;
   }
 
-  // Fetch the chapter HTML, trying the chapter's own host first and then the
-  // other mirrors only if it fails or returns no imgsrcs. On the normal path
-  // this is a single request, so it does not worsen rate limiting.
+  // Fetch the chapter HTML, trying the canonical desktop site
+  // (www.mangago.me) FIRST. With the desktop UA + _m_superu=1 cookie we send
+  // everywhere, mangago.me serves the COMPLETE page-1 imgsrcs — this is exactly
+  // what Aidoku does (it only ever uses mangago.me) and why it never needs a
+  // windowed walk. The mirrors (mangago.zone / youhim.me) are tried only as a
+  // fallback when mangago.me fails, is Cloudflare-walled, or returns no
+  // imgsrcs; the zone reader in particular tends to serve the windowed
+  // (_multimode="1") variant, so preferring it was causing truncated chapters.
+  //
+  // NOTE: the numeric sub-page WALK below still prefers mangago.zone, because
+  // mangago.me 404s numeric /chapter/<id>/N/ sub-pages — that preference lives
+  // in MANGAGO_READER_MIRRORS and is unchanged. This reordering only affects the
+  // single initial chapter-page request. On the normal path that is one request.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
-  const candidates = [chapterUrl, ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m))];
+  const candidates = [
+    withMirror(chapterUrl, DOMAIN),
+    chapterUrl,
+    ...MANGAGO_READER_MIRRORS.map((m) => withMirror(chapterUrl, m)),
+  ];
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
@@ -1183,8 +947,37 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   const cols = findCols(deobfChapterJs);
 
-  // Images present on the first reader page.
-  const firstImages = await decodeImgsrcsBlob(imgsrcsRaw, deobfChapterJs, keyHex, ivHex);
+  // Decode page 1's imgsrcs POSITIONALLY (keep blanks). Mangago commonly ships
+  // the full positional image list on page 1 (with blank entries for positions
+  // that belong to other windows), so the presence of blanks is one windowed
+  // signal — exactly what keiyoushi and Aidoku key off of.
+  const firstPositional = await decodeImgsrcsBlob(imgsrcsRaw, deobfChapterJs, keyHex, ivHex, true);
+  const firstImages = firstPositional.filter((url) => url.trim() !== "");
+
+  // The site's own windowing flag is the SECOND, authoritative signal. Some
+  // numeric/.zone readers emit exactly one window's worth of real URLs with NO
+  // blank padding while total_pages is far larger, so "no blanks" alone would
+  // wrongly treat that single window as the whole chapter and return e.g. 5 of
+  // 83 images. `_multimode = "1"` means page 1 is only a slice regardless of
+  // blanks. (With the _m_superu=1 cookie + desktop UA we now send everywhere,
+  // most readers report `_multimode = ""` and serve the full list on page 1.)
+  const multimodeFlag = extractMultimode(html);
+
+  // Eager fast path: page 1 already holds the whole chapter — return the real
+  // image URLs directly, no walk, no placeholders. This is the common case and
+  // the entire strategy Aidoku uses, plus keiyoushi's fast path. Gate it on BOTH
+  // signals agreeing: the site does not flag the reader as windowed AND there
+  // are no blank slots. Anything else falls through to the eager walk below.
+  if (
+    multimodeFlag !== "1" &&
+    firstPositional.length > 0 &&
+    firstImages.length === firstPositional.length
+  ) {
+    const pages = firstImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
+    console.log(`[Mangago] page 1 complete -> ${pages.length} images (eager)`);
+    if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
+    return pages;
+  }
 
   const totalPages = extractTotalPages(html);
   const curlTemplate = usableCurlTemplate(extractCurlTemplate(html)) ?? extractPcurlTemplate(html);
@@ -1193,7 +986,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   const nextPageSameChapter = nextPageHref
     ? readerChapterKey(resolveUrl(nextPageHref, loadedUrl)) === firstPageChapterKey
     : false;
-  const multimodeFlag = extractMultimode(html);
   const imageIndexTemplate = !!curlTemplate && isImageIndexTemplate(curlTemplate);
   const totalImagePages =
     !curlTemplate || imageIndexTemplate
@@ -1227,44 +1019,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       nextPageSameChapter ||
       (totalPages > 0 && firstImages.length < totalPages));
 
-  // Numeric image-index multimode reader ("/chapter/<mid>/<cid>/{page}/"): each
-  // reader page ships only one window of images, so resolve the remaining
-  // positions lazily (on scroll) instead of walking every window up front. This
-  // is the path that previously truncated to the first few images when Mangago
-  // rotated reader hosts mid-walk. read-manga "pg-N" readers (below) still use
-  // the synchronous walk, which handles their variable, non-image-index windows.
-  if (isMultimode && imageIndexTemplate && totalPages > firstImages.length) {
-    // The curl template is authoritative for the reader's URL structure (e.g.
-    // "/chapter/35134/2135160/{page}/"). When the chapter was fetched via a
-    // read-manga/pg-N URL (common for br_chapter user uploads) but the server
-    // responded with a /chapter/ numeric reader, loadedUrl still holds the
-    // read-manga path — making readerBaseForLazy, readerPagePosition, and
-    // readerChapterKey all produce wrong results. Derive the actual reader
-    // base from the curl template so every lazy placeholder, cache key, and
-    // position extraction works correctly.
-    let lazyBaseUrl = loadedUrl;
-    if (curlTemplate) {
-      const curlBase = curlTemplate.replace(/\{page\}\/?$/, "");
-      const resolved = resolveUrl(curlBase, loadedUrl);
-      // Only override if resolution produced a valid /chapter/ URL; keep
-      // loadedUrl for any edge case where the template resolves oddly.
-      if (resolved.includes("/chapter/")) {
-        lazyBaseUrl = resolved;
-      }
-    }
-
-    return buildLazyPageList(
-      chapterUrl,
-      lazyBaseUrl,
-      firstImages,
-      totalPages,
-      deobfChapterJs,
-      keyHex,
-      ivHex,
-      cols,
-    );
-  }
-
+  // Windowed multimode (page 1 had blank slots) is resolved EAGERLY by walking
+  // every reader window below and collecting the real image URLs — no lazy
+  // placeholders. Paperback fetches the returned image URLs directly, so a
+  // marker URL must never end up in the page list.
   let rawImages: string[];
   let complete = true;
 
