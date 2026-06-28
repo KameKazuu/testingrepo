@@ -16,6 +16,7 @@ import {
   type MangaProviding,
   type PagedResults,
   type Request,
+  type Response,
   type SearchQuery,
   type SearchResultItem,
   type SearchResultsProviding,
@@ -33,7 +34,7 @@ import {
   getGenreTitle,
   type MangagoSearchMetadata,
 } from "./models";
-import { MangagoInterceptor, fetchText } from "./network";
+import { MangagoInterceptor, applyMangagoHeaders, fetchText } from "./network";
 import {
   chapterUrlFromId,
   hasNextPage,
@@ -200,6 +201,19 @@ class MangagoExtension implements MangagoImplementation {
     this.cookieStorageInterceptor.registerInterceptor();
     this.rateLimiter.registerInterceptor();
     this.interceptor.registerInterceptor();
+
+    // Re-apply the desktop UA (+ _m_superu cookie) to redirect TARGETS. The app
+    // only runs interceptRequest on the initial request; a redirect followup
+    // would otherwise drop our headers. mangago.me canonicalizes numeric
+    // /chapter/ URLs by redirecting to the /read-manga/ desktop reader, and we
+    // must arrive there as a desktop browser to get the complete page.
+    Application.setRedirectHandler(
+      Application.Selector(this as MangagoExtension, "handleRedirect"),
+    );
+  }
+
+  async handleRedirect(request: Request, _response: Response): Promise<Request> {
+    return applyMangagoHeaders(request);
   }
 
   async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {

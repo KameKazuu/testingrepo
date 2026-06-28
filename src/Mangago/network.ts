@@ -126,54 +126,41 @@ function readerHeadersForUrl(url: string): {
   };
 }
 
-export class MangagoInterceptor extends PaperbackInterceptor {
-  override async interceptRequest(request: Request): Promise<Request> {
-    // Page lists now contain only real image URLs (getMangagoPageUrls resolves
-    // every page eagerly), so there is no placeholder rewriting here — just
-    // header normalization below.
-    //
-    // NOTE: We intentionally do NOT downgrade underscore image hosts
-    // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP here. That
-    // workaround is Android-only (keiyoushi); on iOS, App Transport Security
-    // blocks plaintext HTTP, so the image never returns and the reader spins
-    // forever ("infinite loading" / partial chapters). Keeping every request
-    // on HTTPS is what makes scrambled images load reliably in the iOS app.
-    //
-    // Always send the DESKTOP user-agent — including on image requests. Image
-    // GETs are issued by the reader without a UA, so they used to fall through
-    // to Application.getDefaultUserAgent(), which on iOS returns the iPhone
-    // *mobile* UA. Mangago serves a different (stripped) experience to mobile
-    // clients, and aidoku confirmed images should be requested as a desktop
-    // browser. Forcing the desktop UA everywhere keeps image and HTML requests
-    // consistent.
-    const headers = {
+// Force the DESKTOP user-agent (+ referer/origin) onto a request, and the
+// _m_superu=1 cookie onto reader-host requests. Shared by interceptRequest AND
+// the redirect handler so that a request keeps the desktop identity even after
+// mangago.me redirects it (e.g. a numeric /chapter/ URL canonicalized to the
+// /read-manga/ desktop reader — without this the redirect target could fall
+// back to the app's iPhone UA and mangago.me would serve a stripped/windowed
+// page).
+//
+// NOTE: We intentionally do NOT downgrade underscore image hosts
+// (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP. That workaround is
+// Android-only (keiyoushi); on iOS, App Transport Security blocks plaintext
+// HTTP, so the image never returns and the reader spins forever. Keeping every
+// request on HTTPS is what makes scrambled images load reliably in the iOS app.
+//
+// The _m_superu=1 flag is merged into request.cookies (NOT overwritten) so it
+// sits alongside any Cloudflare-bypass cookies the CookieStorageInterceptor
+// injected — the map spread is purely additive. Image CDN hosts (cspiclink,
+// mangapicgallery) are excluded: they don't need it and must not receive
+// Mangago cookies (that leak previously broke hotlinked images).
+export function applyMangagoHeaders(request: Request): Request {
+  return {
+    ...request,
+    headers: {
       ...request.headers,
       ...readerHeadersForUrl(request.url),
-    };
-
-    // Send Mangago's "show every image on one reader page" flag (_m_superu=1)
-    // on every reader-host request. This is the desktop behaviour Aidoku and
-    // keiyoushi rely on: with it set, page 1's imgsrcs carries the WHOLE chapter
-    // (no blank windows), which is exactly what our eager fast path expects.
-    // Without it, Mangago serves a mobile-style windowed imgsrcs and pages go
-    // missing.
-    //
-    // It is merged into request.cookies (NOT overwritten) so it sits alongside
-    // any Cloudflare-bypass cookies the CookieStorageInterceptor already
-    // injected — the map spread is purely additive and never drops them.
-    //
-    // Image CDN hosts (cspiclink, mangapicgallery) are intentionally excluded:
-    // they don't need the flag and must not receive Mangago cookies, which is
-    // what previously leaked onto hotlinked images and broke them.
-    const cookies = isMangagoReaderHost(request.url)
+    },
+    cookies: isMangagoReaderHost(request.url)
       ? { ...request.cookies, _m_superu: "1" }
-      : request.cookies;
+      : request.cookies,
+  };
+}
 
-    return {
-      ...request,
-      headers,
-      cookies,
-    };
+export class MangagoInterceptor extends PaperbackInterceptor {
+  override async interceptRequest(request: Request): Promise<Request> {
+    return applyMangagoHeaders(request);
   }
 
   override async interceptResponse(
@@ -225,7 +212,19 @@ export async function fetchText(
   url: string,
   headers: { [key: string]: string } = {},
 ): Promise<string> {
-  const [, data] = await Application.scheduleRequest({
+  return (await fetchTextWithUrl(url, headers)).text;
+}
+
+// Like fetchText, but also returns the FINAL response URL after redirects.
+// mangago.me canonicalizes numeric /chapter/ reader URLs by redirecting to the
+// /read-manga/ reader; callers that then walk reader pages must key off this
+// final URL, not the original request URL, or same-chapter next_page links on
+// the redirected (read-manga) page won't match and the walk stops early.
+export async function fetchTextWithUrl(
+  url: string,
+  headers: { [key: string]: string } = {},
+): Promise<{ text: string; finalUrl: string }> {
+  const [response, data] = await Application.scheduleRequest({
     url,
     method: "GET",
     headers: {
@@ -234,5 +233,8 @@ export async function fetchText(
     },
   });
 
-  return Application.arrayBufferToUTF8String(data);
+  return {
+    text: Application.arrayBufferToUTF8String(data),
+    finalUrl: response.url || url,
+  };
 }
