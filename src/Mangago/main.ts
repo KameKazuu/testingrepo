@@ -211,9 +211,14 @@ class MangagoExtension implements MangagoImplementation {
   });
 
   async initialise(): Promise<void> {
+    // Register the Mangago interceptor FIRST so its numeric-reader host rewrite
+    // (www.mangago.me -> mirror, in applyMangagoHeaders) runs BEFORE the cookie
+    // storage interceptor selects cookies. Otherwise the cookie interceptor
+    // picks cookies for the pre-rewrite www.mangago.me host and a rerouted
+    // mirror request would miss any saved mirror Cloudflare-bypass cookies.
+    this.interceptor.registerInterceptor();
     this.cookieStorageInterceptor.registerInterceptor();
     this.rateLimiter.registerInterceptor();
-    this.interceptor.registerInterceptor();
 
     // Re-apply the desktop UA (+ _m_superu cookie) to redirect TARGETS. The app
     // only runs interceptRequest on the initial request; a redirect followup
