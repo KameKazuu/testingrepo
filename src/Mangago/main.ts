@@ -54,9 +54,10 @@ type MangagoImplementation = Extension &
   SettingsFormProviding &
   CloudflareBypassRequestProviding;
 
-// The legacy numeric reader (/chapter/<mid>/<cid>/...) is 404'd by
-// www.mangago.me — only the read-manga reader works. Used to detect stale
-// library chapter IDs that need re-resolving.
+// The legacy numeric reader (/chapter/<mid>/<cid>/...) 404s on www.mangago.me
+// and is windowed even on its mirror, so when a library entry resolves to one we
+// first try to upgrade it to the read-manga reader (full image list in one shot)
+// and otherwise fetch+walk it on the mirror. Used to detect those entries.
 function isNumericChapterReaderUrl(url: string): boolean {
   try {
     return /^\/chapter\/\d+\/\d+/.test(new URL(url, DOMAIN).pathname);
@@ -225,7 +226,7 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async handleRedirect(request: Request, _response: Response): Promise<Request> {
-    return applyMangagoHeaders(request);
+    return await applyMangagoHeaders(request);
   }
 
   async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {
@@ -407,38 +408,56 @@ class MangagoExtension implements MangagoImplementation {
     };
   }
 
-  // Find this chapter in the manga's current (read-manga) chapter list and
-  // return its reader URL, matching on chapter number + title so we land on the
-  // exact same chapter. Used only to rescue stale numeric IDs.
+  // Upgrade a numeric chapter entry to its read-manga reader URL. The chapter
+  // list rotates between the read-manga catalog (the reader we want: the full
+  // image list in one shot) and the numeric catalog (windowed, mirror-only), so
+  // retry a few times until we land on the read-manga catalog, then match this
+  // chapter in it (by number + title + version). A cache-busting query param on
+  // retries avoids any intermediate cache pinning us to the same catalog. If
+  // every retry returns the numeric catalog, give up and let getChapterDetails
+  // fall back to walking the numeric reader on its mirror.
   private async resolveReadMangaChapterUrl(chapter: Chapter): Promise<string | undefined> {
-    try {
-      const urlOf = (c: Chapter): string =>
-        (c as Chapter & { additionalInfo?: { originalChapterUrl?: string } }).additionalInfo
-          ?.originalChapterUrl ?? chapterUrlFromId(c.chapterId);
+    const urlOf = (c: Chapter): string =>
+      (c as Chapter & { additionalInfo?: { originalChapterUrl?: string } }).additionalInfo
+        ?.originalChapterUrl ?? chapterUrlFromId(c.chapterId);
 
-      const fresh = (await this.getChapters(chapter.sourceManga)).filter(
-        (c) => !isNumericChapterReaderUrl(urlOf(c)),
-      );
+    const mangaUrl = mangaUrlFromId(chapter.sourceManga.mangaId);
+    const MAX_RETRIES = 4;
 
-      // Match version (uploader/scanlation group) first so a stale entry for a
-      // non-first upload doesn't get rewritten to another group's chapter.
-      const match =
-        fresh.find(
-          (c) =>
-            c.chapNum === chapter.chapNum &&
-            c.title === chapter.title &&
-            c.version === chapter.version,
-        ) ??
-        fresh.find((c) => c.chapNum === chapter.chapNum && c.title === chapter.title) ??
-        fresh.find((c) => c.chapNum === chapter.chapNum);
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const bust =
+          attempt === 0 ? "" : `${mangaUrl.includes("?") ? "&" : "?"}_=${Date.now()}${attempt}`;
+        const html = await fetchText(`${mangaUrl}${bust}`);
+        const fresh = parseChapters(html, chapter.sourceManga).filter(
+          (c) => !isNumericChapterReaderUrl(urlOf(c)),
+        );
 
-      return match ? urlOf(match) : undefined;
-    } catch (error) {
-      // Let a Cloudflare challenge propagate so the app opens the bypass flow
-      // instead of silently falling through to the known-bad numeric reader.
-      if (error instanceof CloudflareError) throw error;
-      return undefined;
+        // Numeric catalog this round — retry for the read-manga variant.
+        if (fresh.length === 0) continue;
+
+        // Match version (uploader/scanlation group) first so a stale entry for a
+        // non-first upload doesn't get rewritten to another group's chapter.
+        const match =
+          fresh.find(
+            (c) =>
+              c.chapNum === chapter.chapNum &&
+              c.title === chapter.title &&
+              c.version === chapter.version,
+          ) ??
+          fresh.find((c) => c.chapNum === chapter.chapNum && c.title === chapter.title) ??
+          fresh.find((c) => c.chapNum === chapter.chapNum);
+
+        return match ? urlOf(match) : undefined;
+      } catch (error) {
+        // Let a Cloudflare challenge propagate so the app opens the bypass flow
+        // instead of silently falling through to the known-bad numeric reader.
+        if (error instanceof CloudflareError) throw error;
+        return undefined;
+      }
     }
+
+    return undefined;
   }
 
   async cloudflareBypassCompleted(

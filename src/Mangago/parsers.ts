@@ -9,7 +9,7 @@ import {
 import * as cheerio from "cheerio";
 
 import { DOMAIN } from "./models";
-import { absoluteUrl, extractMangaId } from "./utils";
+import { absoluteUrl, canonicalReaderUrl, extractMangaId } from "./utils";
 
 const KNOWN_GROUPS = [
   {
@@ -266,34 +266,13 @@ function originalChapterUrlFromHref(href: string, chapterId: string): string {
   return chapterUrlFromId(chapterId);
 }
 
-// Normalize any reader URL onto www.mangago.me. We no longer use the .zone /
-// youhim.me mirrors at all — the read-manga reader is served by www.mangago.me
-// directly — so a reader URL parsed or stored against any host (including a
-// stale .zone/youhim entry in someone's library) is rewritten onto the
-// canonical domain.
+// Route any reader URL/path onto a host that serves it: read-manga paths to
+// www.mangago.me, legacy numeric /chapter/ paths to the reader mirror (they 404
+// on www.mangago.me). The chapter list rotates between both formats/hosts per
+// request, and an old library entry may be stored against any host, so we
+// re-route by path rather than pinning one domain. (See canonicalReaderUrl.)
 function normalizeReaderUrl(url: string): string {
-  try {
-    const parsed = new URL(url, DOMAIN);
-    const isReaderPath =
-      parsed.pathname.startsWith("/chapter/") || parsed.pathname.startsWith("/read-manga/");
-
-    if (isReaderPath) {
-      return `${DOMAIN}${parsed.pathname}${parsed.search}${parsed.hash}`;
-    }
-
-    return url;
-  } catch {
-    if (
-      url.startsWith("/chapter/") ||
-      url.startsWith("/read-manga/") ||
-      url.startsWith("chapter/") ||
-      url.startsWith("read-manga/")
-    ) {
-      return `${DOMAIN}${url.startsWith("/") ? url : `/${url}`}`;
-    }
-
-    return url;
-  }
+  return canonicalReaderUrl(url);
 }
 
 export function parseListings(html: string): SearchResultItem[] {
