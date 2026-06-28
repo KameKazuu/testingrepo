@@ -5,7 +5,13 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN, READER_MIRROR, type MangagoImageContext } from "./models";
+import {
+  DESKTOP_USER_AGENT,
+  DOMAIN,
+  READER_MIRROR,
+  READER_MIRROR_FALLBACK,
+  type MangagoImageContext,
+} from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Backstop: www.mangago.me 404s EVERY legacy numeric reader path
@@ -117,6 +123,37 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
+const READER_MIRROR_HOSTS = [READER_MIRROR, READER_MIRROR_FALLBACK]
+  .map((mirror) => {
+    try {
+      return new URL(mirror).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })
+  .filter(Boolean);
+
+// True for the numeric-reader mirror hosts (mangago.zone / youhim.me). They
+// serve the same reader as www.mangago.me and need the same _m_superu=1 flag to
+// return the COMPLETE (non-windowed) imgsrcs list — without it, a request the
+// backstop reroutes to a mirror would come back sliced and truncate the chapter.
+function isReaderMirrorHost(url: string): boolean {
+  try {
+    const host = new URL(url, DOMAIN).hostname.toLowerCase();
+    return READER_MIRROR_HOSTS.includes(host);
+  } catch {
+    return false;
+  }
+}
+
+// Hosts that must receive the _m_superu=1 full-reader flag: the main domain and
+// the numeric-reader mirrors. Image CDN hosts (cspiclink, mangapicgallery) are
+// deliberately excluded — they don't need it and must not receive Mangago
+// cookies.
+function isMangagoReaderHost(url: string): boolean {
+  return isMangagoHost(url) || isReaderMirrorHost(url);
+}
+
 function readerHeadersForUrl(_url: string): {
   referer: string;
   origin: string;
@@ -147,10 +184,10 @@ function readerHeadersForUrl(_url: string): {
 //
 // The _m_superu=1 flag is merged into request.cookies (NOT overwritten) so it
 // sits alongside any Cloudflare-bypass cookies the CookieStorageInterceptor
-// injected — the map spread is purely additive. Only www.mangago.me requests
-// get it; image CDN hosts (cspiclink, mangapicgallery) are excluded because
-// they don't need it and must not receive Mangago cookies (that leak
-// previously broke hotlinked images).
+// injected — the map spread is purely additive. Only reader hosts (the main
+// domain AND the numeric-reader mirrors) get it; image CDN hosts (cspiclink,
+// mangapicgallery) are excluded because they don't need it and must not receive
+// Mangago cookies (that leak previously broke hotlinked images).
 export async function applyMangagoHeaders(request: Request): Promise<Request> {
   // Reroute numeric reader pages off www.mangago.me (which 404s them) and onto
   // the mirror BEFORE applying headers, so the headers/cookies are computed for
@@ -164,7 +201,7 @@ export async function applyMangagoHeaders(request: Request): Promise<Request> {
       ...request.headers,
       ...readerHeadersForUrl(url),
     },
-    cookies: isMangagoHost(url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
+    cookies: isMangagoReaderHost(url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };
 }
 
