@@ -6,7 +6,7 @@ import {
 } from "@paperback/types";
 
 import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
-import { descrambleMangagoImage, isLazyPlaceholder, resolveMangagoLazyPage } from "./utils";
+import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
 // clean, fragment-less URL. On a retry the reader sometimes drops the
@@ -128,48 +128,10 @@ function readerHeadersForUrl(url: string): {
 
 export class MangagoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
-    // Lazy multimode pages arrive as placeholder URLs (the real reader-page URL
-    // plus a "?mglazy=1" marker; see utils.ts). Resolve the placeholder to the
-    // real image URL by fetching just that one reader page, then let the request
-    // proceed to the actual image so interceptResponse can descramble it from the
-    // "#desckey&cols" fragment.
-    if (isLazyPlaceholder(request.url)) {
-      try {
-        const realUrl = await resolveMangagoLazyPage(request.url);
-        if (realUrl) {
-          return {
-            ...request,
-            url: realUrl,
-            headers: {
-              ...request.headers,
-              ...readerHeadersForUrl(realUrl),
-            },
-          };
-        }
-        console.log(`[Mangago] lazy placeholder unresolved: ${request.url}`);
-      } catch (error) {
-        // A real Cloudflare wall must surface so Paperback shows the bypass
-        // webview; anything else leaves this one page to retry on re-scroll.
-        if (error instanceof CloudflareError) throw error;
-        console.log(
-          `[Mangago] lazy resolve error for ${request.url}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-      // Fall through with the placeholder unchanged: only this page fails to
-      // load (and will retry when the reader requests it again), instead of the
-      // whole chapter breaking. Still add standard headers so the fallback
-      // request has proper referer/origin/user-agent.
-      return {
-        ...request,
-        headers: {
-          ...request.headers,
-          ...readerHeadersForUrl(request.url),
-        },
-      };
-    }
-
+    // Page lists now contain only real image URLs (getMangagoPageUrls resolves
+    // every page eagerly), so there is no placeholder rewriting here — just
+    // header normalization below.
+    //
     // NOTE: We intentionally do NOT downgrade underscore image hosts
     // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP here. That
     // workaround is Android-only (keiyoushi); on iOS, App Transport Security
@@ -184,12 +146,33 @@ export class MangagoInterceptor extends PaperbackInterceptor {
     // clients, and aidoku confirmed images should be requested as a desktop
     // browser. Forcing the desktop UA everywhere keeps image and HTML requests
     // consistent.
+    const headers = {
+      ...request.headers,
+      ...readerHeadersForUrl(request.url),
+    };
+
+    // Send Mangago's "show every image on one reader page" flag (_m_superu=1)
+    // on every reader-host request. This is the desktop behaviour Aidoku and
+    // keiyoushi rely on: with it set, page 1's imgsrcs carries the WHOLE chapter
+    // (no blank windows), which is exactly what our eager fast path expects.
+    // Without it, Mangago serves a mobile-style windowed imgsrcs and pages go
+    // missing.
+    //
+    // It is merged into request.cookies (NOT overwritten) so it sits alongside
+    // any Cloudflare-bypass cookies the CookieStorageInterceptor already
+    // injected — the map spread is purely additive and never drops them.
+    //
+    // Image CDN hosts (cspiclink, mangapicgallery) are intentionally excluded:
+    // they don't need the flag and must not receive Mangago cookies, which is
+    // what previously leaked onto hotlinked images and broke them.
+    const cookies = isMangagoReaderHost(request.url)
+      ? { ...request.cookies, _m_superu: "1" }
+      : request.cookies;
+
     return {
       ...request,
-      headers: {
-        ...request.headers,
-        ...readerHeadersForUrl(request.url),
-      },
+      headers,
+      cookies,
     };
   }
 
