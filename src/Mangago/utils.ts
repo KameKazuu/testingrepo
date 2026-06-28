@@ -1,6 +1,6 @@
 import { CloudflareError } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN, READER_MIRROR, READER_MIRROR_FALLBACK } from "./models";
 import { fetchText, fetchTextWithUrl } from "./network";
 
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
@@ -92,6 +92,36 @@ function withMirror(url: string, mirror: string): string {
     u.host = m.host;
     return u.toString();
   } catch {
+    return url;
+  }
+}
+
+// True for the legacy numeric reader path "/chapter/<mid>/<cid>/...". These 404
+// on www.mangago.me and only resolve on the mirror hosts.
+export function isNumericReaderPath(pathname: string): boolean {
+  return /^\/chapter\/\d+\/\d+/.test(pathname);
+}
+
+// Route a reader URL (or bare path) onto a host that actually serves it. The
+// chapter list rotates between the read-manga reader (served by www.mangago.me)
+// and the numeric reader (served only by the mirror hosts), so we route by path
+// instead of forcing one domain — forcing www.mangago.me 404s every numeric
+// reader, and forcing a mirror breaks the read-manga reader. Adapts keiyoushi
+// PR #16599 (a dedicated reader mirror for /chapter/ paths) to Paperback.
+export function canonicalReaderUrl(url: string): string {
+  try {
+    const u = new URL(url, DOMAIN);
+    if (u.pathname.startsWith("/read-manga/")) {
+      return `${DOMAIN}${u.pathname}${u.search}${u.hash}`;
+    }
+    if (isNumericReaderPath(u.pathname)) {
+      return `${READER_MIRROR}${u.pathname}${u.search}${u.hash}`;
+    }
+    return url;
+  } catch {
+    const path = url.startsWith("/") ? url : `/${url}`;
+    if (path.startsWith("/read-manga/")) return `${DOMAIN}${path}`;
+    if (isNumericReaderPath(path)) return `${READER_MIRROR}${path}`;
     return url;
   }
 }
@@ -782,7 +812,15 @@ async function fetchReaderPage(
   };
   pushOrigin(preferredOrigin);
   pushOrigin(originOf(pageUrl));
-  pushOrigin(DOMAIN);
+  // Numeric reader pages 404 on www.mangago.me, so fall back across the mirror
+  // hosts that actually serve them — NOT the main domain. read-manga pages are
+  // served by www.mangago.me, so fall back there for those.
+  if (isNumericReaderPath(pathnameKey(pageUrl))) {
+    pushOrigin(READER_MIRROR);
+    pushOrigin(READER_MIRROR_FALLBACK);
+  } else {
+    pushOrigin(DOMAIN);
+  }
 
   // Retry across a few rounds with a short backoff between them. The backoff is
   // a wait BETWEEN retries, NOT a fetch timeout: a reader page can transiently
@@ -860,17 +898,19 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter HTML from www.mangago.me only — no mirrors. The chapter
-  // list is parsed with the mobile UA so these are read-manga reader URLs, which
-  // www.mangago.me serves directly (and, with the desktop UA + _m_superu=1 we
-  // send on the reader request, returns the COMPLETE page in one shot, exactly
-  // like Aidoku). Force the canonical host in case a stale .zone/youhim URL is
-  // still stored in the library.
+  // Fetch the chapter page from the host that serves this reader format:
+  // read-manga from www.mangago.me (returns the COMPLETE image list in one shot
+  // with the desktop UA), numeric from the mirror hosts (www.mangago.me 404s
+  // them). Do NOT force www.mangago.me — that was the cause of the numeric-reader
+  // 404s. A stale library URL on any host is re-routed by canonicalReaderUrl.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
-  const candidates = [withMirror(chapterUrl, DOMAIN), chapterUrl];
+  const canonical = canonicalReaderUrl(chapterUrl);
+  const candidates = isNumericReaderPath(pathnameKey(canonical))
+    ? [canonical, withMirror(canonical, READER_MIRROR_FALLBACK), chapterUrl]
+    : [canonical, chapterUrl];
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
