@@ -1,6 +1,7 @@
 import {
   type AdvancedSearchForm,
   BasicRateLimiter,
+  CloudflareError,
   CookieStorageInterceptor,
   type Chapter,
   type ChapterDetails,
@@ -224,7 +225,7 @@ class MangagoExtension implements MangagoImplementation {
   }
 
   async handleRedirect(request: Request, _response: Response): Promise<Request> {
-    return applyMangagoHeaders(request);
+    return await applyMangagoHeaders(request);
   }
 
   async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {
@@ -419,12 +420,23 @@ class MangagoExtension implements MangagoImplementation {
         (c) => !isNumericChapterReaderUrl(urlOf(c)),
       );
 
+      // Match version (uploader/scanlation group) first so a stale entry for a
+      // non-first upload doesn't get rewritten to another group's chapter.
       const match =
+        fresh.find(
+          (c) =>
+            c.chapNum === chapter.chapNum &&
+            c.title === chapter.title &&
+            c.version === chapter.version,
+        ) ??
         fresh.find((c) => c.chapNum === chapter.chapNum && c.title === chapter.title) ??
         fresh.find((c) => c.chapNum === chapter.chapNum);
 
       return match ? urlOf(match) : undefined;
-    } catch {
+    } catch (error) {
+      // Let a Cloudflare challenge propagate so the app opens the bypass flow
+      // instead of silently falling through to the known-bad numeric reader.
+      if (error instanceof CloudflareError) throw error;
       return undefined;
     }
   }
