@@ -5,7 +5,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN, MOBILE_USER_AGENT, type MangagoImageContext } from "./models";
+import { DESKTOP_USER_AGENT, DOMAIN, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -92,39 +92,20 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
-// The manga DETAIL page (/read-manga/<slug>/) — and only it — is fetched with a
-// MOBILE iPhone user-agent. mangago serves its chapter list as read-manga reader
-// URLs (/read-manga/<slug>/uu/<chapter>/pg-N/) to a mobile client, but the legacy
-// numeric /chapter/<mid>/<cid>/ URLs (404'd by www.mangago.me) to a desktop one.
-// This replicates exactly what Aidoku/keiyoushi send on the wire: their runtime's
-// DEFAULT UA on iOS is the iPhone UA, so their chapter-list request is mobile.
-// We hardcode it rather than rely on Application.getDefaultUserAgent(), which on
-// this app returns a DESKTOP UA (so the default produced numeric URLs and broke
-// chapter loading). Every other page (reader, search, images) keeps the desktop
-// UA, which returns the complete read-manga reader page in one request.
-function isMangaDetailPage(url: string): boolean {
-  try {
-    const parsed = new URL(url, DOMAIN);
-    const host = parsed.hostname.toLowerCase();
-    if (host !== "mangago.me" && !host.endsWith(".mangago.me")) return false;
-    return /^\/read-manga\/[^/]+\/?$/.test(parsed.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function readerHeadersForUrl(url: string): {
+function readerHeadersForUrl(_url: string): {
   referer: string;
   origin: string;
   "user-agent": string;
 } {
-  // Everything flows through www.mangago.me (no mirrors), so anchor referer /
-  // origin to the canonical domain. Mobile UA on the manga-detail page so its
-  // chapter list comes back as read-manga URLs; desktop UA everywhere else.
+  // Anchor referer / origin to the canonical domain and send the desktop UA on
+  // every request. mangago's catalog is routed by path (read-manga from
+  // www.mangago.me, numeric from the mirror hosts — see canonicalReaderUrl), so
+  // the desktop UA returns the complete read-manga reader page in one request
+  // and a numeric library entry is upgraded to read-manga elsewhere.
   return {
     referer: `${DOMAIN}/`,
     origin: DOMAIN,
-    "user-agent": isMangaDetailPage(url) ? MOBILE_USER_AGENT : DESKTOP_USER_AGENT,
+    "user-agent": DESKTOP_USER_AGENT,
   };
 }
 
@@ -145,7 +126,7 @@ function readerHeadersForUrl(url: string): {
 // get it; image CDN hosts (cspiclink, mangapicgallery) are excluded because
 // they don't need it and must not receive Mangago cookies (that leak
 // previously broke hotlinked images).
-export function applyMangagoHeaders(request: Request): Request {
+export async function applyMangagoHeaders(request: Request): Promise<Request> {
   return {
     ...request,
     headers: {
