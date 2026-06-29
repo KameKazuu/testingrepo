@@ -10,11 +10,14 @@ import {
 } from "@paperback/types";
 
 import {
+  CHAPTER_LIST_USER_AGENT_OPTIONS,
   DISCOVER_SECTION_OPTIONS,
   GENRE_OPTIONS,
   genreIdFromTitle,
+  getChapterListUserAgentMode,
   getDiscoverSectionEnabled,
   resetDiscoverSectionSettings,
+  setChapterListUserAgentMode,
   setDiscoverSectionEnabled,
   type MangagoSearchMetadata,
   STATUS_OPTIONS,
@@ -103,6 +106,33 @@ export class MangagoSettingsForm extends Form {
     return [
       Section(
         {
+          id: "reader",
+          header: "Reader",
+          footer:
+            "Mobile makes chapters use mangago's read-manga reader, which loads full chapters " +
+            "from one host. Switch to Mobile if some chapters only show ~5 pages. Re-open a " +
+            "chapter after changing this.",
+        },
+        [
+          SelectRow("chapter_list_user_agent", {
+            title: "Chapter List User-Agent",
+            layout: "list",
+            value: [getChapterListUserAgentMode()],
+            items: CHAPTER_LIST_USER_AGENT_OPTIONS.map((option) => ({
+              id: option.id,
+              title: option.title,
+            })),
+            minItemCount: 1,
+            maxItemCount: 1,
+            onValueChange: Application.Selector(
+              this as MangagoSettingsForm,
+              "handleChapterListUserAgentChange",
+            ),
+          }),
+        ],
+      ),
+      Section(
+        {
           id: "discover_sections",
           header: "Home Sections",
         },
@@ -139,6 +169,10 @@ export class MangagoSettingsForm extends Form {
         Application.invalidateDiscoverSections();
       };
     }
+  }
+
+  async handleChapterListUserAgentChange(value: string[]): Promise<void> {
+    setChapterListUserAgentMode(value[0] ?? "desktop");
   }
 
   async handleResetDiscoverSections(): Promise<void> {

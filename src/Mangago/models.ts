@@ -1,22 +1,51 @@
 export const DOMAIN = "https://www.mangago.me";
 
-// mangago round-robins the chapter list between two catalogs on EVERY request,
-// independent of User-Agent:
-//   • the read-manga reader  — URLs like /read-manga/<slug>/uu/<chapter>/pg-N/,
-//     served by www.mangago.me. With the desktop UA below this reader returns the
-//     COMPLETE image list in one shot (no windowing), exactly like Aidoku.
+// mangago serves a chapter list in one of two reader formats:
+//   • the read-manga reader  — URLs like /read-manga/<slug>/.../pg-N/, served by
+//     www.mangago.me. Loads the whole chapter from one host (no mirror, no
+//     cross-origin redirects) — what keiyoushi and Aidoku use.
 //   • the legacy numeric reader — URLs like /chapter/<mid>/<cid>/, served ONLY by
 //     the mirror hosts (READER_MIRROR / READER_MIRROR_FALLBACK). These 404 on
-//     www.mangago.me and are windowed (one slice per page) regardless of UA, so
-//     they must be fetched from a mirror and page-walked.
-// Because the catalog choice is a coin-flip we cannot pin, we no longer force one
-// domain: each reader path is routed to a host that actually serves it (see
-// canonicalReaderUrl in utils.ts), and a numeric library entry is opportunistically
-// upgraded to the read-manga reader (see resolveReadMangaChapterUrl in main.ts).
-// This mirrors keiyoushi PR #16599 (which added a `readerDomain` for /chapter/
-// paths) combined with Aidoku's desktop-UA full-list reader.
+//     www.mangago.me and are windowed (one ~5-image slice per page), which is the
+//     source of the "only 5 pages" problem.
+// The manga-page User-Agent influences which format the chapter list comes back
+// in (a mobile UA tends to yield read-manga URLs, a desktop UA the numeric ones),
+// so the chapter-list UA is exposed as a user setting (getChapterListUserAgentMode).
+// Reader pages themselves keep the desktop UA. Each reader path is still routed to
+// a host that actually serves it (canonicalReaderUrl in utils.ts), and a numeric
+// entry is opportunistically upgraded to read-manga (resolveReadMangaChapterUrl in
+// main.ts).
 export const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+
+// A mobile iPhone UA. mangago serves the chapter list as read-manga reader URLs
+// (/read-manga/<slug>/.../pg-N/ — served by www.mangago.me and fully loadable in
+// one host with no windowed-mirror redirects) to a MOBILE client, but as legacy
+// numeric URLs (/chapter/<mid>/<cid>/ — windowed, mirror-only, the source of the
+// "only 5 pages" problem) to a desktop one. The reader pages themselves keep the
+// desktop UA. Exposed as a user setting (see getChapterListUserAgentMode).
+export const MOBILE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+
+export const CHAPTER_LIST_USER_AGENT_OPTIONS = [
+  { id: "desktop", title: "Desktop (numeric reader)" },
+  { id: "mobile", title: "Mobile (read-manga reader)" },
+] as const;
+
+const CHAPTER_LIST_USER_AGENT_STATE_KEY = "mangago_chapter_list_user_agent";
+
+// Which UA to send for the manga page / chapter-list fetch. Desktop (default)
+// preserves current behaviour; mobile makes chapters resolve to the read-manga
+// reader, which avoids the windowed-numeric-reader mirror issues.
+export function getChapterListUserAgentMode(): "desktop" | "mobile" {
+  return Application.getState(CHAPTER_LIST_USER_AGENT_STATE_KEY) === "mobile"
+    ? "mobile"
+    : "desktop";
+}
+
+export function setChapterListUserAgentMode(mode: string): void {
+  Application.setState(mode === "mobile" ? "mobile" : "desktop", CHAPTER_LIST_USER_AGENT_STATE_KEY);
+}
 
 // Reader mirrors that serve the legacy numeric /chapter/<mid>/<cid>/ reader.
 // www.mangago.me 404s those paths; these hosts return them (windowed). The site
