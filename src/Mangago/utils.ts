@@ -103,12 +103,30 @@ function readMangaPagePosition(url: string): number | undefined {
 // so we always normalise onto it. A relative or absolute next-page link, or a
 // quirky response URL on another host, is snapped back here so the walk never
 // drifts off-domain.
+//
+// It also repairs accidental host-doubling. A stale library entry can carry a
+// URL like "https://www.mangago.me/https://www.mangago.me/read-manga/<slug>/..."
+// (an older build stored the absolute href with the domain prepended again);
+// www.mangago.me 404s that, which surfaced as "no usable chapter page" on every
+// such chapter. Slicing from the LAST reader segment drops every duplicated host
+// prefix so we request the real path exactly once.
 export function canonicalReaderUrl(url: string): string {
+  // Only look for the reader segment in the part BEFORE any query/fragment, so a
+  // "/read-manga/" or "/chapter/" that appears inside a query string (e.g.
+  // "?from=/chapter/x") can't be mistaken for the real path.
+  const queryStart = url.search(/[?#]/);
+  const beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
+  const suffix = queryStart === -1 ? "" : url.slice(queryStart);
+  const readerIndex = Math.max(
+    beforeQuery.lastIndexOf("/read-manga/"),
+    beforeQuery.lastIndexOf("/chapter/"),
+  );
+  const working = (readerIndex > 0 ? beforeQuery.slice(readerIndex) : beforeQuery) + suffix;
   try {
-    const u = new URL(url, DOMAIN);
+    const u = new URL(working, DOMAIN);
     return `${DOMAIN}${u.pathname}${u.search}${u.hash}`;
   } catch {
-    const path = url.startsWith("/") ? url : `/${url}`;
+    const path = working.startsWith("/") ? working : `/${working}`;
     return `${DOMAIN}${path}`;
   }
 }
@@ -1210,7 +1228,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           exhaustedSafety = false;
           break;
         }
-      } else if (curlTemplate && (totalReaderPages === 0 || expectedNext < totalReaderPages)) {
+      } else if (curlTemplate && (totalReaderPages === 0 || expectedNext <= totalReaderPages)) {
         const skipTo = (readMangaPagePosition(nextUrl) ?? expectedNext) + 1;
         console.log(`[Mangago] reader page ${nextUrl} failed -> skip to reader page ${skipTo}`);
         expectedNext = skipTo;
@@ -1257,9 +1275,9 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // Stop the crawl on a run of consecutive failures so a dead/unreachable
       // reader can't turn into a request storm, while still tolerating a few
       // scattered gaps in an otherwise valid chapter:
-      //   • CONFIRMED-DEAD (404 on every mirror) windows bail fast (the reader is
-      //     gone), and
-      //   • any-kind failures (incl. persistent rate-limit / unreachable mirror,
+      //   • CONFIRMED-DEAD (404) windows bail fast (the reader window is gone),
+      //     and
+      //   • any-kind failures (incl. persistent rate-limit / unreachable host,
       //     where fetchReaderPage never sees a 404 body) bail after a longer run.
       // Any successful window resets both runs.
       const MAX_CONSECUTIVE_DEAD = 3;
