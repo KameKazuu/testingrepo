@@ -115,8 +115,21 @@ export function canonicalReaderUrl(url: string): string {
   // "/read-manga/" or "/chapter/" that appears inside a query string (e.g.
   // "?from=/chapter/x") can't be mistaken for the real path.
   const queryStart = url.search(/[?#]/);
-  const beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
+  let beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
   const suffix = queryStart === -1 ? "" : url.slice(queryStart);
+
+  // Backstop for host doubling that's ALREADY in the input (a stale stored/cached
+  // URL, not freshly generated). A URL can repeat the scheme+host
+  // (".../https://www.mangago.me/https://www.mangago.me/uu/.../pg-9/") with no
+  // "/read-manga/" segment to anchor on, so keep only the LAST absolute-URL
+  // occurrence. www.mangago.me 404s the doubled form. (Generation-time doubling
+  // is prevented upstream by templatePathname; this catches anything that slips
+  // through or was persisted by an earlier build.)
+  const schemeMatches = [...beforeQuery.matchAll(/https?:\/\//g)];
+  if (schemeMatches.length > 1) {
+    beforeQuery = beforeQuery.slice(schemeMatches[schemeMatches.length - 1]!.index);
+  }
+
   const readerIndex = Math.max(
     beforeQuery.lastIndexOf("/read-manga/"),
     beforeQuery.lastIndexOf("/chapter/"),
