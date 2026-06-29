@@ -115,8 +115,27 @@ export function canonicalReaderUrl(url: string): string {
   // "/read-manga/" or "/chapter/" that appears inside a query string (e.g.
   // "?from=/chapter/x") can't be mistaken for the real path.
   const queryStart = url.search(/[?#]/);
-  const beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
+  let beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
   const suffix = queryStart === -1 ? "" : url.slice(queryStart);
+
+  // Backstop for host doubling that's ALREADY in the input (a stale stored/cached
+  // URL, not freshly generated). A URL can repeat the scheme+host
+  // (".../https://www.mangago.me/https://www.mangago.me/uu/.../pg-9/") with no
+  // "/read-manga/" segment to anchor on, so keep only the LAST absolute-URL
+  // occurrence. www.mangago.me 404s the doubled form. (Generation-time doubling
+  // is prevented upstream by templatePathname; this catches anything that slips
+  // through or was persisted by an earlier build.)
+  //
+  // Normalize a LEADING protocol-relative host ("//host/...") to https first so
+  // the count below also catches a doubled host whose outer prefix dropped the
+  // scheme ("//www.mangago.me/https://www.mangago.me/..."). Only the leading "//"
+  // is rewritten, so a bare "//" inside a path can't trigger a false collapse.
+  if (beforeQuery.startsWith("//")) beforeQuery = `https:${beforeQuery}`;
+  const schemeMatches = [...beforeQuery.matchAll(/https?:\/\//g)];
+  if (schemeMatches.length > 1) {
+    beforeQuery = beforeQuery.slice(schemeMatches[schemeMatches.length - 1]!.index);
+  }
+
   const readerIndex = Math.max(
     beforeQuery.lastIndexOf("/read-manga/"),
     beforeQuery.lastIndexOf("/chapter/"),
@@ -579,13 +598,15 @@ function extractPcurlTemplate(html: string): string | undefined {
   const match = /\bpcurl\s*=\s*["']([^"']*\/pg-)\d+(\/[^"']*)?["']/.exec(html);
   if (!match?.[1]) return undefined;
 
-  return `${match[1]}{page}${match[2] ?? ""}`;
+  return templatePathname(`${match[1]}{page}${match[2] ?? ""}`);
 }
 
 function usableCurlTemplate(template: string | undefined): string | undefined {
   if (!template || !template.includes("{page}")) return undefined;
 
-  return template;
+  // Mangago sometimes emits this as an absolute URL. Keep only the pathname so
+  // later path merging cannot turn it into /https://www.mangago.me/...
+  return templatePathname(template);
 }
 
 // The site's own multimode flag: `_multimode = "1"` for paginated readers
@@ -730,6 +751,17 @@ function templateSegmentMatches(templateSegment: string, urlSegment: string): bo
   return new RegExp(pattern).test(urlSegment);
 }
 
+function templatePathname(template: string): string {
+  const placeholder = "__MANGAGO_PAGE_PLACEHOLDER__";
+  const protectedTemplate = template.replace(/\{page\}/g, placeholder);
+
+  try {
+    return new URL(protectedTemplate, DOMAIN).pathname.replaceAll(placeholder, "{page}");
+  } catch {
+    return template;
+  }
+}
+
 // Merge the curl template into a concrete URL path. Numeric readers serve a
 // full-path template ("/chapter/ID/CID/{page}/") so this is an identity; some
 // read-manga regions serve a template relative to the chapter slug
@@ -737,11 +769,12 @@ function templateSegmentMatches(templateSegment: string, urlSegment: string): bo
 // from the next_page href instead of resolving it against the domain root
 // (which would 404).
 function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
+  const templatePath = templatePathname(template);
   const urlSegments = urlPath
     .replace(/^\/+|\/+$/g, "")
     .split("/")
     .filter(Boolean);
-  const templateSegments = template
+  const templateSegments = templatePath
     .replace(/^\/+|\/+$/g, "")
     .split("/")
     .filter(Boolean);
@@ -764,7 +797,7 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
     }
   }
 
-  const tail = template.endsWith("/") ? "/" : "";
+  const tail = templatePath.endsWith("/") ? "/" : "";
   if (bestStart >= 0 && bestLength > 0) {
     const prefix = urlSegments.slice(0, bestStart);
     return `/${[...prefix, ...templateSegments].join("/")}${tail}`;
@@ -777,7 +810,7 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
 // templates index reader pages instead, so the image-count stride guess does
 // not apply there.
 function isImageIndexTemplate(template: string): boolean {
-  return /\/chapter\/\d+\/\d+\/\{page\}\/?$/.test(template);
+  return /\/chapter\/\d+\/\d+\/\{page\}\/?$/.test(templatePathname(template));
 }
 
 // Build the URL for reader page N. Prefer the site's next_page href as the
