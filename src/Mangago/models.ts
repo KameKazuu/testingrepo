@@ -1,16 +1,16 @@
 export const DOMAIN = "https://www.mangago.me";
 
-// The User-Agent sent with every mangago request. A mobile UA, on purpose: this
-// is what keiyoushi (on Mihon) and Aidoku (on iOS) send by default, and it is
-// what makes mangago hand back the read-manga reader (/read-manga/<slug>/...,
-// served whole from www.mangago.me in one request) instead of the windowed,
-// mirror-only numeric reader (/chapter/<mid>/<cid>/) that caused the "only 5
-// pages" chapters. The SAME UA is used for the manga page, the chapter list and
+// The User-Agent sent with every mangago request. This is the exact desktop
+// Chrome UA the Aidoku source hard-codes on its page-list (reader) request,
+// alongside the _m_superu=1 cookie — keiyoushi does the same. With this UA + the
+// _m_superu=1 cookie on www.mangago.me, the read-manga reader (/read-manga/<slug>/...)
+// returns the COMPLETE image list in one request, which is what fixes the "only
+// 5 pages" chapters. We send the SAME UA on the manga page, the chapter list and
 // the reader/image fetches so it stays consistent with the Cloudflare
 // cf_clearance binding (Cloudflare ties clearance to the UA that solved the
 // challenge).
 export const USER_AGENT =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 export type MangagoSearchMetadata = {
   page?: number;

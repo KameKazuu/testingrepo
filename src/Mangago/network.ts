@@ -99,8 +99,8 @@ function readerHeadersForUrl(_url: string): {
 } {
   // Everything is served from www.mangago.me now (keiyoushi/Aidoku model — no
   // mirror hosts), so the referer/origin is always the canonical domain. The UA
-  // is the single mobile UA used for every mangago request, kept consistent so it
-  // matches the Cloudflare cf_clearance binding.
+  // is the single desktop UA used for every mangago request, kept consistent so
+  // it matches the Cloudflare cf_clearance binding.
   return {
     referer: `${DOMAIN}/`,
     origin: DOMAIN,
