@@ -44,7 +44,7 @@ import {
   parseListings,
   parseMangaDetails,
 } from "./parsers";
-import { canonicalReaderUrl, getMangagoPageUrls } from "./utils";
+import { canonicalReaderUrl, getMangagoPageUrls, isReadMangaReaderUrl } from "./utils";
 
 type MangagoImplementation = Extension &
   SearchResultsProviding &
@@ -53,18 +53,6 @@ type MangagoImplementation = Extension &
   DiscoverSectionProviding &
   SettingsFormProviding &
   CloudflareBypassRequestProviding;
-
-// The legacy numeric reader (/chapter/<mid>/<cid>/...) 404s on www.mangago.me
-// (mirrors are gone), so when a stale library entry resolves to one we upgrade it
-// to the read-manga reader (full image list in one shot). Used to detect those
-// entries so getChapterDetails can self-heal them.
-function isNumericChapterReaderUrl(url: string): boolean {
-  try {
-    return /^\/chapter\/\d+\/\d+/.test(new URL(url, DOMAIN).pathname);
-  } catch {
-    return false;
-  }
-}
 
 // These genre tops add the "Webtoons" tag so they list only manhwa/manhua,
 // mirroring mangago.zone's curated, manhwa-heavy "Top" carousels — but sourced
@@ -397,17 +385,20 @@ class MangagoExtension implements MangagoImplementation {
     ).additionalInfo?.originalChapterUrl;
     const initialChapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
 
-    // Self-heal stale numeric chapter IDs. www.mangago.me only serves the
-    // read-manga reader and 404s the legacy numeric /chapter/<mid>/<cid>/ reader,
-    // so a library entry saved before the read-manga switch (numeric ID) would
-    // 404 forever. Re-resolve it to the read-manga URL by matching this chapter
-    // in the manga's freshly parsed chapter list. New entries are already
+    // Self-heal stale chapter URLs. www.mangago.me only serves the read-manga
+    // reader, so any stored URL that isn't a proper /read-manga/<slug>/<chapter>
+    // reader page would 404 forever:
+    //   • the legacy numeric /chapter/<mid>/<cid>/ reader (saved before the
+    //     read-manga switch), and
+    //   • a prefix-less "/uu/<chapter>/pg-N/" — what canonicalReaderUrl produces
+    //     when it de-doubles a stale ".../https://www.mangago.me/uu/.../pg-N/"
+    //     entry whose /read-manga/<slug>/ prefix an older build had dropped.
+    // Re-resolve either to the real read-manga URL by matching this chapter in
+    // the manga's freshly parsed chapter list. New entries are already
     // read-manga and skip this entirely.
-    // Normalise first: this repairs a stale entry whose stored URL has the host
-    // doubled (".../https://www.mangago.me/read-manga/...") so the numeric check
-    // and the fetch both see the real path.
+    // Normalise first so the check and the fetch both see the real path.
     let chapterUrl = canonicalReaderUrl(initialChapterUrl);
-    if (isNumericChapterReaderUrl(chapterUrl)) {
+    if (!isReadMangaReaderUrl(chapterUrl)) {
       const resolved = await this.resolveReadMangaChapterUrl(chapter);
       if (resolved) chapterUrl = resolved;
     }
@@ -445,11 +436,12 @@ class MangagoExtension implements MangagoImplementation {
         const bust =
           attempt === 0 ? "" : `${mangaUrl.includes("?") ? "&" : "?"}_=${Date.now()}${attempt}`;
         const html = await fetchText(`${mangaUrl}${bust}`);
-        const fresh = parseChapters(html, chapter.sourceManga).filter(
-          (c) => !isNumericChapterReaderUrl(urlOf(c)),
+        const fresh = parseChapters(html, chapter.sourceManga).filter((c) =>
+          isReadMangaReaderUrl(urlOf(c)),
         );
 
-        // Numeric catalog this round — retry for the read-manga variant.
+        // No read-manga URLs this round (a momentarily stale/numeric catalog) —
+        // retry for the read-manga variant.
         if (fresh.length === 0) continue;
 
         // Match version (uploader/scanlation group) first so a stale entry for a
