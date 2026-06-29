@@ -1,85 +1,16 @@
 export const DOMAIN = "https://www.mangago.me";
 
-// The default User-Agent for every mangago request. A desktop Chrome UA — the
-// same one keiyoushi and Aidoku send. Cloudflare binds the cf_clearance cookie
-// to the UA that solved the challenge, so the UA must stay consistent across the
-// manga page, chapter list and reader fetches. The UA is user-selectable
-// (USER_AGENT_OPTIONS / getSelectedUserAgent) so a reader can switch presets if
-// Cloudflare rejects the default one for them; the default preserves current
-// behaviour.
-export const DESKTOP_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
-
-// User-selectable User-Agent presets, exposed in the settings form. The first
-// entry (Chrome on macOS) is the default and matches DESKTOP_USER_AGENT, so the
-// behaviour is unchanged unless the reader picks another preset. The presets give
-// a way to work around Cloudflare rejecting a particular UA (cf_clearance is
-// bound to the UA that solved the challenge), mirroring how keiyoushi's Mihon app
-// lets the user choose a custom UA.
-export const USER_AGENT_OPTIONS = [
-  {
-    id: "chrome_macos",
-    title: "Chrome (macOS)",
-    value: DESKTOP_USER_AGENT,
-  },
-  {
-    id: "chrome_windows",
-    title: "Chrome (Windows)",
-    value:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-  },
-  {
-    id: "safari_macos",
-    title: "Safari (macOS)",
-    value:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
-  },
-  {
-    id: "firefox_windows",
-    title: "Firefox (Windows)",
-    value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
-  },
-  {
-    id: "safari_iphone",
-    title: "Safari (iPhone)",
-    value:
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
-  },
-  {
-    id: "chrome_android",
-    title: "Chrome (Android)",
-    value:
-      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36",
-  },
-] as const;
-
-const USER_AGENT_STATE_KEY = "mangago_user_agent";
-
-// The id of the currently selected User-Agent preset (defaults to the first one).
-export function getSelectedUserAgentId(): string {
-  const stored = Application.getState(USER_AGENT_STATE_KEY) as string | undefined;
-  if (stored && USER_AGENT_OPTIONS.some((option) => option.id === stored)) return stored;
-  return USER_AGENT_OPTIONS[0].id;
-}
-
-// The User-Agent string mangago requests should use. Defaults to the desktop
-// Chrome UA (DESKTOP_USER_AGENT) so behaviour is unchanged unless the reader
-// picks another preset.
-export function getSelectedUserAgent(): string {
-  const id = getSelectedUserAgentId();
-  return USER_AGENT_OPTIONS.find((option) => option.id === id)?.value ?? DESKTOP_USER_AGENT;
-}
-
-export function setSelectedUserAgentId(id: string): void {
-  const valid = USER_AGENT_OPTIONS.some((option) => option.id === id);
-  Application.setState(valid ? id : USER_AGENT_OPTIONS[0].id, USER_AGENT_STATE_KEY);
-}
-
-// Reader mirrors that serve the legacy numeric /chapter/<mid>/<cid>/ reader.
-// www.mangago.me 404s those paths; these hosts return them (windowed). The site
-// rotates chapter links across both of these plus www.mangago.me.
-export const READER_MIRROR = "https://www.mangago.zone";
-export const READER_MIRROR_FALLBACK = "https://www.youhim.me";
+// The User-Agent sent with every mangago request. A mobile UA, on purpose: this
+// is what keiyoushi (on Mihon) and Aidoku (on iOS) send by default, and it is
+// what makes mangago hand back the read-manga reader (/read-manga/<slug>/...,
+// served whole from www.mangago.me in one request) instead of the windowed,
+// mirror-only numeric reader (/chapter/<mid>/<cid>/) that caused the "only 5
+// pages" chapters. The SAME UA is used for the manga page, the chapter list and
+// the reader/image fetches so it stays consistent with the Cloudflare
+// cf_clearance binding (Cloudflare ties clearance to the UA that solved the
+// challenge).
+export const USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
 
 export type MangagoSearchMetadata = {
   page?: number;

@@ -5,13 +5,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import {
-  DOMAIN,
-  getSelectedUserAgent,
-  READER_MIRROR,
-  READER_MIRROR_FALLBACK,
-  type MangagoImageContext,
-} from "./models";
+import { DOMAIN, USER_AGENT, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -98,69 +92,19 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
-const READER_MIRROR_HOSTS = [READER_MIRROR, READER_MIRROR_FALLBACK]
-  .map((mirror) => {
-    try {
-      return new URL(mirror).hostname.toLowerCase();
-    } catch {
-      return "";
-    }
-  })
-  .filter(Boolean);
-
-// True for the numeric-reader mirror hosts (mangago.zone / youhim.me). They
-// serve the same reader as www.mangago.me and need the same _m_superu=1 flag to
-// return the COMPLETE (non-windowed) imgsrcs list — without it, a request the
-// backstop reroutes to a mirror would come back sliced and truncate the chapter.
-function isReaderMirrorHost(url: string): boolean {
-  try {
-    const host = new URL(url, DOMAIN).hostname.toLowerCase();
-    return READER_MIRROR_HOSTS.includes(host);
-  } catch {
-    return false;
-  }
-}
-
-// Hosts that must receive the _m_superu=1 full-reader flag: the main domain and
-// the numeric-reader mirrors. Image CDN hosts (cspiclink, mangapicgallery) are
-// deliberately excluded — they don't need it and must not receive Mangago
-// cookies.
-function isMangagoReaderHost(url: string): boolean {
-  return isMangagoHost(url) || isReaderMirrorHost(url);
-}
-
-function readerHeadersForUrl(url: string): {
+function readerHeadersForUrl(_url: string): {
   referer: string;
   origin: string;
   "user-agent": string;
 } {
-  // Use a SAME-ORIGIN referer/origin when fetching a reader mirror
-  // (mangago.zone / youhim.me). The mirrors serve a numeric reader's page 1 to
-  // anyone, but redirect its SUB-pages (/chapter/<mid>/<cid>/<n>/) to
-  // www.mangago.me — which 404s them — when the request's referer/origin is the
-  // cross-origin main domain. Sending the mirror's own origin (what a browser on
-  // that mirror sends) lets the sub-page load, so the whole chapter walks instead
-  // of stopping at the first 5-image window. Everything else (main domain, image
-  // CDN hosts) keeps the canonical www.mangago.me referer.
-  let base = DOMAIN;
-  if (isReaderMirrorHost(url)) {
-    try {
-      const u = new URL(url, DOMAIN);
-      base = `${u.protocol}//${u.host}`;
-    } catch {
-      // Fall back to the canonical domain.
-    }
-  }
-
-  // Every mangago request uses the same user-selected User-Agent. Cloudflare
-  // binds cf_clearance to the UA that solved the challenge, so the UA must stay
-  // consistent across the manga page, chapter list and reader fetches. The
-  // default preset is the desktop Chrome UA, so behaviour is unchanged unless the
-  // reader picks another in settings.
+  // Everything is served from www.mangago.me now (keiyoushi/Aidoku model — no
+  // mirror hosts), so the referer/origin is always the canonical domain. The UA
+  // is the single mobile UA used for every mangago request, kept consistent so it
+  // matches the Cloudflare cf_clearance binding.
   return {
-    referer: `${base}/`,
-    origin: base,
-    "user-agent": getSelectedUserAgent(),
+    referer: `${DOMAIN}/`,
+    origin: DOMAIN,
+    "user-agent": USER_AGENT,
   };
 }
 
@@ -177,10 +121,10 @@ function readerHeadersForUrl(url: string): {
 //
 // The _m_superu=1 flag is merged into request.cookies (NOT overwritten) so it
 // sits alongside any Cloudflare-bypass cookies the CookieStorageInterceptor
-// injected — the map spread is purely additive. Only reader hosts (the main
-// domain AND the numeric-reader mirrors) get it; image CDN hosts (cspiclink,
-// mangapicgallery) are excluded because they don't need it and must not receive
-// Mangago cookies (that leak previously broke hotlinked images).
+// injected — the map spread is purely additive. Only the mangago.me host gets it;
+// image CDN hosts (cspiclink, mangapicgallery) are excluded because they don't
+// need it and must not receive Mangago cookies (that leak previously broke
+// hotlinked images).
 export async function applyMangagoHeaders(request: Request): Promise<Request> {
   return {
     ...request,
@@ -188,9 +132,7 @@ export async function applyMangagoHeaders(request: Request): Promise<Request> {
       ...request.headers,
       ...readerHeadersForUrl(request.url),
     },
-    cookies: isMangagoReaderHost(request.url)
-      ? { ...request.cookies, _m_superu: "1" }
-      : request.cookies,
+    cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };
 }
 
