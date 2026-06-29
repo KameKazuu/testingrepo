@@ -115,8 +115,18 @@ export function canonicalReaderUrl(url: string): string {
   // "/read-manga/" or "/chapter/" that appears inside a query string (e.g.
   // "?from=/chapter/x") can't be mistaken for the real path.
   const queryStart = url.search(/[?#]/);
-  const beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
+  let beforeQuery = queryStart === -1 ? url : url.slice(0, queryStart);
   const suffix = queryStart === -1 ? "" : url.slice(queryStart);
+
+  // Collapse accidental host doubling FIRST. A mis-built walk URL can repeat the
+  // scheme+host (".../https://www.mangago.me/https://www.mangago.me/uu/.../pg-9/")
+  // — even with no "/read-manga/" segment to anchor on — so keep only the LAST
+  // absolute-URL occurrence. www.mangago.me 404s the doubled form.
+  const schemeMatches = [...beforeQuery.matchAll(/https?:\/\//g)];
+  if (schemeMatches.length > 1) {
+    beforeQuery = beforeQuery.slice(schemeMatches[schemeMatches.length - 1]!.index);
+  }
+
   const readerIndex = Math.max(
     beforeQuery.lastIndexOf("/read-manga/"),
     beforeQuery.lastIndexOf("/chapter/"),
@@ -790,6 +800,23 @@ function buildReaderPageUrl(
   page: number,
   nextPageHref?: string,
 ): string {
+  // read-manga reader: the page index lives in a "/pg-N/" segment of the reader
+  // URL itself (/read-manga/<slug>/uu/<chapter>/pg-N/). Substitute the number in
+  // the real reader URL so the /read-manga/<slug>/ prefix is ALWAYS preserved.
+  // Resolving the bare "/uu/<chapter>/pg-{page}/" curl template against the
+  // domain root instead drops that prefix and 404s ("/uu/.../pg-9/").
+  const baseReader = canonicalReaderUrl(baseUrl);
+  let basePath = "";
+  try {
+    basePath = new URL(baseReader).pathname;
+  } catch {
+    /* fall through to the numeric template path below */
+  }
+  if (/^\/read-manga\/.+\/pg-\d+\/?$/i.test(basePath)) {
+    return canonicalReaderUrl(baseReader.replace(/\/pg-\d+(\/?)$/i, `/pg-${page}$1`));
+  }
+
+  // Legacy numeric reader: merge the full-path template.
   const concreteBase = nextPageHref ? resolveUrl(nextPageHref, baseUrl) : baseUrl;
   try {
     const base = new URL(concreteBase);
@@ -799,9 +826,9 @@ function buildReaderPageUrl(
     );
     base.search = "";
     base.hash = "";
-    return base.toString();
+    return canonicalReaderUrl(base.toString());
   } catch {
-    return resolveUrl(template.replace("{page}", String(page)), baseUrl);
+    return canonicalReaderUrl(resolveUrl(template.replace("{page}", String(page)), baseUrl));
   }
 }
 
