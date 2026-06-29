@@ -145,8 +145,11 @@ export async function applyMangagoHeaders(request: Request): Promise<Request> {
   return {
     ...request,
     headers: {
-      ...request.headers,
+      // URL-based defaults are only the baseline. Explicit request headers
+      // must win so reader fetches can force the desktop UA even when a stale
+      // URL shape would otherwise be misclassified as a browsing page.
       ...readerHeadersForUrl(request.url),
+      ...request.headers,
     },
     cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };

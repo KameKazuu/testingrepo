@@ -150,6 +150,19 @@ export function canonicalReaderUrl(url: string): string {
   }
 }
 
+// True only for an actual read-manga reader page:
+// /read-manga/<slug>/<chapter-or-page>. The bare manga details page, legacy
+// numeric /chapter/ reader, and prefix-less /uu/... stale paths return false so
+// getChapterDetails can re-resolve them from the chapter list first.
+export function isReadMangaReaderUrl(url: string): boolean {
+  try {
+    const match = /^\/read-manga\/[^/]+\/(.+)/.exec(new URL(url, DOMAIN).pathname);
+    return !!match && match[1].length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function absoluteUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -825,16 +838,25 @@ function buildReaderPageUrl(
 ): string {
   const concreteBase = nextPageHref ? resolveUrl(nextPageHref, baseUrl) : baseUrl;
   try {
-    const base = new URL(concreteBase);
+    const base = new URL(concreteBase, DOMAIN);
     base.pathname = mergeUrlPathWithTemplate(base.pathname, template).replace(
       "{page}",
       String(page),
     );
     base.search = "";
     base.hash = "";
-    return base.toString();
+    return canonicalReaderUrl(base.toString());
   } catch {
-    return resolveUrl(template.replace("{page}", String(page)), baseUrl);
+    // Last resort: merge the template onto the base path so a bare
+    // /uu/<chapter>/pg-N/ template keeps the /read-manga/<slug>/ prefix.
+    let basePath = baseUrl;
+    try {
+      basePath = new URL(baseUrl, DOMAIN).pathname;
+    } catch {
+      // keep the raw base
+    }
+    const merged = mergeUrlPathWithTemplate(basePath, template).replace("{page}", String(page));
+    return canonicalReaderUrl(`${DOMAIN}${merged.startsWith("/") ? merged : `/${merged}`}`);
   }
 }
 
@@ -881,8 +903,10 @@ async function fetchReaderPage(
     try {
       await paceReaderFetch();
       const html = await fetchText(pageUrl, {
+        // Force the desktop reader UA. The interceptor merges _m_superu=1 into
+        // the cookies map alongside any Cloudflare cookies, so do not set a
+        // bare Cookie header here.
         "user-agent": READER_USER_AGENT,
-        cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
       if (extractImgsrcsFromHtml(html)) {
@@ -975,8 +999,9 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // every chapter open; the BasicRateLimiter (5/s) still guards against
       // bursts. The pace is kept where it matters — inside fetchReaderPage.
       const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
+        // Desktop reader UA only; _m_superu is added by the interceptor's
+        // cookies map so Cloudflare cookies are preserved.
         "user-agent": READER_USER_AGENT,
-        cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
       if (attempt.includes("imgsrcs")) {
@@ -1033,23 +1058,30 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // most readers report `_multimode = ""` and serve the full list on page 1.)
   const multimodeFlag = extractMultimode(html);
 
-  // Eager fast path: page 1 already holds the whole chapter — return the real
-  // image URLs directly, no walk, no placeholders. This is the common case and
-  // the entire strategy Aidoku uses, plus keiyoushi's fast path. Gate it on BOTH
-  // signals agreeing: the site does not flag the reader as windowed AND there
-  // are no blank slots. Anything else falls through to the eager walk below.
+  const totalPages = extractTotalPages(html);
+  const readMangaReader = isReadMangaReaderUrl(loadedUrl);
+  const readMangaComplete =
+    readMangaReader && (totalPages === 0 || firstImages.length >= totalPages);
+
+  // Eager fast path: with desktop UA + _m_superu, read-manga reader page 1
+  // normally contains the whole encrypted image list. Trust that full-reader
+  // signal and avoid walking pg-N links unless Mangago says it is windowed.
   if (
     multimodeFlag !== "1" &&
-    firstPositional.length > 0 &&
-    firstImages.length === firstPositional.length
+    firstImages.length > 0 &&
+    (readMangaComplete || firstImages.length === firstPositional.length)
   ) {
     const pages = firstImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
-    console.log(`[Mangago] page 1 complete -> ${pages.length} images (eager)`);
-    if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
+    console.log(
+      `[Mangago] page 1 complete -> ${pages.length} images (eager${
+        readMangaReader ? ", read-manga full reader" : ""
+      })`,
+    );
+    const suspectedPartial = totalPages > 0 && firstImages.length < totalPages;
+    if (pages.length > 0 && !suspectedPartial) mangagoPageUrlsCache.set(chapterUrl, pages);
     return pages;
   }
 
-  const totalPages = extractTotalPages(html);
   const curlTemplate = usableCurlTemplate(extractCurlTemplate(html)) ?? extractPcurlTemplate(html);
   const nextPageHref = extractNextPageHref(html);
   const firstPageChapterKey = readerChapterKey(loadedUrl);
