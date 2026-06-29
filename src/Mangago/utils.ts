@@ -1,17 +1,15 @@
 import { CloudflareError } from "@paperback/types";
 
-import { getSelectedUserAgent, DOMAIN, READER_MIRROR, READER_MIRROR_FALLBACK } from "./models";
+import { DOMAIN, USER_AGENT } from "./models";
 import { fetchText, fetchTextWithUrl } from "./network";
 
-// Headers a desktop browser sends when NAVIGATING to a reader page (i.e. clicking
-// the reader's next-page <a> link). Mangago's mirror hosts (mangago.zone /
-// youhim.me) serve a numeric reader's page 1 to anyone, but redirect its
-// sub-pages (/chapter/<mid>/<cid>/<n>/) to www.mangago.me — which 404s them —
-// unless the request looks like a real same-origin navigation. Together with the
-// same-origin referer/origin (see readerHeadersForUrl in network.ts), these
-// Sec-Fetch-* headers mimic that navigation so the mirror serves the sub-page
-// instead of bouncing it. Scoped to reader-page HTML fetches only — image
-// requests have a different Sec-Fetch context and must not get these.
+// Headers a browser sends when NAVIGATING to a reader page (i.e. clicking the
+// reader's next-page <a> link). Together with the same-origin referer/origin
+// (see readerHeadersForUrl in network.ts), these Sec-Fetch-* headers make a
+// reader sub-page fetch look like a real same-origin navigation rather than a
+// bare request, which mangago is happier to serve in full. Scoped to reader-page
+// HTML fetches only — image requests have a different Sec-Fetch context and must
+// not get these.
 const READER_NAVIGATION_HEADERS: Record<string, string> = {
   "sec-fetch-site": "same-origin",
   "sec-fetch-mode": "navigate",
@@ -101,83 +99,18 @@ function readMangaPagePosition(url: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-function originOf(url: string): string | undefined {
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function withMirror(url: string, mirror: string): string {
-  try {
-    const u = new URL(url);
-    const m = new URL(mirror);
-    u.protocol = m.protocol;
-    u.host = m.host;
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-// True for the legacy numeric reader path "/chapter/<mid>/<cid>/...". These 404
-// on www.mangago.me and only resolve on the mirror hosts.
-export function isNumericReaderPath(pathname: string): boolean {
-  return /^\/chapter\/\d+\/\d+/.test(pathname);
-}
-
-// Hosts that actually serve the legacy numeric /chapter/ reader. The site
-// round-robins numeric chapter links across these mirrors, and a chapter that
-// loaded on one of them serves its whole page-walk from that same host — so when
-// a URL already points at one, we keep it instead of snapping back to the
-// default mirror.
-const READER_MIRROR_HOSTS = [READER_MIRROR, READER_MIRROR_FALLBACK]
-  .map((mirror) => {
-    try {
-      return new URL(mirror).host.toLowerCase();
-    } catch {
-      return "";
-    }
-  })
-  .filter(Boolean);
-
-function isReaderMirrorHost(host: string): boolean {
-  return READER_MIRROR_HOSTS.includes(host.toLowerCase());
-}
-
-// Route a reader URL (or bare path) onto a host that actually serves it. The
-// chapter list rotates between the read-manga reader (served by www.mangago.me)
-// and the numeric reader (served only by the mirror hosts), so we route by path
-// instead of forcing one domain — forcing www.mangago.me 404s every numeric
-// reader, and forcing a mirror breaks the read-manga reader. Adapts keiyoushi
-// PR #16599 (a dedicated reader mirror for /chapter/ paths) to Paperback.
-//
-// For numeric paths we PRESERVE an already-mirror host (mangago.zone /
-// youhim.me) rather than rewriting every numeric URL to the single default
-// mirror. The site serves a chapter's entire walk from whichever mirror handed
-// out page 1, so if a chapter loaded on youhim.me its sub-pages must keep
-// hitting youhim.me — forcing them to mangago.zone (or, worse, leaving them on
-// www.mangago.me) is what 404'd the page-walk. Only a numeric URL that is NOT
-// already on a mirror (e.g. a stale www.mangago.me library entry) is routed to
-// the default mirror.
+// Pin any reader URL (or bare path) to www.mangago.me. The read-manga reader is
+// served whole from this single host (keiyoushi/Aidoku model — no mirror hosts),
+// so we always normalise onto it. A relative or absolute next-page link, or a
+// quirky response URL on another host, is snapped back here so the walk never
+// drifts off-domain.
 export function canonicalReaderUrl(url: string): string {
   try {
     const u = new URL(url, DOMAIN);
-    if (u.pathname.startsWith("/read-manga/")) {
-      return `${DOMAIN}${u.pathname}${u.search}${u.hash}`;
-    }
-    if (isNumericReaderPath(u.pathname)) {
-      const base = isReaderMirrorHost(u.host) ? `${u.protocol}//${u.host}` : READER_MIRROR;
-      return `${base}${u.pathname}${u.search}${u.hash}`;
-    }
-    return url;
+    return `${DOMAIN}${u.pathname}${u.search}${u.hash}`;
   } catch {
     const path = url.startsWith("/") ? url : `/${url}`;
-    if (path.startsWith("/read-manga/")) return `${DOMAIN}${path}`;
-    if (isNumericReaderPath(path)) return `${READER_MIRROR}${path}`;
-    return url;
+    return `${DOMAIN}${path}`;
   }
 }
 
@@ -855,26 +788,21 @@ function buildReaderPageUrl(
   }
 }
 
-// Fetch one reader page by URL, trying mirrors in order (preferred host first).
-// Returns the page HTML (which contains both the imgsrcs blob and the next_page
-// link) plus the origin that served it, so the caller can stick with a working
-// mirror and stop re-probing dead ones (mangago.me 404s every numeric reader
-// page).
-// Set on `outcome.dead` when a fetch fails because every origin returned
-// Mangago's definitive 404 page (the reader window genuinely does not exist) as
-// opposed to a retryable failure (rate-limit, transient network, empty page).
-// Lets the fallback crawl tell a dead reader from a temporary gap.
+// Fetch one reader page by URL from www.mangago.me. Returns the page HTML (which
+// contains both the imgsrcs blob and the next_page link) plus the serving origin.
+// Set `outcome.dead` when the fetch fails because the page returned Mangago's
+// definitive 404 page (the reader window genuinely does not exist) as opposed to
+// a retryable failure (rate-limit, transient network, empty page). Lets the
+// fallback crawl tell a dead reader from a temporary gap.
 type ReaderFetchOutcome = { dead: boolean };
 
 async function fetchReaderPage(
   pageUrl: string,
-  preferredOrigin: string | undefined,
   outcome?: ReaderFetchOutcome,
 ): Promise<{ html: string; url: string; origin: string } | undefined> {
-  // Force the page onto a host that serves this reader format BEFORE anything
-  // else (numeric /chapter/ -> mirror, read-manga -> www.mangago.me). A relative
-  // next-page link, an absolute link on the wrong host, or a quirky response URL
-  // could otherwise leave a numeric page pointed at www.mangago.me, which 404s.
+  // Pin the page to www.mangago.me before anything else. A relative next-page
+  // link, an absolute link on the wrong host, or a quirky response URL could
+  // otherwise leave the walk pointed off-domain.
   pageUrl = canonicalReaderUrl(pageUrl);
 
   // Reuse a recently-fetched copy of this reader page if we have one (e.g. when
@@ -882,42 +810,7 @@ async function fetchReaderPage(
   // rate limiter for pages that already loaded.
   const cachedHtml = getCachedReaderHtml(pageUrl);
   if (cachedHtml) {
-    return { html: cachedHtml, url: pageUrl, origin: preferredOrigin ?? originOf(pageUrl) ?? "" };
-  }
-
-  const numericPage = isNumericReaderPath(pathnameKey(pageUrl));
-
-  // www.mangago.me 404s EVERY numeric reader page. When a chapter's page 1 is the
-  // read-manga reader (host www.mangago.me) but its pagination template points at
-  // the numeric reader, preferredOrigin/originOf would be www.mangago.me — and
-  // withMirror() below would then slam each numeric sub-page back onto
-  // www.mangago.me and 404. So for numeric paths we drop any main-domain origin
-  // and only ever fetch from the mirrors that actually serve them.
-  const isMainDomainOrigin = (o: string): boolean => {
-    try {
-      const host = new URL(o).hostname.toLowerCase();
-      return host === "mangago.me" || host === "www.mangago.me";
-    } catch {
-      return false;
-    }
-  };
-
-  const origins: string[] = [];
-  const pushOrigin = (o: string | undefined): void => {
-    if (!o) return;
-    if (numericPage && isMainDomainOrigin(o)) return;
-    if (!origins.includes(o)) origins.push(o);
-  };
-  pushOrigin(preferredOrigin);
-  pushOrigin(originOf(pageUrl));
-  // Numeric reader pages 404 on www.mangago.me, so fall back across the mirror
-  // hosts that actually serve them — NOT the main domain. read-manga pages are
-  // served by www.mangago.me, so fall back there for those.
-  if (numericPage) {
-    pushOrigin(READER_MIRROR);
-    pushOrigin(READER_MIRROR_FALLBACK);
-  } else {
-    pushOrigin(DOMAIN);
+    return { html: cachedHtml, url: pageUrl, origin: DOMAIN };
   }
 
   // Retry across a few rounds with a short backoff between them. The backoff is
@@ -925,60 +818,45 @@ async function fetchReaderPage(
   // fail (rate-limit, -999 cancel, momentary network), and the walk treats one
   // failed page as the end of the chapter. Without the pause all rounds fire
   // within a few ms — before the blip clears — and the chapter truncates to
-  // page 1. Mirror rotation alone does not help when every mirror is briefly
-  // unhappy at the same instant.
-  // If every mirror/round fails specifically with a Cloudflare challenge, we
-  // surface it (below) so Paperback shows the bypass webview instead of letting
-  // the walk silently truncate the chapter to page 1.
+  // page 1.
+  // If a round fails specifically with a Cloudflare challenge, we surface it
+  // (below) so Paperback shows the bypass webview instead of letting the walk
+  // silently truncate the chapter to page 1.
   let cloudflareError: CloudflareError | undefined;
 
   let definitive404 = false;
 
   const MAX_ROUNDS = 3;
   for (let round = 1; round <= MAX_ROUNDS; round++) {
-    // Did any origin fail in a way worth retrying (network blip, rate-limit, a
-    // non-404 empty page)? A definitive 404 is NOT retryable, so if every origin
-    // 404s we stop after this round instead of re-hammering the same dead page.
-    let sawRetryableFailure = false;
-
-    for (const origin of origins) {
-      const url = withMirror(pageUrl, origin);
-      try {
-        await paceReaderFetch();
-        const html = await fetchText(url, {
-          "user-agent": getSelectedUserAgent(),
-          cookie: "_m_superu=1",
-          ...READER_NAVIGATION_HEADERS,
-        });
-        if (extractImgsrcsFromHtml(html)) {
-          console.log(`[Mangago] reader fetch OK ${url}`);
-          cacheReaderHtml(pageUrl, html);
-          return { html, url, origin };
-        }
-        if (isMangago404Page(html)) {
-          console.log(`[Mangago] ${url} -> 404 page (not retrying)`);
-        } else {
-          sawRetryableFailure = true;
-          console.log(`[Mangago] ${url} returned HTML but no imgsrcs`);
-        }
-      } catch (error) {
-        if (error instanceof CloudflareError) cloudflareError = error;
-        sawRetryableFailure = true;
-        console.log(
-          `[Mangago] reader fetch failed ${url}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        // Otherwise try the next mirror.
+    try {
+      await paceReaderFetch();
+      const html = await fetchText(pageUrl, {
+        "user-agent": USER_AGENT,
+        cookie: "_m_superu=1",
+        ...READER_NAVIGATION_HEADERS,
+      });
+      if (extractImgsrcsFromHtml(html)) {
+        console.log(`[Mangago] reader fetch OK ${pageUrl}`);
+        cacheReaderHtml(pageUrl, html);
+        return { html, url: pageUrl, origin: DOMAIN };
       }
+      // A definitive 404 is NOT retryable — the reader window genuinely does not
+      // exist, so stop instead of re-hammering the same dead page.
+      if (isMangago404Page(html)) {
+        console.log(`[Mangago] ${pageUrl} -> 404 page (not retrying)`);
+        definitive404 = true;
+        break;
+      }
+      console.log(`[Mangago] ${pageUrl} returned HTML but no imgsrcs`);
+    } catch (error) {
+      if (error instanceof CloudflareError) cloudflareError = error;
+      console.log(
+        `[Mangago] reader fetch failed ${pageUrl}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
 
-    // Every origin definitively 404'd this page — further rounds would just
-    // re-request a page the site will never serve. Give up now.
-    if (!sawRetryableFailure) {
-      definitive404 = true;
-      break;
-    }
     if (round < MAX_ROUNDS) {
       await new Promise((resolve) => setTimeout(resolve, 400 * round));
     }
@@ -994,14 +872,13 @@ async function fetchReaderPage(
 
 async function decodeReaderPageImages(
   pageUrl: string,
-  preferredOrigin: string | undefined,
   deobfChapterJs: string,
   keyHex: string,
   ivHex: string,
   keepBlanks = false,
   outcome?: ReaderFetchOutcome,
 ): Promise<{ images: string[]; html: string; url: string; origin: string } | undefined> {
-  const result = await fetchReaderPage(pageUrl, preferredOrigin, outcome);
+  const result = await fetchReaderPage(pageUrl, outcome);
   if (!result) return undefined;
 
   const imgsrcs = extractImgsrcsFromHtml(result.html);
@@ -1019,30 +896,17 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter page from the host that serves this reader format:
-  // read-manga from www.mangago.me (returns the COMPLETE image list in one shot
-  // with the desktop UA), numeric from the mirror hosts (www.mangago.me 404s
-  // them). Do NOT force www.mangago.me — that was the cause of the numeric-reader
-  // 404s. A stale library URL on any host is re-routed by canonicalReaderUrl.
+  // Fetch the chapter page from www.mangago.me. The read-manga reader returns the
+  // COMPLETE image list in one shot. A stale numeric library URL is normalised to
+  // www.mangago.me by canonicalReaderUrl (it 404s there, which surfaces as a
+  // "no usable page" error after getChapterDetails has already self-healed the
+  // numeric ID to its read-manga URL).
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
   const canonical = canonicalReaderUrl(chapterUrl);
-  // For a numeric reader, try BOTH mirrors regardless of which one `canonical`
-  // already points at. canonicalReaderUrl now preserves an existing mirror host
-  // (so a chapter stays on the mirror that served it), but that must not cost us
-  // the fallback: if the preferred mirror is momentarily down, the other mirror
-  // still serves the page. The `tried` set below dedupes, so listing both is
-  // free when canonical already equals one of them.
-  const candidates = isNumericReaderPath(pathnameKey(canonical))
-    ? [
-        canonical,
-        withMirror(canonical, READER_MIRROR),
-        withMirror(canonical, READER_MIRROR_FALLBACK),
-        chapterUrl,
-      ]
-    : [canonical, chapterUrl];
+  const candidates = canonical === chapterUrl ? [canonical] : [canonical, chapterUrl];
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
@@ -1056,40 +920,36 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     }
 
     try {
-      // No paceReaderFetch() here: this is the single initial chapter-page fetch
-      // (at most one request per mirror), not the reader sub-page burst. The
-      // 350 ms pace would just add latency to every chapter open; the
-      // BasicRateLimiter (5/s) still guards against bursts. The pace is kept
-      // where it matters — inside fetchReaderPage (walk + lazy sub-page
-      // resolution), which is what the burst-truncation fix relies on.
+      // No paceReaderFetch() here: this is the single initial chapter-page fetch,
+      // not the reader sub-page burst. The 350 ms pace would just add latency to
+      // every chapter open; the BasicRateLimiter (5/s) still guards against
+      // bursts. The pace is kept where it matters — inside fetchReaderPage.
       const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
-        "user-agent": getSelectedUserAgent(),
+        "user-agent": USER_AGENT,
         cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
       if (attempt.includes("imgsrcs")) {
         cacheReaderHtml(candidate, attempt);
         html = attempt;
-        // Use the FINAL URL (after any mangago.me numeric -> read-manga
-        // redirect) so the page walk keys off the reader page we actually
-        // landed on; otherwise same-chapter next_page links won't match the
-        // stale request URL and the walk stops after the first window. Route it
-        // to the canonical host so the walk's preferredOrigin is the mirror that
-        // actually serves this format (a quirky response URL can't send the walk
-        // back to www.mangago.me, which 404s numeric pages).
+        // Use the FINAL URL (after any numeric -> read-manga redirect) so the
+        // page walk keys off the reader page we actually landed on; otherwise
+        // same-chapter next_page links won't match the stale request URL and the
+        // walk stops after the first window. Pin it to www.mangago.me so a quirky
+        // response URL can't send the walk off-domain.
         loadedUrl = canonicalReaderUrl(finalUrl);
         break;
       }
     } catch (error) {
       if (error instanceof CloudflareError) cloudflareError = error;
-      // Otherwise try the next mirror.
+      // Otherwise try the next candidate.
     }
   }
 
   // Prefer surfacing a Cloudflare challenge (triggers the bypass webview) over a
-  // generic "no usable page" error when every mirror was walled.
+  // generic "no usable page" error when the page was walled.
   if (!html && cloudflareError) throw cloudflareError;
-  if (!html) throw new Error("[Mangago] no mirror returned a usable chapter page");
+  if (!html) throw new Error("[Mangago] no usable chapter page");
 
   const imgsrcsRaw = extractImgsrcsFromHtml(html);
   if (!imgsrcsRaw) throw new Error("Could not extract imgsrcs");
@@ -1241,7 +1101,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     const stride = Math.max(1, firstImages.length);
     const imageIndexReader = imageIndexTemplate;
 
-    let preferredOrigin = originOf(loadedUrl);
     let currentHtml = html; // HTML of the last reader page fetched successfully
     let currentUrl = loadedUrl;
     let expectedNext = imageIndexReader
@@ -1307,13 +1166,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       }
       visitedPaths.add(pathnameKey(nextUrl));
 
-      const result = await decodeReaderPageImages(
-        nextUrl,
-        preferredOrigin,
-        deobfChapterJs,
-        keyHex,
-        ivHex,
-      );
+      const result = await decodeReaderPageImages(nextUrl, deobfChapterJs, keyHex, ivHex);
       let progressed = false;
       if (
         result &&
@@ -1327,7 +1180,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         ) > 0
       ) {
         progressed = true;
-        preferredOrigin = result.origin;
         currentHtml = result.html;
         currentUrl = result.url;
         expectedNext = imageIndexReader
@@ -1427,7 +1279,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         const outcome: ReaderFetchOutcome = { dead: false };
         const result = await decodeReaderPageImages(
           fallbackUrl,
-          preferredOrigin,
           deobfChapterJs,
           keyHex,
           ivHex,
@@ -1458,7 +1309,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         consecutiveDeadWindows = 0;
         consecutiveFailedWindows = 0;
 
-        preferredOrigin = result.origin;
         visitedPaths.add(pathnameKey(result.url));
         const currentPage =
           extractCurrentReaderPage(result.html) ?? readerPagePosition(result.url) ?? page;

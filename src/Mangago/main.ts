@@ -404,41 +404,11 @@ class MangagoExtension implements MangagoImplementation {
       if (resolved) chapterUrl = resolved;
     }
 
-    // Walk a reader URL, falling back ONLY when the page was genuinely
-    // unreachable (no host served a usable chapter page). A Cloudflare challenge
-    // and real decode/parse regressions (missing chapter.js / AES key / changed
-    // imgsrcs) are rethrown so they surface to the user instead of being masked
-    // behind a partial numeric result.
-    const softWalk = async (url: string): Promise<string[]> => {
-      try {
-        return await getMangagoPageUrls(url);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        if (
-          !(error instanceof CloudflareError) &&
-          message.includes("no mirror returned a usable chapter page")
-        ) {
-          return [];
-        }
-        throw error;
-      }
-    };
-
-    let pages: string[];
-    if (chapterUrl !== initialChapterUrl) {
-      // We upgraded to the read-manga reader. Try it, but if it yields nothing,
-      // fall back to walking the ORIGINAL numeric reader directly — that path
-      // reliably returns at least page 1's images from the mirror hosts, so a
-      // chapter still opens instead of failing outright (the pre-upgrade
-      // behavior). The fallback is a hard walk so a real error (e.g. Cloudflare)
-      // still surfaces to the app rather than showing an empty reader.
-      pages = await softWalk(chapterUrl);
-      if (pages.length === 0) {
-        pages = await getMangagoPageUrls(initialChapterUrl);
-      }
-    } else {
-      pages = await getMangagoPageUrls(chapterUrl);
-    }
+    // Fetch the read-manga reader from www.mangago.me — it returns the COMPLETE
+    // image list in one request. A Cloudflare challenge surfaces as the bypass
+    // webview; a genuine decode/parse failure surfaces as an error rather than a
+    // silently short chapter.
+    const pages = await getMangagoPageUrls(chapterUrl);
 
     return {
       id: chapter.chapterId,
