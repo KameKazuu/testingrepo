@@ -743,9 +743,11 @@ function normalizeCurlTemplatePath(template: string): string {
   // path segments and Paperback later requests:
   //   https://www.mangago.me/https://www.mangago.me/uu/...
   // Normalize absolute templates to their pathname before merging them onto the
-  // real /read-manga/<slug>/ prefix from the currently loaded reader page.
+  // real /read-manga/<slug>/ prefix from the currently loaded reader page. Do not
+  // let URL.pathname percent-encode the {page} marker, because buildReaderPageUrl
+  // replaces that exact placeholder after the paths are merged.
   try {
-    return new URL(template, DOMAIN).pathname;
+    return decodeURI(new URL(template, DOMAIN).pathname);
   } catch {
     return template;
   }
