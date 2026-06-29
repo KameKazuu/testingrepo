@@ -22,6 +22,7 @@ import {
   type MangagoSearchMetadata,
   STATUS_OPTIONS,
 } from "./models";
+import { clearMangagoReaderCaches } from "./utils";
 
 function normalizeGenreSelections(
   genres: Record<string, "included" | "excluded"> | undefined,
@@ -147,6 +148,20 @@ export class MangagoSettingsForm extends Form {
           }),
         ),
       ),
+      Section(
+        {
+          id: "cache",
+          footer:
+            "Clears cached chapter pages so they reload from the network. " +
+            "Use this after changing the Chapter List User-Agent.",
+        },
+        [
+          ButtonRow("clearCache", {
+            title: "Clear Cache",
+            onSelect: Application.Selector(this as MangagoSettingsForm, "handleClearCache"),
+          }),
+        ],
+      ),
       Section("reset", [
         ButtonRow("resetDiscoverSections", {
           title: "Reset Home Sections",
@@ -173,6 +188,10 @@ export class MangagoSettingsForm extends Form {
 
   async handleChapterListUserAgentChange(value: string[]): Promise<void> {
     setChapterListUserAgentMode(value[0] ?? "desktop");
+  }
+
+  async handleClearCache(): Promise<void> {
+    clearMangagoReaderCaches();
   }
 
   async handleResetDiscoverSections(): Promise<void> {
