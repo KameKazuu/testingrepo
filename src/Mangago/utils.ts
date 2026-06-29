@@ -1375,12 +1375,18 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
       };
 
-      // Stop the crawl after a run of CONFIRMED-DEAD (404 on every mirror)
-      // windows — that means the rest of the numeric reader is gone, and probing
-      // every remaining slot would be a request storm. A transient miss
-      // (rate-limit / network) does NOT count and resets the run, so a valid
-      // chapter with a few temporary gaps still gets fully probed.
+      // Stop the crawl on a run of consecutive failures so a dead/unreachable
+      // reader can't turn into a request storm, while still tolerating a few
+      // scattered gaps in an otherwise valid chapter:
+      //   • CONFIRMED-DEAD (404 on every mirror) windows bail fast (the reader is
+      //     gone), and
+      //   • any-kind failures (incl. persistent rate-limit / unreachable mirror,
+      //     where fetchReaderPage never sees a 404 body) bail after a longer run.
+      // Any successful window resets both runs.
+      const MAX_CONSECUTIVE_DEAD = 3;
+      const MAX_CONSECUTIVE_FAILURES = 6;
       let consecutiveDeadWindows = 0;
+      let consecutiveFailedWindows = 0;
       for (
         let missing = nextUntriedMissingPage();
         missing !== undefined && collectedCount() < totalImagePages;
@@ -1402,18 +1408,27 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         );
         if (!result) {
           console.log(`[Mangago] direct curl window ${page} failed: ${fallbackUrl}`);
+          consecutiveFailedWindows++;
           if (outcome.dead) {
-            if (++consecutiveDeadWindows >= 3) {
-              console.log(`[Mangago] 3 dead (404) curl windows in a row -> stop crawl`);
-              break;
-            }
+            consecutiveDeadWindows++;
           } else {
-            // Transient miss, not a dead reader — keep probing later windows.
+            // Transient miss, not a dead reader — don't trip the fast dead cap.
             consecutiveDeadWindows = 0;
+          }
+          if (consecutiveDeadWindows >= MAX_CONSECUTIVE_DEAD) {
+            console.log(`[Mangago] ${MAX_CONSECUTIVE_DEAD} dead (404) curl windows -> stop crawl`);
+            break;
+          }
+          if (consecutiveFailedWindows >= MAX_CONSECUTIVE_FAILURES) {
+            console.log(
+              `[Mangago] ${MAX_CONSECUTIVE_FAILURES} curl windows failed in a row -> stop crawl`,
+            );
+            break;
           }
           continue;
         }
         consecutiveDeadWindows = 0;
+        consecutiveFailedWindows = 0;
 
         preferredOrigin = result.origin;
         visitedPaths.add(pathnameKey(result.url));
