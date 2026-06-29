@@ -736,12 +736,28 @@ function templateSegmentMatches(templateSegment: string, urlSegment: string): bo
 // ("/uu/nml_chapter-41/pg-{page}/"), so we splice it onto the real path prefix
 // from the next_page href instead of resolving it against the domain root
 // (which would 404).
+function normalizeCurlTemplatePath(template: string): string {
+  // Mangago sometimes serializes read-manga curl as an absolute URL whose path is
+  // only the reader tail (for example "https://www.mangago.me/uu/.../pg-{page}/").
+  // If we split that string directly, "https:" and "www.mangago.me" become fake
+  // path segments and Paperback later requests:
+  //   https://www.mangago.me/https://www.mangago.me/uu/...
+  // Normalize absolute templates to their pathname before merging them onto the
+  // real /read-manga/<slug>/ prefix from the currently loaded reader page.
+  try {
+    return new URL(template, DOMAIN).pathname;
+  } catch {
+    return template;
+  }
+}
+
 function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
+  const templatePath = normalizeCurlTemplatePath(template);
   const urlSegments = urlPath
     .replace(/^\/+|\/+$/g, "")
     .split("/")
     .filter(Boolean);
-  const templateSegments = template
+  const templateSegments = templatePath
     .replace(/^\/+|\/+$/g, "")
     .split("/")
     .filter(Boolean);
@@ -764,7 +780,7 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
     }
   }
 
-  const tail = template.endsWith("/") ? "/" : "";
+  const tail = templatePath.endsWith("/") ? "/" : "";
   if (bestStart >= 0 && bestLength > 0) {
     const prefix = urlSegments.slice(0, bestStart);
     return `/${[...prefix, ...templateSegments].join("/")}${tail}`;
