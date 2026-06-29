@@ -188,6 +188,11 @@ export class MangagoSettingsForm extends Form {
 
   async handleUserAgentChange(value: string[]): Promise<void> {
     setSelectedUserAgentId(value[0] ?? USER_AGENT_OPTIONS[0].id);
+    // Reader caches key chapter pages by URL, not by UA, and getMangagoPageUrls
+    // returns the cached page list before any network fetch. Clear them here so a
+    // UA change takes effect on the very next chapter open instead of requiring a
+    // separate Clear Cache.
+    clearMangagoReaderCaches();
   }
 
   async handleClearCache(): Promise<void> {
