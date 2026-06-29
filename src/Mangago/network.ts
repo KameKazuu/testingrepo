@@ -86,7 +86,17 @@ function parseImageContext(url: string): MangagoImageContext | null {
 function isMangagoHost(url: string): boolean {
   try {
     const host = new URL(url, DOMAIN).hostname.toLowerCase();
-    return host === "mangago.me" || host.endsWith(".mangago.me");
+    // www.mangago.me is the catalog/read-manga host; .mangago.zone and youhim.me
+    // are the rotating mirror hosts that serve the numeric /chapter/ reader. All
+    // of them need the desktop-reader cookie/headers; image CDN hosts do not.
+    return (
+      host === "mangago.me" ||
+      host.endsWith(".mangago.me") ||
+      host === "mangago.zone" ||
+      host.endsWith(".mangago.zone") ||
+      host === "youhim.me" ||
+      host.endsWith(".youhim.me")
+    );
   } catch {
     return false;
   }
