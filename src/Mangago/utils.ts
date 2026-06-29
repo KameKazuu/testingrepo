@@ -575,19 +575,51 @@ export async function descrambleMangagoImage(
 
   ctx.drawImage(src, 0, 0, width, height);
 
+  // Move tiles through the pixel buffer, NOT a clip-and-scale
+  // ctx.drawImage(src, sx,sy,sw,sh, dx,dy,dw,dh): Paperback's canvas polyfill
+  // does not reliably honour that 9-argument (source-rect) overload, so the
+  // per-tile blits silently no-op and the canvas keeps the original scrambled
+  // pixels — the image comes back still scrambled with NO error thrown (the
+  // symptom on cspiclink titles like BJ Alex / 17 Dayz). getImageData +
+  // putImageData is the proven-working path on this polyfill; see the same
+  // workaround in src/Comix/utils/descramble.ts.
+  //
+  // That polyfill also exposes getImageData/putImageData with Y-up coordinates
+  // (origin bottom-left), so the raw buffer is row-reversed relative to the
+  // image. Flip to standard Y-down, permute the tiles, then flip back before
+  // putImageData. Pre-copying the buffer (dstStd from srcStd) keeps the
+  // unscrambled right/bottom remainder strip — the pixels floor() leaves
+  // outside the cols×cols grid — intact, matching the canonical descramblers.
+  const stride = width * 4;
+  const srcYup = ctx.getImageData(0, 0, width, height).data;
+  const srcStd = new Uint8ClampedArray(srcYup.length);
+  for (let y = 0; y < height; y++) {
+    srcStd.set(srcYup.subarray(y * stride, (y + 1) * stride), (height - 1 - y) * stride);
+  }
+  const dstStd = new Uint8ClampedArray(srcStd);
+
+  const rowBytes = unitWidth * 4;
   for (let idx = 0; idx < cols * cols; idx++) {
     const keyval = keyArray[idx] ?? 0;
 
-    const destRow = Math.floor(keyval / cols);
-    const dy = destRow * unitHeight;
-    const dx = (keyval - destRow * cols) * unitWidth;
-
     const srcRow = Math.floor(idx / cols);
-    const sy = srcRow * unitHeight;
-    const sx = (idx - srcRow * cols) * unitWidth;
+    const srcCol = idx - srcRow * cols;
 
-    ctx.drawImage(src, sx, sy, unitWidth, unitHeight, dx, dy, unitWidth, unitHeight);
+    const destRow = Math.floor(keyval / cols);
+    const destCol = keyval - destRow * cols;
+
+    for (let y = 0; y < unitHeight; y++) {
+      const srcOff = ((srcRow * unitHeight + y) * width + srcCol * unitWidth) * 4;
+      const dstOff = ((destRow * unitHeight + y) * width + destCol * unitWidth) * 4;
+      dstStd.set(srcStd.subarray(srcOff, srcOff + rowBytes), dstOff);
+    }
   }
+
+  const dstYup = new Uint8ClampedArray(dstStd.length);
+  for (let y = 0; y < height; y++) {
+    dstYup.set(dstStd.subarray(y * stride, (y + 1) * stride), (height - 1 - y) * stride);
+  }
+  ctx.putImageData(new ImageData(dstYup, width, height), 0, 0);
 
   return decodeDataUrlToArrayBuffer(canvas.toDataURL(mimeType));
 }
