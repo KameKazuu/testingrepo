@@ -1,6 +1,6 @@
 import { CloudflareError } from "@paperback/types";
 
-import { DOMAIN, USER_AGENT } from "./models";
+import { DOMAIN, READER_USER_AGENT } from "./models";
 import { fetchText, fetchTextWithUrl } from "./network";
 
 // Headers a browser sends when NAVIGATING to a reader page (i.e. clicking the
@@ -45,9 +45,8 @@ const READER_FETCH_MIN_INTERVAL_MS = 350;
 let lastReaderFetchAt = 0;
 
 // Clear the in-memory reader caches so the next chapter open refetches from the
-// network. Used by the "Clear Cache" setting — important after changing the
-// Chapter List User-Agent, since a chapter's resolved page list is cached and
-// would otherwise keep returning the previously-fetched (e.g. 5-page) result.
+// network. Used by the "Clear Cache" setting — a chapter's resolved page list is
+// cached, so this is what forces a stale or incomplete chapter to reload.
 export function clearMangagoReaderCaches(): void {
   mangagoPageUrlsCache.clear();
   chapterJsCache.clear();
@@ -831,7 +830,7 @@ async function fetchReaderPage(
     try {
       await paceReaderFetch();
       const html = await fetchText(pageUrl, {
-        "user-agent": USER_AGENT,
+        "user-agent": READER_USER_AGENT,
         cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
@@ -925,7 +924,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // every chapter open; the BasicRateLimiter (5/s) still guards against
       // bursts. The pace is kept where it matters — inside fetchReaderPage.
       const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
-        "user-agent": USER_AGENT,
+        "user-agent": READER_USER_AGENT,
         cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
