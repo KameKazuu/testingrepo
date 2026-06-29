@@ -44,7 +44,7 @@ import {
   parseListings,
   parseMangaDetails,
 } from "./parsers";
-import { getMangagoPageUrls } from "./utils";
+import { canonicalReaderUrl, getMangagoPageUrls } from "./utils";
 
 type MangagoImplementation = Extension &
   SearchResultsProviding &
@@ -55,9 +55,9 @@ type MangagoImplementation = Extension &
   CloudflareBypassRequestProviding;
 
 // The legacy numeric reader (/chapter/<mid>/<cid>/...) 404s on www.mangago.me
-// and is windowed even on its mirror, so when a library entry resolves to one we
-// first try to upgrade it to the read-manga reader (full image list in one shot)
-// and otherwise fetch+walk it on the mirror. Used to detect those entries.
+// (mirrors are gone), so when a stale library entry resolves to one we upgrade it
+// to the read-manga reader (full image list in one shot). Used to detect those
+// entries so getChapterDetails can self-heal them.
 function isNumericChapterReaderUrl(url: string): boolean {
   try {
     return /^\/chapter\/\d+\/\d+/.test(new URL(url, DOMAIN).pathname);
@@ -166,7 +166,12 @@ function buildDiscoverUrl(sectionId: string, page: number): string {
             "Webtoons",
           )}/${page}/?f=1&o=1&sortby=view`;
         }
-        return buildGenreUrl(DOMAIN, genre, page, "view");
+        // mangago matches a genre by its display TITLE in the path
+        // (/genre/Shounen Ai/), not the underscore slug. getGenreTitle maps the
+        // section slug back to the title; without it multi-word tops
+        // (top_shounen_ai, top_school_life) request /genre/shounen_ai/ and come
+        // back empty.
+        return buildGenreUrl(DOMAIN, getGenreTitle(genre), page, "view");
       }
 
       return buildGenreUrl(DOMAIN, "all", page, "view");
@@ -211,10 +216,10 @@ class MangagoExtension implements MangagoImplementation {
   });
 
   async initialise(): Promise<void> {
-    // Register the Mangago interceptor LAST. The runtime invokes each registered
-    // interceptor with the ORIGINAL request and keeps only the last one's return
-    // value, so our header/cookie/UA changes must come from the final interceptor
-    // in the chain or they are discarded.
+    // Register the Mangago interceptor LAST. The runtime chains interceptors
+    // (each one's output feeds the next), so registering last lets us read the
+    // Cloudflare-bypass cookies the CookieStorageInterceptor injected and merge
+    // our headers/cookie/UA on top via the additive spread in applyMangagoHeaders.
     this.cookieStorageInterceptor.registerInterceptor();
     this.rateLimiter.registerInterceptor();
     this.interceptor.registerInterceptor();
@@ -398,7 +403,10 @@ class MangagoExtension implements MangagoImplementation {
     // 404 forever. Re-resolve it to the read-manga URL by matching this chapter
     // in the manga's freshly parsed chapter list. New entries are already
     // read-manga and skip this entirely.
-    let chapterUrl = initialChapterUrl;
+    // Normalise first: this repairs a stale entry whose stored URL has the host
+    // doubled (".../https://www.mangago.me/read-manga/...") so the numeric check
+    // and the fetch both see the real path.
+    let chapterUrl = canonicalReaderUrl(initialChapterUrl);
     if (isNumericChapterReaderUrl(chapterUrl)) {
       const resolved = await this.resolveReadMangaChapterUrl(chapter);
       if (resolved) chapterUrl = resolved;
@@ -417,14 +425,13 @@ class MangagoExtension implements MangagoImplementation {
     };
   }
 
-  // Upgrade a numeric chapter entry to its read-manga reader URL. The chapter
-  // list rotates between the read-manga catalog (the reader we want: the full
-  // image list in one shot) and the numeric catalog (windowed, mirror-only), so
-  // retry a few times until we land on the read-manga catalog, then match this
-  // chapter in it (by number + title + version). A cache-busting query param on
-  // retries avoids any intermediate cache pinning us to the same catalog. If
-  // every retry returns the numeric catalog, give up and let getChapterDetails
-  // fall back to walking the numeric reader on its mirror.
+  // Upgrade a stale numeric chapter entry (saved before the read-manga switch)
+  // to its read-manga reader URL by re-parsing the manga's current chapter list
+  // and matching this chapter in it (by number + title + version). Browsing now
+  // uses the mobile UA, so the list comes back as read-manga URLs; the retry +
+  // cache-bust is a belt-and-suspenders guard against a momentarily stale list.
+  // If no match is found, getChapterDetails fetches the original URL and surfaces
+  // a clear error rather than a silently wrong chapter.
   private async resolveReadMangaChapterUrl(chapter: Chapter): Promise<string | undefined> {
     const urlOf = (c: Chapter): string =>
       (c as Chapter & { additionalInfo?: { originalChapterUrl?: string } }).additionalInfo
@@ -462,7 +469,9 @@ class MangagoExtension implements MangagoImplementation {
         // Let a Cloudflare challenge propagate so the app opens the bypass flow
         // instead of silently falling through to the known-bad numeric reader.
         if (error instanceof CloudflareError) throw error;
-        return undefined;
+        // A transient failure (rate-limit, -999 cancel, momentary network) on one
+        // attempt shouldn't abort the whole upgrade — retry the remaining rounds.
+        continue;
       }
     }
 

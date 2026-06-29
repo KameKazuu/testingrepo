@@ -186,15 +186,15 @@ export function buildChapterVersion(rawUploader: string, rawTitle = ""): string 
 
 function firstUploaderCandidate(candidates: string[], chapterTitle: string): string {
   return (
-    candidates
-      .map(cleanUploaderCandidate)
-      .find(
-        (candidate) =>
-          candidate &&
-          candidate !== chapterTitle &&
-          !candidate.includes(chapterTitle) &&
-          !isDateLike(candidate),
-      ) ?? ""
+    candidates.map(cleanUploaderCandidate).find(
+      (candidate) =>
+        candidate &&
+        candidate !== chapterTitle &&
+        // Skip the substring test when the chapter title is empty — otherwise
+        // `candidate.includes("")` is always true and every uploader is rejected.
+        (!chapterTitle || !candidate.includes(chapterTitle)) &&
+        !isDateLike(candidate),
+    ) ?? ""
   );
 }
 
@@ -259,8 +259,10 @@ function toPathname(href: string): string {
 }
 
 function originalChapterUrlFromHref(href: string, chapterId: string): string {
+  // Test "//" before "/" so a protocol-relative href isn't swallowed by the
+  // single-slash branch.
+  if (href.startsWith("//")) return chapterUrlFromId(`https:${href}`);
   if (href.startsWith("/")) return chapterUrlFromId(href);
-  if (href.startsWith("//")) return `https:${href}`;
   if (href.startsWith("http://") || href.startsWith("https://")) return chapterUrlFromId(href);
 
   return chapterUrlFromId(chapterId);
@@ -357,7 +359,10 @@ export function hasNextPage(html: string): boolean {
   return (
     $(".current + li > a").length > 0 ||
     $(".pagination .next a, .pagination a.next, a[rel='next']").length > 0 ||
-    $("a")
+    // Last-resort "next"-text match, but ONLY inside a pagination container —
+    // scanning every <a> on the page would treat a stray "Next Chapter"/title
+    // link as another results page and paginate forever.
+    $(".pagination a, .page a, .pager a")
       .toArray()
       .some((a) => /next/i.test($(a).text()))
   );
@@ -520,12 +525,15 @@ function parseChapterTitle(input: string): {
   return { chapter, title };
 }
 
-function parseChapterNumber(name: string, chapterId: string): number {
+function parseChapterNumber(name: string): number {
+  // NOTE: no chapterId/slug fallback. The slug's number is usually an internal
+  // upload id (e.g. br_chapter-347561), not the chapter number, and a slug like
+  // "abc123" would match a bare "c<digits>" and assign a bogus number. When the
+  // visible name carries no number we leave it 0 (handled specially by the sort).
   const rawNumber =
     name.match(/chapter\s*(\d+(?:\.\d+)?)/i)?.[1] ??
     name.match(/ch\.\s*(\d+(?:\.\d+)?)/i)?.[1] ??
-    name.match(/(\d+(?:\.\d+)?)/)?.[1] ??
-    chapterId.match(/c(\d+(?:\.\d+)?)/i)?.[1];
+    name.match(/(\d+(?:\.\d+)?)/)?.[1];
 
   const number = rawNumber ? Number(rawNumber) : 0;
   return Number.isFinite(number) ? number : 0;
@@ -560,7 +568,7 @@ export function parseChapters(html: string, sourceManga: SourceManga): Chapter[]
     const parsed = parseChapterTitle(rawTitle);
     const rawUploader = extractUploader($row);
     const version = buildChapterVersion(rawUploader, rawTitle);
-    const chapNum = parsed.chapter ?? parseChapterNumber(rawTitle, chapterId);
+    const chapNum = parsed.chapter ?? parseChapterNumber(rawTitle);
     const title = parsed.title || rawTitle;
 
     const dateText = $row.find("td").last().text().trim();
