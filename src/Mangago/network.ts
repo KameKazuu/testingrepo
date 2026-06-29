@@ -8,11 +8,27 @@ import {
 import {
   DESKTOP_USER_AGENT,
   DOMAIN,
+  getChapterListUserAgentMode,
+  MOBILE_USER_AGENT,
   READER_MIRROR,
   READER_MIRROR_FALLBACK,
   type MangagoImageContext,
 } from "./models";
 import { descrambleMangagoImage } from "./utils";
+
+// The manga page / chapter-list URL is `/read-manga/<slug>/` (no chapter/page
+// segment). Only this page's UA controls whether the chapter list comes back as
+// read-manga or numeric reader URLs; reader pages always use the desktop UA.
+function isMangaListingPage(url: string): boolean {
+  try {
+    const parsed = new URL(url, DOMAIN);
+    const host = parsed.hostname.toLowerCase();
+    if (host !== "mangago.me" && !host.endsWith(".mangago.me")) return false;
+    return /^\/read-manga\/[^/]+\/?$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
 
 // Remember each image's descramble context (desckey + cols) keyed by its
 // clean, fragment-less URL. On a retry the reader sometimes drops the
@@ -152,10 +168,19 @@ function readerHeadersForUrl(url: string): {
     }
   }
 
+  // Reader pages always use the desktop UA (it returns the complete reader). Only
+  // the manga listing page honours the user's "Chapter List User-Agent" setting:
+  // mobile makes mangago hand back read-manga chapter URLs instead of numeric
+  // ones, which load fully on www.mangago.me without the windowed-mirror walk.
+  const userAgent =
+    getChapterListUserAgentMode() === "mobile" && isMangaListingPage(url)
+      ? MOBILE_USER_AGENT
+      : DESKTOP_USER_AGENT;
+
   return {
     referer: `${base}/`,
     origin: base,
-    "user-agent": DESKTOP_USER_AGENT,
+    "user-agent": userAgent,
   };
 }
 
