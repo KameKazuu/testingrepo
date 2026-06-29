@@ -166,6 +166,40 @@ export function isReadMangaReaderUrl(url: string): boolean {
   }
 }
 
+// True for the legacy numeric reader path /chapter/<mid>/<cid>/. Many titles
+// expose their chapters ONLY as numeric links, and those are served by the
+// rotating mirror hosts (www.mangago.zone, www.youhim.me) — www.mangago.me 404s
+// them. getMangagoPageUrls tries every mirror for such a URL.
+export function isNumericChapterReaderUrl(url: string): boolean {
+  try {
+    return /^\/chapter\/\d+\/\d+/.test(new URL(url, DOMAIN).pathname);
+  } catch {
+    return false;
+  }
+}
+
+// Hosts that can serve a numeric /chapter/<mid>/<cid>/ reader. The catalog and
+// the /read-manga/ reader live on www.mangago.me, but a title whose chapter list
+// only has numeric links points them at the rotating mirrors, and www.mangago.me
+// 404s those numeric URLs. We try every known host and use whichever returns the
+// reader (imgsrcs) page, so the chapter opens regardless of which mirror the site
+// happened to emit.
+const READER_MIRROR_HOSTS = [
+  "https://www.mangago.me",
+  "https://www.mangago.zone",
+  "https://www.youhim.me",
+];
+
+function numericChapterCandidates(url: string): string[] {
+  try {
+    const { pathname, search } = new URL(url, DOMAIN);
+    if (!/^\/chapter\/\d+\/\d+/.test(pathname)) return [];
+    return READER_MIRROR_HOSTS.map((host) => `${host}${pathname}${search}`);
+  } catch {
+    return [];
+  }
+}
+
 export function absoluteUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -987,7 +1021,18 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   let cloudflareError: CloudflareError | undefined;
   const tried = new Set<string>();
   const canonical = canonicalReaderUrl(chapterUrl);
-  const candidates = canonical === chapterUrl ? [canonical] : [canonical, chapterUrl];
+  const candidates: string[] = [];
+  const addCandidate = (candidate: string): void => {
+    if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
+  };
+  addCandidate(canonical);
+  addCandidate(chapterUrl);
+  // A numeric /chapter/<mid>/<cid>/ reader 404s on www.mangago.me but is served
+  // by the rotating mirror hosts. Try every mirror so titles whose chapter list
+  // only exposes numeric links still open. (www.mangago.me stays first so a
+  // title whose .me numeric URL redirects to its /read-manga/ reader still
+  // takes that fast path.)
+  for (const mirror of numericChapterCandidates(canonical)) addCandidate(mirror);
 
   for (const candidate of candidates) {
     if (tried.has(candidate)) continue;
