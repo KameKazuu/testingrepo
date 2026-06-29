@@ -1311,6 +1311,19 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     const stride = Math.max(1, firstImages.length);
     const imageIndexReader = imageIndexTemplate;
 
+    // The numeric reader is host-locked to whichever mirror served page 1, but
+    // its next_url / next_page anchor is an absolute www.mangago.me URL even when
+    // the page came from a mirror (the site hardcodes WEB_ROOT). Following that
+    // 404s on www.mangago.me and wastes a round-trip + the pace delay on every
+    // other window before the template fallback recovers on the mirror — which is
+    // exactly why keiyoushi dropped next_url. Pin EVERY walked URL to the page-1
+    // serving host so the walk never touches www.mangago.me; next_url is then used
+    // only for its page NUMBER, never its host. (read-manga walks stay on
+    // www.mangago.me already, so this is scoped to numeric mirror readers.)
+    const walkHost = isNumericChapterReaderUrl(loadedUrl) ? readerHostOf(loadedUrl) : undefined;
+    const pinWalkHost = (url: string): string =>
+      walkHost ? `https://${walkHost}${readerPathSearchOf(url)}` : url;
+
     let currentHtml = html; // HTML of the last reader page fetched successfully
     let currentUrl = loadedUrl;
     let expectedNext = imageIndexReader
@@ -1353,6 +1366,11 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         exhaustedSafety = false;
         break; // next chapter or no usable next link/template -> done
       }
+
+      // Force the next window onto the host that served page 1 (see walkHost):
+      // never let an absolute www.mangago.me next_url send the walk to the dead
+      // numeric reader.
+      nextUrl = pinWalkHost(nextUrl);
 
       // Forward-only guard. If we've already loaded/tried this page, skip past it
       // on the numeric reader (a duplicate/backward link can't stall us);
@@ -1484,7 +1502,11 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       ) {
         const page = fallbackStartFor(missing);
         markDirectTried(page);
-        const fallbackUrl = buildReaderPageUrl(curlTemplate, loadedUrl, page, nextPageHref);
+        // nextPageHref is often an absolute www.mangago.me URL; pin the rebuilt
+        // window to the page-1 serving host so the crawl stays on the mirror.
+        const fallbackUrl = pinWalkHost(
+          buildReaderPageUrl(curlTemplate, loadedUrl, page, nextPageHref),
+        );
 
         const outcome: ReaderFetchOutcome = { dead: false };
         const result = await decodeReaderPageImages(
