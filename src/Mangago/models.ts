@@ -1,15 +1,23 @@
 export const DOMAIN = "https://www.mangago.me";
 
-// The User-Agent sent with every mangago request. This is the exact desktop
-// Chrome UA the Aidoku source hard-codes on its page-list (reader) request,
-// alongside the _m_superu=1 cookie — keiyoushi does the same. With this UA + the
-// _m_superu=1 cookie on www.mangago.me, the read-manga reader (/read-manga/<slug>/...)
-// returns the COMPLETE image list in one request, which is what fixes the "only
-// 5 pages" chapters. We send the SAME UA on the manga page, the chapter list and
-// the reader/image fetches so it stays consistent with the Cloudflare
-// cf_clearance binding (Cloudflare ties clearance to the UA that solved the
-// challenge).
+// mangago needs TWO different User-Agents, exactly like the working Aidoku
+// source (confirmed from its live request logs):
+//
+//   • Browsing UA (mobile iPhone) — used for the manga listing, search, discover
+//     and, crucially, the manga-details / chapter-list page. With a MOBILE UA the
+//     details page lists chapters as read-manga URLs (/read-manga/<slug>/uu/...);
+//     with a desktop UA it lists them as the legacy numeric /chapter/<mid>/<cid>/
+//     reader, which www.mangago.me 404s (the "no usable chapter page" failure).
+//   • Reader UA (desktop macOS Chrome) — used for the reader page itself, together
+//     with the _m_superu=1 cookie. This is the exact pair Aidoku hard-codes on its
+//     page-list request; it makes the read-manga reader return the COMPLETE image
+//     list in one request (_multimode = ""), fixing the "only 5 pages" chapters.
+//
+// readerHeadersForUrl() in network.ts picks between them per request URL.
 export const USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+
+export const READER_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 export type MangagoSearchMetadata = {
