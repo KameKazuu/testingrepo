@@ -6,29 +6,13 @@ import {
 } from "@paperback/types";
 
 import {
-  DESKTOP_USER_AGENT,
   DOMAIN,
-  getChapterListUserAgentMode,
-  MOBILE_USER_AGENT,
+  getSelectedUserAgent,
   READER_MIRROR,
   READER_MIRROR_FALLBACK,
   type MangagoImageContext,
 } from "./models";
 import { descrambleMangagoImage } from "./utils";
-
-// The manga page / chapter-list URL is `/read-manga/<slug>/` (no chapter/page
-// segment). Only this page's UA controls whether the chapter list comes back as
-// read-manga or numeric reader URLs; reader pages always use the desktop UA.
-function isMangaListingPage(url: string): boolean {
-  try {
-    const parsed = new URL(url, DOMAIN);
-    const host = parsed.hostname.toLowerCase();
-    if (host !== "mangago.me" && !host.endsWith(".mangago.me")) return false;
-    return /^\/read-manga\/[^/]+\/?$/.test(parsed.pathname);
-  } catch {
-    return false;
-  }
-}
 
 // Remember each image's descramble context (desckey + cols) keyed by its
 // clean, fragment-less URL. On a retry the reader sometimes drops the
@@ -168,19 +152,15 @@ function readerHeadersForUrl(url: string): {
     }
   }
 
-  // Reader pages always use the desktop UA (it returns the complete reader). Only
-  // the manga listing page honours the user's "Chapter List User-Agent" setting:
-  // mobile makes mangago hand back read-manga chapter URLs instead of numeric
-  // ones, which load fully on www.mangago.me without the windowed-mirror walk.
-  const userAgent =
-    getChapterListUserAgentMode() === "mobile" && isMangaListingPage(url)
-      ? MOBILE_USER_AGENT
-      : DESKTOP_USER_AGENT;
-
+  // Every mangago request uses the same user-selected User-Agent. Cloudflare
+  // binds cf_clearance to the UA that solved the challenge, so the UA must stay
+  // consistent across the manga page, chapter list and reader fetches. The
+  // default preset is the desktop Chrome UA, so behaviour is unchanged unless the
+  // reader picks another in settings.
   return {
     referer: `${base}/`,
     origin: base,
-    "user-agent": userAgent,
+    "user-agent": getSelectedUserAgent(),
   };
 }
 

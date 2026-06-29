@@ -10,17 +10,17 @@ import {
 } from "@paperback/types";
 
 import {
-  CHAPTER_LIST_USER_AGENT_OPTIONS,
   DISCOVER_SECTION_OPTIONS,
   GENRE_OPTIONS,
   genreIdFromTitle,
-  getChapterListUserAgentMode,
   getDiscoverSectionEnabled,
+  getSelectedUserAgentId,
   resetDiscoverSectionSettings,
-  setChapterListUserAgentMode,
   setDiscoverSectionEnabled,
+  setSelectedUserAgentId,
   type MangagoSearchMetadata,
   STATUS_OPTIONS,
+  USER_AGENT_OPTIONS,
 } from "./models";
 import { clearMangagoReaderCaches } from "./utils";
 
@@ -110,16 +110,16 @@ export class MangagoSettingsForm extends Form {
           id: "reader",
           header: "Reader",
           footer:
-            "Mobile makes chapters use mangago's read-manga reader, which loads full chapters " +
-            "from one host. Switch to Mobile if some chapters only show ~5 pages. Re-open a " +
-            "chapter after changing this.",
+            "The User-Agent sent with every mangago request. Cloudflare ties its clearance to " +
+            "this, so try another preset if pages stop loading or fail the Cloudflare check. " +
+            "Clear Cache and re-open a chapter after changing this.",
         },
         [
-          SelectRow("chapter_list_user_agent", {
-            title: "Chapter List User-Agent",
+          SelectRow("user_agent", {
+            title: "User-Agent",
             layout: "list",
-            value: [getChapterListUserAgentMode()],
-            items: CHAPTER_LIST_USER_AGENT_OPTIONS.map((option) => ({
+            value: [getSelectedUserAgentId()],
+            items: USER_AGENT_OPTIONS.map((option) => ({
               id: option.id,
               title: option.title,
             })),
@@ -127,7 +127,7 @@ export class MangagoSettingsForm extends Form {
             maxItemCount: 1,
             onValueChange: Application.Selector(
               this as MangagoSettingsForm,
-              "handleChapterListUserAgentChange",
+              "handleUserAgentChange",
             ),
           }),
         ],
@@ -153,7 +153,7 @@ export class MangagoSettingsForm extends Form {
           id: "cache",
           footer:
             "Clears cached chapter pages so they reload from the network. " +
-            "Use this after changing the Chapter List User-Agent.",
+            "Use this after changing the User-Agent.",
         },
         [
           ButtonRow("clearCache", {
@@ -186,8 +186,8 @@ export class MangagoSettingsForm extends Form {
     }
   }
 
-  async handleChapterListUserAgentChange(value: string[]): Promise<void> {
-    setChapterListUserAgentMode(value[0] ?? "desktop");
+  async handleUserAgentChange(value: string[]): Promise<void> {
+    setSelectedUserAgentId(value[0] ?? USER_AGENT_OPTIONS[0].id);
   }
 
   async handleClearCache(): Promise<void> {
