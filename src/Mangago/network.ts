@@ -6,7 +6,7 @@ import {
 } from "@paperback/types";
 
 import { DOMAIN, READER_USER_AGENT, USER_AGENT, type MangagoImageContext } from "./models";
-import { descrambleMangagoImage } from "./utils";
+import { descrambleMangagoImage, readerHostOf, readerPathOf } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
 // clean, fragment-less URL. On a retry the reader sometimes drops the
@@ -83,13 +83,24 @@ function parseImageContext(url: string): MangagoImageContext | null {
   return context;
 }
 
+// Host detection by PLAIN STRING (readerHostOf), not new URL(url, DOMAIN): the
+// on-device polyfill can fold an absolute mirror host onto the base, which would
+// misclassify mirror reader requests. A relative URL (no host) defaults to the
+// canonical www.mangago.me.
 function isMangagoHost(url: string): boolean {
-  try {
-    const host = new URL(url, DOMAIN).hostname.toLowerCase();
-    return host === "mangago.me" || host.endsWith(".mangago.me");
-  } catch {
-    return false;
-  }
+  const host = readerHostOf(url) ?? (url.startsWith("/") ? "www.mangago.me" : undefined);
+  if (!host) return false;
+  // www.mangago.me is the catalog/read-manga host; .mangago.zone and youhim.me
+  // are the rotating mirror hosts that serve the numeric /chapter/ reader. All
+  // of them need the desktop-reader cookie/headers; image CDN hosts do not.
+  return (
+    host === "mangago.me" ||
+    host.endsWith(".mangago.me") ||
+    host === "mangago.zone" ||
+    host.endsWith(".mangago.zone") ||
+    host === "youhim.me" ||
+    host.endsWith(".youhim.me")
+  );
 }
 
 // A chapter reader page lives at /read-manga/<slug>/<chapter…> (something after
@@ -98,14 +109,10 @@ function isMangagoHost(url: string): boolean {
 // take the desktop UA; everything else (details, listing, search, discover) takes
 // the mobile browsing UA so chapter links come back as read-manga URLs.
 function isReaderPageUrl(url: string): boolean {
-  try {
-    const { pathname } = new URL(url, DOMAIN);
-    const readManga = /^\/read-manga\/[^/]+\/(.+)/.exec(pathname);
-    if (readManga && readManga[1].length > 0) return true;
-    return /^\/chapter\/\d+\/\d+/.test(pathname);
-  } catch {
-    return false;
-  }
+  const pathname = readerPathOf(url);
+  const readManga = /^\/read-manga\/[^/]+\/(.+)/.exec(pathname);
+  if (readManga && readManga[1].length > 0) return true;
+  return /^\/chapter\/\d+\/\d+/.test(pathname);
 }
 
 function readerHeadersForUrl(url: string): {
@@ -113,14 +120,18 @@ function readerHeadersForUrl(url: string): {
   origin: string;
   "user-agent": string;
 } {
-  // Everything is served from www.mangago.me now (keiyoushi/Aidoku model — no
-  // mirror hosts), so the referer/origin is always the canonical domain. The UA
-  // is chosen per request type (see USER_AGENT / READER_USER_AGENT in models.ts):
-  // the reader page uses the desktop UA, everything else the mobile browsing UA.
+  // read-manga readers are on www.mangago.me; numeric readers may be on a mirror
+  // host. Match referer/origin to the request's own reader host so a same-origin
+  // navigation looks right; non-reader (browse/search/details) traffic stays on
+  // the canonical domain. The UA is per request type (USER_AGENT /
+  // READER_USER_AGENT): reader pages desktop, everything else mobile browsing.
+  const reader = isReaderPageUrl(url);
+  const host = reader ? readerHostOf(url) : undefined;
+  const origin = host ? `https://${host}` : DOMAIN;
   return {
-    referer: `${DOMAIN}/`,
-    origin: DOMAIN,
-    "user-agent": isReaderPageUrl(url) ? READER_USER_AGENT : USER_AGENT,
+    referer: `${origin}/`,
+    origin,
+    "user-agent": reader ? READER_USER_AGENT : USER_AGENT,
   };
 }
 

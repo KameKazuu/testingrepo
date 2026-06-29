@@ -44,7 +44,12 @@ import {
   parseListings,
   parseMangaDetails,
 } from "./parsers";
-import { canonicalReaderUrl, getMangagoPageUrls, isReadMangaReaderUrl } from "./utils";
+import {
+  canonicalReaderUrl,
+  getMangagoPageUrls,
+  isNumericChapterReaderUrl,
+  isReadMangaReaderUrl,
+} from "./utils";
 
 type MangagoImplementation = Extension &
   SearchResultsProviding &
@@ -385,29 +390,50 @@ class MangagoExtension implements MangagoImplementation {
     ).additionalInfo?.originalChapterUrl;
     const initialChapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
 
-    // Self-heal stale chapter URLs. www.mangago.me only serves the read-manga
-    // reader, so any stored URL that isn't a proper /read-manga/<slug>/<chapter>
-    // reader page would 404 forever:
-    //   • the legacy numeric /chapter/<mid>/<cid>/ reader (saved before the
-    //     read-manga switch), and
-    //   • a prefix-less "/uu/<chapter>/pg-N/" — what canonicalReaderUrl produces
-    //     when it de-doubles a stale ".../https://www.mangago.me/uu/.../pg-N/"
-    //     entry whose /read-manga/<slug>/ prefix an older build had dropped.
-    // Re-resolve either to the real read-manga URL by matching this chapter in
-    // the manga's freshly parsed chapter list. New entries are already
-    // read-manga and skip this entirely.
+    // Self-heal stale chapter URLs. A stored URL that is neither a proper
+    // /read-manga/<slug>/<chapter> reader page NOR a numeric /chapter/<mid>/<cid>/
+    // reader can never load — e.g. a prefix-less "/uu/<chapter>/pg-N/", what
+    // canonicalReaderUrl produces when it de-doubles a stale
+    // ".../https://www.mangago.me/uu/.../pg-N/" entry whose /read-manga/<slug>/
+    // prefix an older build had dropped. Re-resolve it to the real read-manga URL
+    // by matching this chapter in the manga's freshly parsed chapter list.
+    //
+    // Numeric URLs are deliberately NOT re-resolved here: getMangagoPageUrls
+    // already tries every mirror host that serves the numeric reader, and many
+    // titles only expose numeric links (so there is no read-manga URL to upgrade
+    // to). If that mirror sweep fails we fall back to a read-manga upgrade below.
     // Normalise first so the check and the fetch both see the real path.
     let chapterUrl = canonicalReaderUrl(initialChapterUrl);
-    if (!isReadMangaReaderUrl(chapterUrl)) {
+    if (!isReadMangaReaderUrl(chapterUrl) && !isNumericChapterReaderUrl(chapterUrl)) {
       const resolved = await this.resolveReadMangaChapterUrl(chapter);
       if (resolved) chapterUrl = resolved;
     }
 
-    // Fetch the read-manga reader from www.mangago.me — it returns the COMPLETE
-    // image list in one request. A Cloudflare challenge surfaces as the bypass
-    // webview; a genuine decode/parse failure surfaces as an error rather than a
-    // silently short chapter.
-    const pages = await getMangagoPageUrls(chapterUrl);
+    // Fetch the reader — the read-manga reader (and the full numeric reader)
+    // return the COMPLETE image list in one request. A Cloudflare challenge
+    // surfaces as the bypass webview; a genuine decode/parse failure surfaces as
+    // an error rather than a silently short chapter.
+    let pages: string[];
+    try {
+      pages = await getMangagoPageUrls(chapterUrl);
+    } catch (error) {
+      // A Cloudflare wall must reach the user as the bypass prompt.
+      if (error instanceof CloudflareError) throw error;
+      // Last resort for a numeric reader that failed on every mirror host: try
+      // upgrading to the read-manga reader via the fresh chapter list (works for
+      // titles that DO expose read-manga links). Titles with only numeric mirror
+      // links won't match, so the original error is surfaced unchanged.
+      if (!isReadMangaReaderUrl(chapterUrl)) {
+        const resolved = await this.resolveReadMangaChapterUrl(chapter);
+        if (resolved && resolved !== chapterUrl) {
+          pages = await getMangagoPageUrls(resolved);
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
 
     return {
       id: chapter.chapterId,
