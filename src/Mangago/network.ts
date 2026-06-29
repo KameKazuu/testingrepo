@@ -145,8 +145,18 @@ export async function applyMangagoHeaders(request: Request): Promise<Request> {
   return {
     ...request,
     headers: {
-      ...request.headers,
+      // URL-based defaults (referer/origin + the per-page-type UA) are the
+      // BASELINE; any header explicitly set on the request wins via the spread
+      // below. This is deliberate: a reader fetch forces the desktop UA, and we
+      // must never let URL-classification downgrade it back to the mobile
+      // browsing UA. A stale/prefix-less reader path (e.g. "/uu/<chapter>/pg-N/"
+      // left over from an older build) would otherwise miss isReaderPageUrl and
+      // get the mobile UA — which makes mangago serve the WINDOWED reader, the
+      // very thing that triggers the slow multi-page walk. Honouring the
+      // explicit UA keeps every reader fetch on the desktop (full) reader, so
+      // page 1 carries the whole chapter in one request (the Aidoku model).
       ...readerHeadersForUrl(request.url),
+      ...request.headers,
     },
     cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
   };
