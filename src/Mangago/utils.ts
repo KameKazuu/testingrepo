@@ -834,9 +834,16 @@ function buildReaderPageUrl(
 // link) plus the origin that served it, so the caller can stick with a working
 // mirror and stop re-probing dead ones (mangago.me 404s every numeric reader
 // page).
+// Set on `outcome.dead` when a fetch fails because every origin returned
+// Mangago's definitive 404 page (the reader window genuinely does not exist) as
+// opposed to a retryable failure (rate-limit, transient network, empty page).
+// Lets the fallback crawl tell a dead reader from a temporary gap.
+type ReaderFetchOutcome = { dead: boolean };
+
 async function fetchReaderPage(
   pageUrl: string,
   preferredOrigin: string | undefined,
+  outcome?: ReaderFetchOutcome,
 ): Promise<{ html: string; url: string; origin: string } | undefined> {
   // Force the page onto a host that serves this reader format BEFORE anything
   // else (numeric /chapter/ -> mirror, read-manga -> www.mangago.me). A relative
@@ -899,6 +906,8 @@ async function fetchReaderPage(
   // the walk silently truncate the chapter to page 1.
   let cloudflareError: CloudflareError | undefined;
 
+  let definitive404 = false;
+
   const MAX_ROUNDS = 3;
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     // Did any origin fail in a way worth retrying (network blip, rate-limit, a
@@ -939,7 +948,10 @@ async function fetchReaderPage(
 
     // Every origin definitively 404'd this page — further rounds would just
     // re-request a page the site will never serve. Give up now.
-    if (!sawRetryableFailure) break;
+    if (!sawRetryableFailure) {
+      definitive404 = true;
+      break;
+    }
     if (round < MAX_ROUNDS) {
       await new Promise((resolve) => setTimeout(resolve, 400 * round));
     }
@@ -949,6 +961,7 @@ async function fetchReaderPage(
   // prompt, not a silently short chapter.
   if (cloudflareError) throw cloudflareError;
 
+  if (outcome) outcome.dead = definitive404;
   return undefined;
 }
 
@@ -959,8 +972,9 @@ async function decodeReaderPageImages(
   keyHex: string,
   ivHex: string,
   keepBlanks = false,
+  outcome?: ReaderFetchOutcome,
 ): Promise<{ images: string[]; html: string; url: string; origin: string } | undefined> {
-  const result = await fetchReaderPage(pageUrl, preferredOrigin);
+  const result = await fetchReaderPage(pageUrl, preferredOrigin, outcome);
   if (!result) return undefined;
 
   const imgsrcs = extractImgsrcsFromHtml(result.html);
@@ -1361,6 +1375,12 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
       };
 
+      // Stop the crawl after a run of CONFIRMED-DEAD (404 on every mirror)
+      // windows — that means the rest of the numeric reader is gone, and probing
+      // every remaining slot would be a request storm. A transient miss
+      // (rate-limit / network) does NOT count and resets the run, so a valid
+      // chapter with a few temporary gaps still gets fully probed.
+      let consecutiveDeadWindows = 0;
       for (
         let missing = nextUntriedMissingPage();
         missing !== undefined && collectedCount() < totalImagePages;
@@ -1370,6 +1390,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         markDirectTried(page);
         const fallbackUrl = buildReaderPageUrl(curlTemplate, loadedUrl, page, nextPageHref);
 
+        const outcome: ReaderFetchOutcome = { dead: false };
         const result = await decodeReaderPageImages(
           fallbackUrl,
           preferredOrigin,
@@ -1377,17 +1398,22 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           keyHex,
           ivHex,
           true,
+          outcome,
         );
         if (!result) {
-          // A failed window here may be a transient miss (rate-limit, momentary
-          // network) rather than a dead page — and later windows can still be
-          // valid — so keep probing the remaining missing slots. The per-page
-          // fetchReaderPage already bails fast on a definitive 404, so a truly
-          // dead reader still does at most one request per window instead of a
-          // retry storm.
           console.log(`[Mangago] direct curl window ${page} failed: ${fallbackUrl}`);
+          if (outcome.dead) {
+            if (++consecutiveDeadWindows >= 3) {
+              console.log(`[Mangago] 3 dead (404) curl windows in a row -> stop crawl`);
+              break;
+            }
+          } else {
+            // Transient miss, not a dead reader — keep probing later windows.
+            consecutiveDeadWindows = 0;
+          }
           continue;
         }
+        consecutiveDeadWindows = 0;
 
         preferredOrigin = result.origin;
         visitedPaths.add(pathnameKey(result.url));
