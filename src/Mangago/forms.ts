@@ -14,11 +14,15 @@ import {
   GENRE_OPTIONS,
   genreIdFromTitle,
   getDiscoverSectionEnabled,
+  getSelectedUserAgentId,
   resetDiscoverSectionSettings,
   setDiscoverSectionEnabled,
+  setSelectedUserAgentId,
   type MangagoSearchMetadata,
   STATUS_OPTIONS,
+  USER_AGENT_OPTIONS,
 } from "./models";
+import { clearMangagoReaderCaches } from "./utils";
 
 function normalizeGenreSelections(
   genres: Record<string, "included" | "excluded"> | undefined,
@@ -103,6 +107,33 @@ export class MangagoSettingsForm extends Form {
     return [
       Section(
         {
+          id: "reader",
+          header: "Reader",
+          footer:
+            "The User-Agent sent with every mangago request. Cloudflare ties its clearance to " +
+            "this, so try another preset if pages stop loading or fail the Cloudflare check. " +
+            "Clear Cache and re-open a chapter after changing this.",
+        },
+        [
+          SelectRow("user_agent", {
+            title: "User-Agent",
+            layout: "list",
+            value: [getSelectedUserAgentId()],
+            items: USER_AGENT_OPTIONS.map((option) => ({
+              id: option.id,
+              title: option.title,
+            })),
+            minItemCount: 1,
+            maxItemCount: 1,
+            onValueChange: Application.Selector(
+              this as MangagoSettingsForm,
+              "handleUserAgentChange",
+            ),
+          }),
+        ],
+      ),
+      Section(
+        {
           id: "discover_sections",
           header: "Home Sections",
         },
@@ -116,6 +147,20 @@ export class MangagoSettingsForm extends Form {
             ),
           }),
         ),
+      ),
+      Section(
+        {
+          id: "cache",
+          footer:
+            "Clears cached chapter pages so they reload from the network. " +
+            "Use this after changing the User-Agent.",
+        },
+        [
+          ButtonRow("clearCache", {
+            title: "Clear Cache",
+            onSelect: Application.Selector(this as MangagoSettingsForm, "handleClearCache"),
+          }),
+        ],
       ),
       Section("reset", [
         ButtonRow("resetDiscoverSections", {
@@ -139,6 +184,19 @@ export class MangagoSettingsForm extends Form {
         Application.invalidateDiscoverSections();
       };
     }
+  }
+
+  async handleUserAgentChange(value: string[]): Promise<void> {
+    setSelectedUserAgentId(value[0] ?? USER_AGENT_OPTIONS[0].id);
+    // Reader caches key chapter pages by URL, not by UA, and getMangagoPageUrls
+    // returns the cached page list before any network fetch. Clear them here so a
+    // UA change takes effect on the very next chapter open instead of requiring a
+    // separate Clear Cache.
+    clearMangagoReaderCaches();
+  }
+
+  async handleClearCache(): Promise<void> {
+    clearMangagoReaderCaches();
   }
 
   async handleResetDiscoverSections(): Promise<void> {
