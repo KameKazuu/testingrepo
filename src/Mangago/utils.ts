@@ -1,6 +1,6 @@
 import { CloudflareError } from "@paperback/types";
 
-import { DESKTOP_USER_AGENT, DOMAIN, READER_MIRROR, READER_MIRROR_FALLBACK } from "./models";
+import { getSelectedUserAgent, DOMAIN, READER_MIRROR, READER_MIRROR_FALLBACK } from "./models";
 import { fetchText, fetchTextWithUrl } from "./network";
 
 // Headers a desktop browser sends when NAVIGATING to a reader page (i.e. clicking
@@ -946,7 +946,7 @@ async function fetchReaderPage(
       try {
         await paceReaderFetch();
         const html = await fetchText(url, {
-          "user-agent": DESKTOP_USER_AGENT,
+          "user-agent": getSelectedUserAgent(),
           cookie: "_m_superu=1",
           ...READER_NAVIGATION_HEADERS,
         });
@@ -1063,7 +1063,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // where it matters — inside fetchReaderPage (walk + lazy sub-page
       // resolution), which is what the burst-truncation fix relies on.
       const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
-        "user-agent": DESKTOP_USER_AGENT,
+        "user-agent": getSelectedUserAgent(),
         cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
