@@ -510,15 +510,26 @@ async function loadImageFromBuffer(data: ArrayBuffer, mimeType: string): Promise
   // network/fetch timeout: if the polyfill never fires a callback, this rejects
   // so interceptResponse returns the raw bytes instead of leaving the reader
   // spinning forever.
+  //
+  // setTimeout/clearTimeout are NOT guaranteed in the image interceptor's JSCore
+  // context — descramble there threw "Can't find variable: clearTimeout", which
+  // aborted unscrambling and left cspiclink images scrambled (every few pages on
+  // titles like BJ Alex / 17 Dayz). Both timer calls are typeof-guarded so a
+  // missing polyfill can't break descramble; if setTimeout is absent we simply
+  // rely on the sync-complete / onload paths (data URLs settle synchronously in
+  // practice).
   return await new Promise<HTMLImageElement>((resolve, reject) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const done = (action: () => void): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined && typeof clearTimeout === "function") clearTimeout(timer);
       action();
     };
-    const timer = setTimeout(() => done(() => reject(new Error("image load timed out"))), 10000);
+    if (typeof setTimeout === "function") {
+      timer = setTimeout(() => done(() => reject(new Error("image load timed out"))), 10000);
+    }
     img.onload = () => done(() => resolve(img));
     img.onerror = () => done(() => reject(new Error("Image load failed")));
     img.src = dataUrl;
