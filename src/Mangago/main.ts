@@ -454,7 +454,14 @@ class MangagoExtension implements MangagoImplementation {
               c.version === chapter.version,
           ) ??
           fresh.find((c) => c.chapNum === chapter.chapNum && c.title === chapter.title) ??
-          fresh.find((c) => c.chapNum === chapter.chapNum);
+          // Bare chapter-number match, but ONLY when the number is meaningful.
+          // chapNum === 0 is the "unnumbered" sentinel (Extra/Oneshot/Side Story/
+          // Afterword…), and every unnumbered chapter collides at 0 — matching on
+          // the number alone would pick whichever sorts first, opening the wrong
+          // chapter. For those, require a title match (the tiers above); if none
+          // matches, return undefined so getChapterDetails surfaces a clear error
+          // instead of a silently wrong chapter.
+          (chapter.chapNum !== 0 ? fresh.find((c) => c.chapNum === chapter.chapNum) : undefined);
 
         return match ? urlOf(match) : undefined;
       } catch (error) {
