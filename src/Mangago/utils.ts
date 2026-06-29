@@ -200,6 +200,45 @@ function numericChapterCandidates(url: string): string[] {
   }
 }
 
+// The rotating mirror hosts that serve the numeric reader (NOT www.mangago.me).
+function isReaderMirrorHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h === "mangago.zone" ||
+    h.endsWith(".mangago.zone") ||
+    h === "youhim.me" ||
+    h.endsWith(".youhim.me")
+  );
+}
+
+// Pin a reader URL to a host that ACTUALLY serves it. canonicalReaderUrl always
+// normalises onto www.mangago.me — correct for the /read-manga/ reader, but
+// WRONG for the numeric /chapter/<mid>/<cid>/ reader and its windowed sub-pages
+// (/…/6/, /…/11/), which are served ONLY by the mirror hosts and 404 on
+// www.mangago.me. Re-pinning those to www.mangago.me is exactly what truncated a
+// windowed chapter to its first 5 images: page 1 loaded from a mirror, but every
+// sub-page the walk built got snapped back to www.mangago.me and 404'd. So for a
+// numeric reader URL we KEEP its mirror host; everything else (incl. read-manga)
+// is pinned to www.mangago.me as before. Host-doubling repair is inherited from
+// canonicalReaderUrl.
+export function pinReaderUrl(url: string): string {
+  const canonical = canonicalReaderUrl(url);
+  if (!isNumericChapterReaderUrl(canonical)) return canonical;
+
+  try {
+    const originalHost = new URL(url, DOMAIN).host;
+    if (isReaderMirrorHost(originalHost)) {
+      const pinned = new URL(canonical);
+      pinned.host = originalHost;
+      return pinned.toString();
+    }
+  } catch {
+    // fall through to the www.mangago.me canonical; the mirror sweep in
+    // getMangagoPageUrls still finds a working host for the initial fetch.
+  }
+  return canonical;
+}
+
 export function absoluteUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -684,6 +723,14 @@ function extractNextPageHref(html: string): string | undefined {
     if (href) return href;
   }
 
+  // The windowed numeric reader advances via a `next_url` JS variable rather than
+  // an anchor, e.g. `var next_url = "/chapter/49782/1402631/6/";`. Resolved
+  // against the (mirror-host) current page, this is the exact next sub-page; on
+  // the last page it points at the next chapter, which the caller detects as the
+  // stop signal via readerChapterKey.
+  const nextUrlVar = /\bnext_url\s*=\s*["']([^"']+)["']/.exec(html)?.[1]?.trim();
+  if (nextUrlVar && nextUrlVar !== "#" && !/^javascript:/i.test(nextUrlVar)) return nextUrlVar;
+
   return undefined;
 }
 
@@ -882,7 +929,7 @@ function buildReaderPageUrl(
     );
     base.search = "";
     base.hash = "";
-    return canonicalReaderUrl(base.toString());
+    return pinReaderUrl(base.toString());
   } catch {
     // Last resort: merge the template onto the base PATH so we keep the
     // /read-manga/<slug>/ prefix. Never resolve a bare "/uu/<chapter>/pg-N/"
@@ -895,7 +942,15 @@ function buildReaderPageUrl(
       // keep the raw base
     }
     const merged = mergeUrlPathWithTemplate(basePath, template).replace("{page}", String(page));
-    return canonicalReaderUrl(`${DOMAIN}${merged.startsWith("/") ? merged : `/${merged}`}`);
+    // Preserve the base's host (mirror for numeric readers) rather than forcing
+    // www.mangago.me, which 404s numeric sub-pages.
+    let baseHost = DOMAIN;
+    try {
+      baseHost = new URL(concreteBase, DOMAIN).origin;
+    } catch {
+      // keep DOMAIN
+    }
+    return pinReaderUrl(`${baseHost}${merged.startsWith("/") ? merged : `/${merged}`}`);
   }
 }
 
@@ -911,10 +966,12 @@ async function fetchReaderPage(
   pageUrl: string,
   outcome?: ReaderFetchOutcome,
 ): Promise<{ html: string; url: string; origin: string } | undefined> {
-  // Pin the page to www.mangago.me before anything else. A relative next-page
-  // link, an absolute link on the wrong host, or a quirky response URL could
-  // otherwise leave the walk pointed off-domain.
-  pageUrl = canonicalReaderUrl(pageUrl);
+  // Pin the page to a host that serves it before anything else. A relative
+  // next-page link or quirky response URL could otherwise leave the walk pointed
+  // off-domain. read-manga pages pin to www.mangago.me; numeric /chapter/ pages
+  // (and their windowed sub-pages) keep their mirror host — www.mangago.me 404s
+  // those, which is what truncated windowed chapters to 5 images.
+  pageUrl = pinReaderUrl(pageUrl);
 
   // Reuse a recently-fetched copy of this reader page if we have one (e.g. when
   // re-walking an incomplete chapter), so we don't re-hit the network or the
@@ -1041,7 +1098,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     const cached = getCachedReaderHtml(candidate);
     if (cached && cached.includes("imgsrcs")) {
       html = cached;
-      loadedUrl = canonicalReaderUrl(candidate);
+      loadedUrl = pinReaderUrl(candidate);
       break;
     }
 
@@ -1063,9 +1120,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         // Use the FINAL URL (after any numeric -> read-manga redirect) so the
         // page walk keys off the reader page we actually landed on; otherwise
         // same-chapter next_page links won't match the stale request URL and the
-        // walk stops after the first window. Pin it to www.mangago.me so a quirky
-        // response URL can't send the walk off-domain.
-        loadedUrl = canonicalReaderUrl(finalUrl);
+        // walk stops after the first window. pinReaderUrl keeps a numeric reader
+        // on its mirror host (so windowed sub-pages stay fetchable) while still
+        // pinning read-manga onto www.mangago.me.
+        loadedUrl = pinReaderUrl(finalUrl);
         break;
       }
     } catch (error) {
