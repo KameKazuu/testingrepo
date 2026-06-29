@@ -166,16 +166,34 @@ export function isReadMangaReaderUrl(url: string): boolean {
   }
 }
 
+// ── Polyfill-safe URL string helpers ───────────────────────────────────────
+// Paperback's on-device URL polyfill mishandles `new URL(absoluteUrl, base)`:
+// for an ALREADY-absolute mirror URL it can fold the host back to the base
+// (www.mangago.me). That silently re-pins a numeric mirror reader to .me and
+// truncates the chapter to its first window. So host/path detection of an
+// absolute reader URL uses plain string ops; `new URL` is reserved for genuinely
+// RELATIVE inputs (its supported form). (Failure mode surfaced by #51's test.)
+export function readerHostOf(url: string): string | undefined {
+  const n = url.startsWith("//") ? `https:${url}` : url;
+  return /^https?:\/\/([^/?#]+)/i.exec(n)?.[1]?.toLowerCase();
+}
+function readerPathSearchOf(url: string): string {
+  const n = url.startsWith("//") ? `https:${url}` : url;
+  const abs = /^https?:\/\/[^/]+(\/[^\s]*)?$/i.exec(n);
+  return abs ? abs[1] || "/" : n.startsWith("/") ? n : `/${n}`;
+}
+export function readerPathOf(url: string): string {
+  const ps = readerPathSearchOf(url);
+  const cut = ps.search(/[?#]/);
+  return cut >= 0 ? ps.slice(0, cut) : ps;
+}
+
 // True for the legacy numeric reader path /chapter/<mid>/<cid>/. Many titles
 // expose their chapters ONLY as numeric links, and those are served by the
 // rotating mirror hosts (www.mangago.zone, www.youhim.me) — www.mangago.me 404s
 // them. getMangagoPageUrls tries every mirror for such a URL.
 export function isNumericChapterReaderUrl(url: string): boolean {
-  try {
-    return /^\/chapter\/\d+\/\d+/.test(new URL(url, DOMAIN).pathname);
-  } catch {
-    return false;
-  }
+  return /^\/chapter\/\d+\/\d+/.test(readerPathOf(url));
 }
 
 // Hosts that can serve a numeric /chapter/<mid>/<cid>/ reader. The catalog and
@@ -191,13 +209,9 @@ const READER_MIRROR_HOSTS = [
 ];
 
 function numericChapterCandidates(url: string): string[] {
-  try {
-    const { pathname, search } = new URL(url, DOMAIN);
-    if (!/^\/chapter\/\d+\/\d+/.test(pathname)) return [];
-    return READER_MIRROR_HOSTS.map((host) => `${host}${pathname}${search}`);
-  } catch {
-    return [];
-  }
+  const pathSearch = readerPathSearchOf(url);
+  if (!/^\/chapter\/\d+\/\d+/.test(pathSearch)) return [];
+  return READER_MIRROR_HOSTS.map((host) => `${host}${pathSearch}`);
 }
 
 // The rotating mirror hosts that serve the numeric reader (NOT www.mangago.me).
@@ -225,16 +239,14 @@ export function pinReaderUrl(url: string): string {
   const canonical = canonicalReaderUrl(url);
   if (!isNumericChapterReaderUrl(canonical)) return canonical;
 
-  try {
-    const originalHost = new URL(url, DOMAIN).host;
-    if (isReaderMirrorHost(originalHost)) {
-      const pinned = new URL(canonical);
-      pinned.host = originalHost;
-      return pinned.toString();
-    }
-  } catch {
-    // fall through to the www.mangago.me canonical; the mirror sweep in
-    // getMangagoPageUrls still finds a working host for the initial fetch.
+  // Re-attach the mirror host by PLAIN STRING (never new URL / .host mutation —
+  // the on-device polyfill folds it back to www.mangago.me). canonicalReaderUrl
+  // always returns "<DOMAIN><path>" for a numeric URL, so swapping the DOMAIN
+  // prefix for the mirror origin is exact. If no explicit mirror host is present
+  // the .me canonical stands and getMangagoPageUrls' mirror sweep finds a host.
+  const host = readerHostOf(url);
+  if (host && isReaderMirrorHost(host) && canonical.startsWith(DOMAIN)) {
+    return `https://${host}${canonical.slice(DOMAIN.length)}`;
   }
   return canonical;
 }
@@ -767,6 +779,11 @@ function isMangago404Page(html: string): boolean {
 }
 
 function resolveUrl(url: string, baseUrl: string): string {
+  // An already-absolute URL is returned unchanged: `new URL(absolute, base)` is
+  // the form the on-device polyfill mis-resolves (folding a mirror host onto the
+  // base). Only a relative input needs base resolution (the supported form).
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("//")) return `https:${url}`;
   try {
     return new URL(url, baseUrl).toString();
   } catch {
@@ -921,37 +938,17 @@ function buildReaderPageUrl(
   nextPageHref?: string,
 ): string {
   const concreteBase = nextPageHref ? resolveUrl(nextPageHref, baseUrl) : baseUrl;
-  try {
-    const base = new URL(concreteBase, DOMAIN);
-    base.pathname = mergeUrlPathWithTemplate(base.pathname, template).replace(
-      "{page}",
-      String(page),
-    );
-    base.search = "";
-    base.hash = "";
-    return pinReaderUrl(base.toString());
-  } catch {
-    // Last resort: merge the template onto the base PATH so we keep the
-    // /read-manga/<slug>/ prefix. Never resolve a bare "/uu/<chapter>/pg-N/"
-    // template against the domain root — that drops the prefix and 404s (and,
-    // re-prepended by a stale store, becomes the doubled host we keep seeing).
-    let basePath = baseUrl;
-    try {
-      basePath = new URL(baseUrl, DOMAIN).pathname;
-    } catch {
-      // keep the raw base
-    }
-    const merged = mergeUrlPathWithTemplate(basePath, template).replace("{page}", String(page));
-    // Preserve the base's host (mirror for numeric readers) rather than forcing
-    // www.mangago.me, which 404s numeric sub-pages.
-    let baseHost = DOMAIN;
-    try {
-      baseHost = new URL(concreteBase, DOMAIN).origin;
-    } catch {
-      // keep DOMAIN
-    }
-    return pinReaderUrl(`${baseHost}${merged.startsWith("/") ? merged : `/${merged}`}`);
-  }
+  // String-based throughout (no new URL(absolute, base), which the on-device
+  // polyfill mis-resolves). Merge the template onto the base PATH so the
+  // /read-manga/<slug>/ prefix (or the numeric /chapter/<mid>/<cid>/ path) is
+  // kept — never resolve a bare "/uu/<chapter>/pg-N/" template against the
+  // domain root — and keep the base's host (the mirror for numeric readers,
+  // which 404 on www.mangago.me). pinReaderUrl then re-affirms the right host.
+  const host = readerHostOf(concreteBase);
+  const origin = host ? `https://${host}` : DOMAIN;
+  const basePath = readerPathOf(concreteBase);
+  const merged = mergeUrlPathWithTemplate(basePath, template).replace("{page}", String(page));
+  return pinReaderUrl(`${origin}${merged.startsWith("/") ? merged : `/${merged}`}`);
 }
 
 // Fetch one reader page by URL from www.mangago.me. Returns the page HTML (which
