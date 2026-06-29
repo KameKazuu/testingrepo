@@ -1083,11 +1083,35 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
   // signal: some numeric readers emit exactly one window's worth of URLs with no
   // blank padding while total_pages is far larger, and trusting that would
   // return only the first window.
+  const totalPages = extractTotalPages(html);
   const readMangaReader = isReadMangaReaderUrl(loadedUrl);
+
+  // Belt-and-suspenders for the read-manga arm: `_multimode !== "1"` is the
+  // primary "full reader" signal, but cross-check `total_pages` too. Trust page 1
+  // as complete only when the site advertises no page total (total_pages = 0) or
+  // page 1 already carries at least that many images. If a read-manga reader ever
+  // reports `_multimode != "1"` yet serves only a slice (firstImages < total),
+  // fall through to the walk to recover the rest instead of silently returning a
+  // short chapter. The non-read-manga arm keeps the no-blanks signal as before.
+  const readMangaComplete =
+    readMangaReader && (totalPages === 0 || firstImages.length >= totalPages);
+
+  // Eager fast path: page 1 already holds the whole chapter — return the real
+  // image URLs directly, no walk, no placeholders. This is the common case and
+  // the entire strategy Aidoku uses, plus keiyoushi's fast path.
+  //
+  // The site's `_multimode` flag is authoritative: `"1"` = windowed (page 1 is
+  // only a slice), anything else = the full reader (page 1 carries every image).
+  // For a READ-MANGA reader URL fetched with the desktop UA + _m_superu cookie,
+  // `_multimode` is "" and `imgsrcs` is the COMPLETE list — so we trust it (with
+  // the total_pages cross-check above), exactly like Aidoku (which reads imgsrcs
+  // once and never walks). Walking that case is what produced the slow multi-page
+  // crawl and the doubled/prefix-less reader URLs the walk's template fallback
+  // could emit.
   if (
     multimodeFlag !== "1" &&
     firstImages.length > 0 &&
-    (readMangaReader || firstImages.length === firstPositional.length)
+    (readMangaComplete || firstImages.length === firstPositional.length)
   ) {
     const pages = firstImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
     console.log(
@@ -1095,11 +1119,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         readMangaReader ? ", read-manga full reader" : ""
       })`,
     );
-    if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
+    // Don't freeze a result we only believe is complete because the no-blanks
+    // arm matched while total_pages says there should be more — that would serve
+    // a truncated chapter until "Clear Cache". A confirmed-complete result
+    // (readMangaComplete, or no total advertised) is safe to cache.
+    const suspectedPartial = totalPages > 0 && firstImages.length < totalPages;
+    if (pages.length > 0 && !suspectedPartial) mangagoPageUrlsCache.set(chapterUrl, pages);
     return pages;
   }
 
-  const totalPages = extractTotalPages(html);
   const curlTemplate = usableCurlTemplate(extractCurlTemplate(html)) ?? extractPcurlTemplate(html);
   const nextPageHref = extractNextPageHref(html);
   const firstPageChapterKey = readerChapterKey(loadedUrl);
