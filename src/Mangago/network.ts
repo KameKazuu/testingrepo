@@ -6,8 +6,8 @@ import {
 } from "@paperback/types";
 
 import {
-  DESKTOP_USER_AGENT,
   DOMAIN,
+  getSelectedUserAgent,
   READER_MIRROR,
   READER_MIRROR_FALLBACK,
   type MangagoImageContext,
@@ -152,10 +152,15 @@ function readerHeadersForUrl(url: string): {
     }
   }
 
+  // Every mangago request uses the same user-selected User-Agent. Cloudflare
+  // binds cf_clearance to the UA that solved the challenge, so the UA must stay
+  // consistent across the manga page, chapter list and reader fetches. The
+  // default preset is the desktop Chrome UA, so behaviour is unchanged unless the
+  // reader picks another in settings.
   return {
     referer: `${base}/`,
     origin: base,
-    "user-agent": DESKTOP_USER_AGENT,
+    "user-agent": getSelectedUserAgent(),
   };
 }
 
