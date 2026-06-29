@@ -5,7 +5,13 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DOMAIN, READER_USER_AGENT, USER_AGENT, type MangagoImageContext } from "./models";
+import {
+  DOMAIN,
+  MANGAGO_SITE_HOSTS,
+  READER_USER_AGENT,
+  USER_AGENT,
+  type MangagoImageContext,
+} from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -13,6 +19,30 @@ import { descrambleMangagoImage } from "./utils";
 // "#desckey=...&cols=..." fragment; without this the retried image would come
 // back still scrambled. The saved context lets us descramble it anyway.
 const IMAGE_CONTEXT_STATE_PREFIX = "mangago-image-context:";
+const MANGAGO_SITE_HOST_SET = new Set<string>(MANGAGO_SITE_HOSTS);
+
+function siteOriginFromUrl(url: string): string | undefined {
+  const normalized = url.startsWith("//") ? `https:${url}` : url;
+  const match = /^(https?:\/\/(?:www\.)?(?:mangago\.me|mangago\.zone|youhim\.me))(?=\/|$)/i.exec(
+    normalized,
+  );
+
+  return match?.[1];
+}
+
+function pathSearchHashFromUrl(url: string): string {
+  const normalized = url.startsWith("//") ? `https:${url}` : url;
+  const absolute = /^https?:\/\/[^/]+(\/.*)?$/i.exec(normalized);
+  if (absolute) return absolute[1] || "/";
+
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function pathnameFromUrl(url: string): string {
+  const pathSearchHash = pathSearchHashFromUrl(url);
+  const delimiter = pathSearchHash.search(/[?#]/);
+  return delimiter >= 0 ? pathSearchHash.slice(0, delimiter) : pathSearchHash;
+}
 
 function cleanUrl(url: string): string {
   const hashIndex = url.indexOf("#");
@@ -83,13 +113,15 @@ function parseImageContext(url: string): MangagoImageContext | null {
   return context;
 }
 
-function isMangagoHost(url: string): boolean {
-  try {
-    const host = new URL(url, DOMAIN).hostname.toLowerCase();
-    return host === "mangago.me" || host.endsWith(".mangago.me");
-  } catch {
-    return false;
-  }
+function isMangagoSiteHost(url: string): boolean {
+  const origin = siteOriginFromUrl(url);
+  if (!origin) return false;
+
+  return MANGAGO_SITE_HOST_SET.has(origin.replace(/^https?:\/\//i, "").toLowerCase());
+}
+
+function originForUrl(url: string): string {
+  return siteOriginFromUrl(url) ?? DOMAIN;
 }
 
 // A chapter reader page lives at /read-manga/<slug>/<chapter…> (something after
@@ -98,14 +130,10 @@ function isMangagoHost(url: string): boolean {
 // take the desktop UA; everything else (details, listing, search, discover) takes
 // the mobile browsing UA so chapter links come back as read-manga URLs.
 function isReaderPageUrl(url: string): boolean {
-  try {
-    const { pathname } = new URL(url, DOMAIN);
-    const readManga = /^\/read-manga\/[^/]+\/(.+)/.exec(pathname);
-    if (readManga && readManga[1].length > 0) return true;
-    return /^\/chapter\/\d+\/\d+/.test(pathname);
-  } catch {
-    return false;
-  }
+  const pathname = pathnameFromUrl(url);
+  const readManga = /^\/read-manga\/[^/]+\/(.+)/.exec(pathname);
+  if (readManga && readManga[1].length > 0) return true;
+  return /^\/chapter\/\d+\/\d+/.test(pathname);
 }
 
 function readerHeadersForUrl(url: string): {
@@ -113,21 +141,26 @@ function readerHeadersForUrl(url: string): {
   origin: string;
   "user-agent": string;
 } {
-  // Everything is served from www.mangago.me now (keiyoushi/Aidoku model — no
-  // mirror hosts), so the referer/origin is always the canonical domain. The UA
-  // is chosen per request type (see USER_AGENT / READER_USER_AGENT in models.ts):
-  // the reader page uses the desktop UA, everything else the mobile browsing UA.
+  // read-manga readers are served from www.mangago.me, while legacy numeric
+  // readers may be served from alternate hosts (mangago.zone / youhim.me). Match
+  // the referer/origin to the requested site host so relative reader links keep
+  // working there. The UA is chosen per request type (see USER_AGENT /
+  // READER_USER_AGENT in models.ts): reader pages use the desktop UA, everything
+  // else the mobile browsing UA.
+  const origin = isReaderPageUrl(url) ? originForUrl(url) : DOMAIN;
+
   return {
-    referer: `${DOMAIN}/`,
-    origin: DOMAIN,
+    referer: `${origin}/`,
+    origin,
     "user-agent": isReaderPageUrl(url) ? READER_USER_AGENT : USER_AGENT,
   };
 }
 
 // Apply our headers (page-type UA via readerHeadersForUrl, referer/origin) and
-// the _m_superu=1 cookie to a www.mangago.me request. Shared by interceptRequest
-// AND the redirect handler so a request keeps these headers even after a
-// redirect (the app only runs interceptRequest on the initial request).
+// the _m_superu=1 cookie to Mangago site-host requests. Shared by
+// interceptRequest AND the redirect handler so a request keeps these headers
+// even after a redirect (the app only runs interceptRequest on the initial
+// request).
 //
 // NOTE: We intentionally do NOT downgrade underscore image hosts
 // (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP. That workaround is
@@ -158,7 +191,9 @@ export async function applyMangagoHeaders(request: Request): Promise<Request> {
       ...readerHeadersForUrl(request.url),
       ...request.headers,
     },
-    cookies: isMangagoHost(request.url) ? { ...request.cookies, _m_superu: "1" } : request.cookies,
+    cookies: isMangagoSiteHost(request.url)
+      ? { ...request.cookies, _m_superu: "1" }
+      : request.cookies,
   };
 }
 

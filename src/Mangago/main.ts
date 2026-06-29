@@ -186,6 +186,26 @@ function sortingIdToMangagoSort(sortingOption?: SortingOption): string {
   }
 }
 
+function pathnameFromUrl(url: string): string {
+  const normalized = url.startsWith("//") ? `https:${url}` : url;
+  const absolute = /^https?:\/\/[^/]+(\/.*)?$/i.exec(normalized);
+  const pathSearchHash = absolute ? absolute[1] || "/" : normalized;
+  const delimiter = pathSearchHash.search(/[?#]/);
+
+  return delimiter >= 0 ? pathSearchHash.slice(0, delimiter) : pathSearchHash;
+}
+
+function isAlternateNumericReaderUrl(url: string): boolean {
+  const normalized = url.startsWith("//") ? `https:${url}` : url;
+  return /^https?:\/\/(?:www\.)?(?:mangago\.zone|youhim\.me)\/chapter\/\d+\/\d+(?:\/|$)/i.test(
+    normalized,
+  );
+}
+
+function isCurrentReaderUrl(url: string): boolean {
+  return isReadMangaReaderUrl(url) || isAlternateNumericReaderUrl(url);
+}
+
 class MangagoExtension implements MangagoImplementation {
   private interceptor = new MangagoInterceptor("mangago-interceptor");
 
@@ -385,28 +405,23 @@ class MangagoExtension implements MangagoImplementation {
     ).additionalInfo?.originalChapterUrl;
     const initialChapterUrl = originalChapterUrl ?? chapterUrlFromId(chapter.chapterId);
 
-    // Self-heal stale chapter URLs. www.mangago.me only serves the read-manga
-    // reader, so any stored URL that isn't a proper /read-manga/<slug>/<chapter>
-    // reader page would 404 forever:
-    //   • the legacy numeric /chapter/<mid>/<cid>/ reader (saved before the
-    //     read-manga switch), and
-    //   • a prefix-less "/uu/<chapter>/pg-N/" — what canonicalReaderUrl produces
-    //     when it de-doubles a stale ".../https://www.mangago.me/uu/.../pg-N/"
-    //     entry whose /read-manga/<slug>/ prefix an older build had dropped.
-    // Re-resolve either to the real read-manga URL by matching this chapter in
-    // the manga's freshly parsed chapter list. New entries are already
-    // read-manga and skip this entirely.
+    // Self-heal stale chapter URLs. www.mangago.me serves read-manga readers,
+    // but current manga-detail pages can expose legacy numeric readers on
+    // alternate hosts (mangago.zone / youhim.me). A stored numeric
+    // www.mangago.me /chapter/<mid>/<cid>/ URL 404s, so re-resolve it by
+    // matching this chapter in the manga's freshly parsed chapter list.
     // Normalise first so the check and the fetch both see the real path.
     let chapterUrl = canonicalReaderUrl(initialChapterUrl);
     if (!isReadMangaReaderUrl(chapterUrl)) {
-      const resolved = await this.resolveReadMangaChapterUrl(chapter);
+      const resolved = await this.resolveCurrentChapterUrl(chapter, initialChapterUrl);
       if (resolved) chapterUrl = resolved;
     }
 
-    // Fetch the read-manga reader from www.mangago.me — it returns the COMPLETE
-    // image list in one request. A Cloudflare challenge surfaces as the bypass
-    // webview; a genuine decode/parse failure surfaces as an error rather than a
-    // silently short chapter.
+    // Fetch the reader. read-manga usually returns the COMPLETE image list in
+    // one request; alternate numeric readers may need the host-aware multimode
+    // walker. A Cloudflare challenge surfaces as the bypass webview; a genuine
+    // decode/parse failure surfaces as an error rather than a silently short
+    // chapter.
     const pages = await getMangagoPageUrls(chapterUrl);
 
     return {
@@ -416,17 +431,22 @@ class MangagoExtension implements MangagoImplementation {
     };
   }
 
-  // Upgrade a stale numeric chapter entry (saved before the read-manga switch)
-  // to its read-manga reader URL by re-parsing the manga's current chapter list
-  // and matching this chapter in it (by number + title + version). Browsing now
-  // uses the mobile UA, so the list comes back as read-manga URLs; the retry +
-  // cache-bust is a belt-and-suspenders guard against a momentarily stale list.
+  // Upgrade a stale chapter entry by re-parsing the manga's current chapter list
+  // and matching this chapter in it. Prefer exact chapter path matches, then
+  // fall back to number + title + version. Current pages may return either
+  // read-manga reader URLs or alternate-host numeric readers; both are usable.
+  // The retry + cache-bust is a belt-and-suspenders guard against a momentarily
+  // stale/empty list.
   // If no match is found, getChapterDetails fetches the original URL and surfaces
   // a clear error rather than a silently wrong chapter.
-  private async resolveReadMangaChapterUrl(chapter: Chapter): Promise<string | undefined> {
+  private async resolveCurrentChapterUrl(
+    chapter: Chapter,
+    initialChapterUrl: string,
+  ): Promise<string | undefined> {
     const urlOf = (c: Chapter): string =>
       (c as Chapter & { additionalInfo?: { originalChapterUrl?: string } }).additionalInfo
         ?.originalChapterUrl ?? chapterUrlFromId(c.chapterId);
+    const targetPath = pathnameFromUrl(initialChapterUrl);
 
     const mangaUrl = mangaUrlFromId(chapter.sourceManga.mangaId);
     const MAX_RETRIES = 4;
@@ -437,16 +457,19 @@ class MangagoExtension implements MangagoImplementation {
           attempt === 0 ? "" : `${mangaUrl.includes("?") ? "&" : "?"}_=${Date.now()}${attempt}`;
         const html = await fetchText(`${mangaUrl}${bust}`);
         const fresh = parseChapters(html, chapter.sourceManga).filter((c) =>
-          isReadMangaReaderUrl(urlOf(c)),
+          isCurrentReaderUrl(urlOf(c)),
         );
 
-        // No read-manga URLs this round (a momentarily stale/numeric catalog) —
-        // retry for the read-manga variant.
+        // No usable reader URLs this round (a momentarily stale/empty catalog) —
+        // retry for the current variant.
         if (fresh.length === 0) continue;
 
         // Match version (uploader/scanlation group) first so a stale entry for a
         // non-first upload doesn't get rewritten to another group's chapter.
         const match =
+          fresh.find(
+            (c) => c.chapterId === chapter.chapterId || pathnameFromUrl(urlOf(c)) === targetPath,
+          ) ??
           fresh.find(
             (c) =>
               c.chapNum === chapter.chapNum &&

@@ -261,18 +261,22 @@ function toPathname(href: string): string {
 }
 
 function originalChapterUrlFromHref(href: string, chapterId: string): string {
+  const rawHref = href.trim();
+
   // Test "//" before "/" so a protocol-relative href isn't swallowed by the
   // single-slash branch.
-  if (href.startsWith("//")) return chapterUrlFromId(`https:${href}`);
-  if (href.startsWith("/")) return chapterUrlFromId(href);
-  if (href.startsWith("http://") || href.startsWith("https://")) return chapterUrlFromId(href);
+  if (rawHref.startsWith("//")) return canonicalReaderUrl(`https:${rawHref}`);
+  if (rawHref.startsWith("http://") || rawHref.startsWith("https://")) {
+    return canonicalReaderUrl(rawHref);
+  }
+  if (rawHref.startsWith("/")) return canonicalReaderUrl(`${DOMAIN}${rawHref}`);
 
   return chapterUrlFromId(chapterId);
 }
 
-// Pin any reader URL/path to www.mangago.me, the single host that serves the
-// read-manga reader. An old library entry may be stored against another host, so
-// we normalise rather than trusting the stored URL. (See canonicalReaderUrl.)
+// Normalize any reader URL/path. read-manga entries are pinned to www.mangago.me,
+// while numeric chapter links keep their alternate reader host when Mangago
+// gives us one. (See canonicalReaderUrl.)
 function normalizeReaderUrl(url: string): string {
   return canonicalReaderUrl(url);
 }

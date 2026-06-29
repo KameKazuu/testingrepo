@@ -44,6 +44,37 @@ const readerHtmlCache = new Map<string, { html: string; expires: number }>();
 const READER_FETCH_MIN_INTERVAL_MS = 350;
 let lastReaderFetchAt = 0;
 
+function isNumericChapterPath(pathname: string): boolean {
+  return /^\/chapter\/\d+\/\d+(?:\/|$)/.test(pathname);
+}
+
+function numericReaderOriginFromUrl(url: string): string | undefined {
+  const normalized = url.startsWith("//") ? `https:${url}` : url;
+  const match =
+    /^(https?:\/\/(?:www\.)?(?:mangago\.me|mangago\.zone|youhim\.me))(?=\/chapter\/\d+\/\d+(?:\/|$))/i.exec(
+      normalized,
+    );
+
+  return match?.[1];
+}
+
+function readerOriginForUrl(url: string): string {
+  return numericReaderOriginFromUrl(url) ?? DOMAIN;
+}
+
+function pathSearchHashFromUrl(url: string): string {
+  const normalized = url.startsWith("//") ? `https:${url}` : url;
+  const absolute = /^https?:\/\/[^/]+(\/.*)?$/i.exec(normalized);
+  if (absolute) return absolute[1] || "/";
+
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function pathnameFromPathSearchHash(pathSearchHash: string): string {
+  const delimiter = pathSearchHash.search(/[?#]/);
+  return delimiter >= 0 ? pathSearchHash.slice(0, delimiter) : pathSearchHash;
+}
+
 // Clear the in-memory reader caches so the next chapter open refetches from the
 // network. Used by the "Clear Cache" setting — a chapter's resolved page list is
 // cached, so this is what forces a stale or incomplete chapter to reload.
@@ -98,11 +129,11 @@ function readMangaPagePosition(url: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-// Pin any reader URL (or bare path) to www.mangago.me. The read-manga reader is
-// served whole from this single host (keiyoushi/Aidoku model — no mirror hosts),
-// so we always normalise onto it. A relative or absolute next-page link, or a
-// quirky response URL on another host, is snapped back here so the walk never
-// drifts off-domain.
+// Normalize any reader URL (or bare path). The read-manga reader is served whole
+// from www.mangago.me, so /read-manga/ URLs are pinned there. Legacy numeric
+// /chapter/<mid>/<cid>/ readers are different: current detail pages can expose
+// them on mangago.zone or youhim.me, and www.mangago.me 404s the same path, so
+// preserve those alternate origins when the URL explicitly carries one.
 //
 // It also repairs accidental host-doubling. A stale library entry can carry a
 // URL like "https://www.mangago.me/https://www.mangago.me/read-manga/<slug>/..."
@@ -136,18 +167,18 @@ export function canonicalReaderUrl(url: string): string {
     beforeQuery = beforeQuery.slice(schemeMatches[schemeMatches.length - 1]!.index);
   }
 
+  const readerOrigin = readerOriginForUrl(beforeQuery);
   const readerIndex = Math.max(
     beforeQuery.lastIndexOf("/read-manga/"),
     beforeQuery.lastIndexOf("/chapter/"),
   );
   const working = (readerIndex > 0 ? beforeQuery.slice(readerIndex) : beforeQuery) + suffix;
-  try {
-    const u = new URL(working, DOMAIN);
-    return `${DOMAIN}${u.pathname}${u.search}${u.hash}`;
-  } catch {
-    const path = working.startsWith("/") ? working : `/${working}`;
-    return `${DOMAIN}${path}`;
-  }
+  const pathSearchHash = pathSearchHashFromUrl(working);
+  const origin = isNumericChapterPath(pathnameFromPathSearchHash(pathSearchHash))
+    ? readerOrigin
+    : DOMAIN;
+
+  return `${origin}${pathSearchHash}`;
 }
 
 // True when the URL is a real read-manga READER page: /read-manga/<slug>/<more>
@@ -861,12 +892,13 @@ function buildReaderPageUrl(
       // keep the raw base
     }
     const merged = mergeUrlPathWithTemplate(basePath, template).replace("{page}", String(page));
-    return canonicalReaderUrl(`${DOMAIN}${merged.startsWith("/") ? merged : `/${merged}`}`);
+    const origin = readerOriginForUrl(baseUrl);
+    return canonicalReaderUrl(`${origin}${merged.startsWith("/") ? merged : `/${merged}`}`);
   }
 }
 
-// Fetch one reader page by URL from www.mangago.me. Returns the page HTML (which
-// contains both the imgsrcs blob and the next_page link) plus the serving origin.
+// Fetch one reader page by URL. Returns the page HTML (which contains both the
+// imgsrcs blob and the next_page link) plus the serving origin.
 // Set `outcome.dead` when the fetch fails because the page returned Mangago's
 // definitive 404 page (the reader window genuinely does not exist) as opposed to
 // a retryable failure (rate-limit, transient network, empty page). Lets the
@@ -877,9 +909,9 @@ async function fetchReaderPage(
   pageUrl: string,
   outcome?: ReaderFetchOutcome,
 ): Promise<{ html: string; url: string; origin: string } | undefined> {
-  // Pin the page to www.mangago.me before anything else. A relative next-page
-  // link, an absolute link on the wrong host, or a quirky response URL could
-  // otherwise leave the walk pointed off-domain.
+  // Normalize the page before anything else. read-manga stays on www.mangago.me;
+  // numeric alternate-host readers stay on their provided host so they do not
+  // become www.mangago.me /chapter/ 404s.
   pageUrl = canonicalReaderUrl(pageUrl);
 
   // Reuse a recently-fetched copy of this reader page if we have one (e.g. when
@@ -887,7 +919,7 @@ async function fetchReaderPage(
   // rate limiter for pages that already loaded.
   const cachedHtml = getCachedReaderHtml(pageUrl);
   if (cachedHtml) {
-    return { html: cachedHtml, url: pageUrl, origin: DOMAIN };
+    return { html: cachedHtml, url: pageUrl, origin: readerOriginForUrl(pageUrl) };
   }
 
   // Retry across a few rounds with a short backoff between them. The backoff is
@@ -919,7 +951,7 @@ async function fetchReaderPage(
       if (extractImgsrcsFromHtml(html)) {
         console.log(`[Mangago] reader fetch OK ${pageUrl}`);
         cacheReaderHtml(pageUrl, html);
-        return { html, url: pageUrl, origin: DOMAIN };
+        return { html, url: pageUrl, origin: readerOriginForUrl(pageUrl) };
       }
       // A definitive 404 is NOT retryable — the reader window genuinely does not
       // exist, so stop instead of re-hammering the same dead page.
@@ -977,11 +1009,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
     return cachedPages;
   }
 
-  // Fetch the chapter page from www.mangago.me. The read-manga reader returns the
-  // COMPLETE image list in one shot. A stale numeric library URL is normalised to
-  // www.mangago.me by canonicalReaderUrl (it 404s there, which surfaces as a
-  // "no usable page" error after getChapterDetails has already self-healed the
-  // numeric ID to its read-manga URL).
+  // Fetch the chapter page. The read-manga reader returns the COMPLETE image
+  // list in one shot from www.mangago.me. Numeric reader URLs are kept on their
+  // alternate host when the current catalog provides one; www.mangago.me 404s
+  // those same numeric paths.
   let html = "";
   let loadedUrl = chapterUrl;
   let cloudflareError: CloudflareError | undefined;

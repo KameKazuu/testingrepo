@@ -1,13 +1,22 @@
 export const DOMAIN = "https://www.mangago.me";
+export const MANGAGO_SITE_HOSTS = [
+  "mangago.me",
+  "www.mangago.me",
+  "mangago.zone",
+  "www.mangago.zone",
+  "youhim.me",
+  "www.youhim.me",
+] as const;
 
 // mangago needs TWO different User-Agents, exactly like the working Aidoku
 // source (confirmed from its live request logs):
 //
 //   • Browsing UA (mobile iPhone) — used for the manga listing, search, discover
-//     and, crucially, the manga-details / chapter-list page. With a MOBILE UA the
-//     details page lists chapters as read-manga URLs (/read-manga/<slug>/uu/...);
-//     with a desktop UA it lists them as the legacy numeric /chapter/<mid>/<cid>/
-//     reader, which www.mangago.me 404s (the "no usable chapter page" failure).
+//     and the manga-details / chapter-list page. Mangago can return either
+//     read-manga URLs or legacy numeric /chapter/<mid>/<cid>/ reader URLs there;
+//     the numeric links are valid only on the alternate reader hosts the page
+//     provides (mangago.zone / youhim.me), not after pinning them to
+//     www.mangago.me.
 //   • Reader UA (desktop macOS Chrome) — used for the reader page itself, together
 //     with the _m_superu=1 cookie. This is the exact pair Aidoku hard-codes on its
 //     page-list request; it makes the read-manga reader return the COMPLETE image
