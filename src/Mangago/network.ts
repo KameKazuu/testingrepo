@@ -5,7 +5,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DOMAIN, USER_AGENT, type MangagoImageContext } from "./models";
+import { DOMAIN, READER_USER_AGENT, USER_AGENT, type MangagoImageContext } from "./models";
 import { descrambleMangagoImage } from "./utils";
 
 // Remember each image's descramble context (desckey + cols) keyed by its
@@ -92,19 +92,35 @@ function isMangagoHost(url: string): boolean {
   }
 }
 
-function readerHeadersForUrl(_url: string): {
+// A chapter reader page lives at /read-manga/<slug>/<chapter…> (something after
+// the slug) or the legacy numeric /chapter/<mid>/<cid>/. The bare
+// /read-manga/<slug>/ is the manga-details page, NOT a reader page. Reader pages
+// take the desktop UA; everything else (details, listing, search, discover) takes
+// the mobile browsing UA so chapter links come back as read-manga URLs.
+function isReaderPageUrl(url: string): boolean {
+  try {
+    const { pathname } = new URL(url, DOMAIN);
+    const readManga = /^\/read-manga\/[^/]+\/(.+)/.exec(pathname);
+    if (readManga && readManga[1].length > 0) return true;
+    return /^\/chapter\/\d+\/\d+/.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
+function readerHeadersForUrl(url: string): {
   referer: string;
   origin: string;
   "user-agent": string;
 } {
   // Everything is served from www.mangago.me now (keiyoushi/Aidoku model — no
   // mirror hosts), so the referer/origin is always the canonical domain. The UA
-  // is the single desktop UA used for every mangago request, kept consistent so
-  // it matches the Cloudflare cf_clearance binding.
+  // is chosen per request type (see USER_AGENT / READER_USER_AGENT in models.ts):
+  // the reader page uses the desktop UA, everything else the mobile browsing UA.
   return {
     referer: `${DOMAIN}/`,
     origin: DOMAIN,
-    "user-agent": USER_AGENT,
+    "user-agent": isReaderPageUrl(url) ? READER_USER_AGENT : USER_AGENT,
   };
 }
 
