@@ -404,15 +404,23 @@ class MangagoExtension implements MangagoImplementation {
       if (resolved) chapterUrl = resolved;
     }
 
-    // Walk a reader URL but swallow non-Cloudflare failures so we can fall back
-    // to another candidate. A Cloudflare challenge still propagates so the app
-    // opens the bypass flow.
+    // Walk a reader URL, falling back ONLY when the page was genuinely
+    // unreachable (no host served a usable chapter page). A Cloudflare challenge
+    // and real decode/parse regressions (missing chapter.js / AES key / changed
+    // imgsrcs) are rethrown so they surface to the user instead of being masked
+    // behind a partial numeric result.
     const softWalk = async (url: string): Promise<string[]> => {
       try {
         return await getMangagoPageUrls(url);
       } catch (error) {
-        if (error instanceof CloudflareError) throw error;
-        return [];
+        const message = error instanceof Error ? error.message : "";
+        if (
+          !(error instanceof CloudflareError) &&
+          message.includes("no mirror returned a usable chapter page")
+        ) {
+          return [];
+        }
+        throw error;
       }
     };
 
