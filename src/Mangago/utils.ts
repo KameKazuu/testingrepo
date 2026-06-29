@@ -3,6 +3,22 @@ import { CloudflareError } from "@paperback/types";
 import { DESKTOP_USER_AGENT, DOMAIN, READER_MIRROR, READER_MIRROR_FALLBACK } from "./models";
 import { fetchText, fetchTextWithUrl } from "./network";
 
+// Headers a desktop browser sends when NAVIGATING to a reader page (i.e. clicking
+// the reader's next-page <a> link). Mangago's mirror hosts (mangago.zone /
+// youhim.me) serve a numeric reader's page 1 to anyone, but redirect its
+// sub-pages (/chapter/<mid>/<cid>/<n>/) to www.mangago.me — which 404s them —
+// unless the request looks like a real same-origin navigation. Together with the
+// same-origin referer/origin (see readerHeadersForUrl in network.ts), these
+// Sec-Fetch-* headers mimic that navigation so the mirror serves the sub-page
+// instead of bouncing it. Scoped to reader-page HTML fetches only — image
+// requests have a different Sec-Fetch context and must not get these.
+const READER_NAVIGATION_HEADERS: Record<string, string> = {
+  "sec-fetch-site": "same-origin",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-dest": "document",
+  "sec-fetch-user": "?1",
+};
+
 // ── Caches: chapter.js (deobfuscated) and final page URLs. These stop the
 //    extension from refetching on every retry/re-open, which is the main
 //    source of redundant requests that trip the 5/30 rate limit. ──
@@ -922,6 +938,7 @@ async function fetchReaderPage(
         const html = await fetchText(url, {
           "user-agent": DESKTOP_USER_AGENT,
           cookie: "_m_superu=1",
+          ...READER_NAVIGATION_HEADERS,
         });
         if (extractImgsrcsFromHtml(html)) {
           console.log(`[Mangago] reader fetch OK ${url}`);
@@ -1038,6 +1055,7 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
         "user-agent": DESKTOP_USER_AGENT,
         cookie: "_m_superu=1",
+        ...READER_NAVIGATION_HEADERS,
       });
       if (attempt.includes("imgsrcs")) {
         cacheReaderHtml(candidate, attempt);
