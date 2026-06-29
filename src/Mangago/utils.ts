@@ -1361,11 +1361,6 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
         }
       };
 
-      // Stop the fallback crawl after a few dead windows in a row. When a numeric
-      // reader is gone entirely, every window 404s; without this the crawl walks
-      // the whole chapter's worth of missing slots, which is the request storm
-      // the user sees. A working chapter only ever has a few transient gaps.
-      let crawlFailures = 0;
       for (
         let missing = nextUntriedMissingPage();
         missing !== undefined && collectedCount() < totalImagePages;
@@ -1384,14 +1379,15 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
           true,
         );
         if (!result) {
+          // A failed window here may be a transient miss (rate-limit, momentary
+          // network) rather than a dead page — and later windows can still be
+          // valid — so keep probing the remaining missing slots. The per-page
+          // fetchReaderPage already bails fast on a definitive 404, so a truly
+          // dead reader still does at most one request per window instead of a
+          // retry storm.
           console.log(`[Mangago] direct curl window ${page} failed: ${fallbackUrl}`);
-          if (++crawlFailures >= 3) {
-            console.log(`[Mangago] 3 direct curl windows failed in a row -> stop crawl`);
-            break;
-          }
           continue;
         }
-        crawlFailures = 0;
 
         preferredOrigin = result.origin;
         visitedPaths.add(pathnameKey(result.url));
