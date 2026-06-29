@@ -129,19 +129,32 @@ function isMangagoReaderHost(url: string): boolean {
   return isMangagoHost(url) || isReaderMirrorHost(url);
 }
 
-function readerHeadersForUrl(_url: string): {
+function readerHeadersForUrl(url: string): {
   referer: string;
   origin: string;
   "user-agent": string;
 } {
-  // Anchor referer / origin to the canonical domain and send the desktop UA on
-  // every request. mangago's catalog is routed by path (read-manga from
-  // www.mangago.me, numeric from the mirror hosts — see canonicalReaderUrl), so
-  // the desktop UA returns the complete read-manga reader page in one request
-  // and a numeric library entry is upgraded to read-manga elsewhere.
+  // Use a SAME-ORIGIN referer/origin when fetching a reader mirror
+  // (mangago.zone / youhim.me). The mirrors serve a numeric reader's page 1 to
+  // anyone, but redirect its SUB-pages (/chapter/<mid>/<cid>/<n>/) to
+  // www.mangago.me — which 404s them — when the request's referer/origin is the
+  // cross-origin main domain. Sending the mirror's own origin (what a browser on
+  // that mirror sends) lets the sub-page load, so the whole chapter walks instead
+  // of stopping at the first 5-image window. Everything else (main domain, image
+  // CDN hosts) keeps the canonical www.mangago.me referer.
+  let base = DOMAIN;
+  if (isReaderMirrorHost(url)) {
+    try {
+      const u = new URL(url, DOMAIN);
+      base = `${u.protocol}//${u.host}`;
+    } catch {
+      // Fall back to the canonical domain.
+    }
+  }
+
   return {
-    referer: `${DOMAIN}/`,
-    origin: DOMAIN,
+    referer: `${base}/`,
+    origin: base,
     "user-agent": DESKTOP_USER_AGENT,
   };
 }
