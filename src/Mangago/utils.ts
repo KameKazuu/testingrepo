@@ -125,6 +125,12 @@ export function canonicalReaderUrl(url: string): string {
   // occurrence. www.mangago.me 404s the doubled form. (Generation-time doubling
   // is prevented upstream by templatePathname; this catches anything that slips
   // through or was persisted by an earlier build.)
+  //
+  // Normalize a LEADING protocol-relative host ("//host/...") to https first so
+  // the count below also catches a doubled host whose outer prefix dropped the
+  // scheme ("//www.mangago.me/https://www.mangago.me/..."). Only the leading "//"
+  // is rewritten, so a bare "//" inside a path can't trigger a false collapse.
+  if (beforeQuery.startsWith("//")) beforeQuery = `https:${beforeQuery}`;
   const schemeMatches = [...beforeQuery.matchAll(/https?:\/\//g)];
   if (schemeMatches.length > 1) {
     beforeQuery = beforeQuery.slice(schemeMatches[schemeMatches.length - 1]!.index);
