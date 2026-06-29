@@ -266,11 +266,9 @@ function originalChapterUrlFromHref(href: string, chapterId: string): string {
   return chapterUrlFromId(chapterId);
 }
 
-// Route any reader URL/path onto a host that serves it: read-manga paths to
-// www.mangago.me, legacy numeric /chapter/ paths to the reader mirror (they 404
-// on www.mangago.me). The chapter list rotates between both formats/hosts per
-// request, and an old library entry may be stored against any host, so we
-// re-route by path rather than pinning one domain. (See canonicalReaderUrl.)
+// Pin any reader URL/path to www.mangago.me, the single host that serves the
+// read-manga reader. An old library entry may be stored against another host, so
+// we normalise rather than trusting the stored URL. (See canonicalReaderUrl.)
 function normalizeReaderUrl(url: string): string {
   return canonicalReaderUrl(url);
 }
