@@ -579,13 +579,15 @@ function extractPcurlTemplate(html: string): string | undefined {
   const match = /\bpcurl\s*=\s*["']([^"']*\/pg-)\d+(\/[^"']*)?["']/.exec(html);
   if (!match?.[1]) return undefined;
 
-  return `${match[1]}{page}${match[2] ?? ""}`;
+  return templatePathname(`${match[1]}{page}${match[2] ?? ""}`);
 }
 
 function usableCurlTemplate(template: string | undefined): string | undefined {
   if (!template || !template.includes("{page}")) return undefined;
 
-  return template;
+  // Mangago sometimes emits this as an absolute URL. Keep only the pathname so
+  // later path merging cannot turn it into /https://www.mangago.me/...
+  return templatePathname(template);
 }
 
 // The site's own multimode flag: `_multimode = "1"` for paginated readers
@@ -730,6 +732,17 @@ function templateSegmentMatches(templateSegment: string, urlSegment: string): bo
   return new RegExp(pattern).test(urlSegment);
 }
 
+function templatePathname(template: string): string {
+  const placeholder = "__MANGAGO_PAGE_PLACEHOLDER__";
+  const protectedTemplate = template.replace(/\{page\}/g, placeholder);
+
+  try {
+    return new URL(protectedTemplate, DOMAIN).pathname.replaceAll(placeholder, "{page}");
+  } catch {
+    return template;
+  }
+}
+
 // Merge the curl template into a concrete URL path. Numeric readers serve a
 // full-path template ("/chapter/ID/CID/{page}/") so this is an identity; some
 // read-manga regions serve a template relative to the chapter slug
@@ -737,11 +750,12 @@ function templateSegmentMatches(templateSegment: string, urlSegment: string): bo
 // from the next_page href instead of resolving it against the domain root
 // (which would 404).
 function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
+  const templatePath = templatePathname(template);
   const urlSegments = urlPath
     .replace(/^\/+|\/+$/g, "")
     .split("/")
     .filter(Boolean);
-  const templateSegments = template
+  const templateSegments = templatePath
     .replace(/^\/+|\/+$/g, "")
     .split("/")
     .filter(Boolean);
@@ -764,7 +778,7 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
     }
   }
 
-  const tail = template.endsWith("/") ? "/" : "";
+  const tail = templatePath.endsWith("/") ? "/" : "";
   if (bestStart >= 0 && bestLength > 0) {
     const prefix = urlSegments.slice(0, bestStart);
     return `/${[...prefix, ...templateSegments].join("/")}${tail}`;
@@ -777,7 +791,7 @@ function mergeUrlPathWithTemplate(urlPath: string, template: string): string {
 // templates index reader pages instead, so the image-count stride guess does
 // not apply there.
 function isImageIndexTemplate(template: string): boolean {
-  return /\/chapter\/\d+\/\d+\/\{page\}\/?$/.test(template);
+  return /\/chapter\/\d+\/\d+\/\{page\}\/?$/.test(templatePathname(template));
 }
 
 // Build the URL for reader page N. Prefer the site's next_page href as the

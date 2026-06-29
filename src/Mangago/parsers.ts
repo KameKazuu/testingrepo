@@ -116,8 +116,10 @@ function detectGroupFromTitle(title: string): string {
 }
 
 function isLikelyChapterNote(value: string): boolean {
-  return /\b(afterword|bonus|epilogue|extra|finale|interlude|note|omake|oneshot|one-shot|prologue|side\s*story|special|teaser)\b/i.test(
-    value,
+  return (
+    /\b(afterword|bonus|epilogue|extra|finale|interlude|note|omake|oneshot|one-shot|prologue|side\s*story|special|teaser)\b/i.test(
+      value,
+    ) || /\bend\s+of\s+season\b|\bseason\s+finale\b/i.test(value)
   );
 }
 
