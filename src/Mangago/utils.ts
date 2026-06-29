@@ -150,6 +150,22 @@ export function canonicalReaderUrl(url: string): string {
   }
 }
 
+// True when the URL is a real read-manga READER page: /read-manga/<slug>/<more>
+// (something after the slug). The bare /read-manga/<slug>/ is the manga-details
+// page, not a reader. A numeric /chapter/<mid>/<cid>/ reader, a prefix-less
+// "/uu/<chapter>/pg-N/" (a stale URL whose /read-manga/<slug>/ prefix was lost
+// by an older build), or a doubled host all return false — those are the stale
+// shapes getChapterDetails must re-resolve from the fresh chapter list before
+// they 404.
+export function isReadMangaReaderUrl(url: string): boolean {
+  try {
+    const match = /^\/read-manga\/[^/]+\/(.+)/.exec(new URL(url, DOMAIN).pathname);
+    return !!match && match[1].length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function absoluteUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("//")) return `https:${url}`;
@@ -825,16 +841,27 @@ function buildReaderPageUrl(
 ): string {
   const concreteBase = nextPageHref ? resolveUrl(nextPageHref, baseUrl) : baseUrl;
   try {
-    const base = new URL(concreteBase);
+    const base = new URL(concreteBase, DOMAIN);
     base.pathname = mergeUrlPathWithTemplate(base.pathname, template).replace(
       "{page}",
       String(page),
     );
     base.search = "";
     base.hash = "";
-    return base.toString();
+    return canonicalReaderUrl(base.toString());
   } catch {
-    return resolveUrl(template.replace("{page}", String(page)), baseUrl);
+    // Last resort: merge the template onto the base PATH so we keep the
+    // /read-manga/<slug>/ prefix. Never resolve a bare "/uu/<chapter>/pg-N/"
+    // template against the domain root — that drops the prefix and 404s (and,
+    // re-prepended by a stale store, becomes the doubled host we keep seeing).
+    let basePath = baseUrl;
+    try {
+      basePath = new URL(baseUrl, DOMAIN).pathname;
+    } catch {
+      // keep the raw base
+    }
+    const merged = mergeUrlPathWithTemplate(basePath, template).replace("{page}", String(page));
+    return canonicalReaderUrl(`${DOMAIN}${merged.startsWith("/") ? merged : `/${merged}`}`);
   }
 }
 
@@ -881,8 +908,12 @@ async function fetchReaderPage(
     try {
       await paceReaderFetch();
       const html = await fetchText(pageUrl, {
+        // Force the desktop reader UA. We deliberately do NOT set a "cookie"
+        // header here: the interceptor merges _m_superu=1 into the cookies map
+        // alongside any Cloudflare-bypass cookies (matching how Aidoku appends
+        // _m_superu to the full jar). Setting a bare cookie header instead would
+        // drop those CF cookies and risk a challenge.
         "user-agent": READER_USER_AGENT,
-        cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
       if (extractImgsrcsFromHtml(html)) {
@@ -975,8 +1006,10 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
       // every chapter open; the BasicRateLimiter (5/s) still guards against
       // bursts. The pace is kept where it matters — inside fetchReaderPage.
       const { text: attempt, finalUrl } = await fetchTextWithUrl(candidate, {
+        // Desktop reader UA only; _m_superu is added (with CF cookies) by the
+        // interceptor's cookies map — see fetchReaderPage for why we don't set a
+        // bare cookie header.
         "user-agent": READER_USER_AGENT,
-        cookie: "_m_superu=1",
         ...READER_NAVIGATION_HEADERS,
       });
       if (attempt.includes("imgsrcs")) {
@@ -1035,16 +1068,33 @@ export async function getMangagoPageUrls(chapterUrl: string): Promise<string[]> 
 
   // Eager fast path: page 1 already holds the whole chapter — return the real
   // image URLs directly, no walk, no placeholders. This is the common case and
-  // the entire strategy Aidoku uses, plus keiyoushi's fast path. Gate it on BOTH
-  // signals agreeing: the site does not flag the reader as windowed AND there
-  // are no blank slots. Anything else falls through to the eager walk below.
+  // the entire strategy Aidoku uses, plus keiyoushi's fast path.
+  //
+  // The site's `_multimode` flag is authoritative: `"1"` = windowed (page 1 is
+  // only a slice), anything else = the full reader (page 1 carries every image).
+  // For a READ-MANGA reader URL fetched with the desktop UA + _m_superu cookie,
+  // `_multimode` is "" and `imgsrcs` is the COMPLETE list — so we trust it
+  // outright, exactly like Aidoku (which reads imgsrcs once and never walks).
+  // Walking that case is what produced the slow multi-page crawl and the
+  // doubled/prefix-less reader URLs the walk's template fallback could emit.
+  //
+  // For NON-read-manga readers (the legacy numeric /chapter/ reader, now dead on
+  // www.mangago.me but kept as a guard) we still require the stricter no-blanks
+  // signal: some numeric readers emit exactly one window's worth of URLs with no
+  // blank padding while total_pages is far larger, and trusting that would
+  // return only the first window.
+  const readMangaReader = isReadMangaReaderUrl(loadedUrl);
   if (
     multimodeFlag !== "1" &&
-    firstPositional.length > 0 &&
-    firstImages.length === firstPositional.length
+    firstImages.length > 0 &&
+    (readMangaReader || firstImages.length === firstPositional.length)
   ) {
     const pages = firstImages.map((url) => annotateImageUrl(url, deobfChapterJs, cols));
-    console.log(`[Mangago] page 1 complete -> ${pages.length} images (eager)`);
+    console.log(
+      `[Mangago] page 1 complete -> ${pages.length} images (eager${
+        readMangaReader ? ", read-manga full reader" : ""
+      })`,
+    );
     if (pages.length > 0) mangagoPageUrlsCache.set(chapterUrl, pages);
     return pages;
   }
