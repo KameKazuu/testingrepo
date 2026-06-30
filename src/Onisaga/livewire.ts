@@ -82,14 +82,17 @@ export function buildBrowseRequest(
   };
 }
 
+// Pull the entire chapter (and volume) list in a single Livewire round-trip by
+// setting the component's loaded-counts straight to a number larger than any
+// series, instead of repeatedly calling loadMoreChapters.
 export function buildLoadMoreChaptersRequest(state: LivewireState): ChapterLivewireRequest {
   return {
     _token: state.token,
     components: [
       {
         snapshot: state.snapshot,
-        updates: {},
-        calls: [{ type: "call", path: "", method: "loadMoreChapters", params: [] }],
+        updates: { chaptersLoaded: 3000, volumesLoaded: 3000 },
+        calls: [],
       },
     ],
   };

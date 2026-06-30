@@ -109,8 +109,10 @@ function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"
 export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   requestManager = new OnisagaInterceptor("onisaga-request");
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
+  // The server advertises X-Ratelimit-Limit: 300, so a brisk client cap keeps
+  // concurrent page resolution fast while staying well clear of throttling.
   globalRateLimiter = new BasicRateLimiter("onisaga-rate-limiter", {
-    numberOfRequests: 3,
+    numberOfRequests: 10,
     bufferInterval: 1,
     ignoreImages: true,
   });
@@ -464,38 +466,28 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
 
     let chapters = parseChapters($, sourceManga);
 
+    // The chapter list is paginated client-side; one Livewire call that bumps the
+    // loaded-counts past any real series returns the whole list at once.
     const state = extractLivewireState($, "manga.chapter-list");
     if (state) {
-      let snapshot = state.snapshot;
-      // The site renders the whole list in one Livewire call; the loop is a guard
-      // for any source that still paginates, and stops as soon as it stops growing.
-      for (let i = 0; i < 50; i++) {
-        let json: LivewireResponse;
-        try {
-          const [, buffer] = await Application.scheduleRequest({
-            url: `${DOMAIN}/livewire/update`,
-            method: "POST",
-            headers: livewireHeaders(mangaUrl),
-            body: JSON.stringify(buildLoadMoreChaptersRequest({ token: state.token, snapshot })),
-          });
-          json = parseJson<LivewireResponse>(
-            Application.arrayBufferToUTF8String(buffer),
-            "livewire chapters",
-          );
-        } catch {
-          break;
-        }
-
+      try {
+        const [, buffer] = await Application.scheduleRequest({
+          url: `${DOMAIN}/livewire/update`,
+          method: "POST",
+          headers: livewireHeaders(mangaUrl),
+          body: JSON.stringify(buildLoadMoreChaptersRequest(state)),
+        });
+        const json = parseJson<LivewireResponse>(
+          Application.arrayBufferToUTF8String(buffer),
+          "livewire chapters",
+        );
         const html = json.components?.[0]?.effects?.html;
-        if (!html) break;
-
-        const next = parseChapters(cheerio.load(html), sourceManga);
-        if (next.length <= chapters.length) break;
-        chapters = next;
-
-        const newSnapshot = json.components?.[0]?.snapshot;
-        if (!newSnapshot) break;
-        snapshot = newSnapshot;
+        if (html) {
+          const full = parseChapters(cheerio.load(html), sourceManga);
+          if (full.length > chapters.length) chapters = full;
+        }
+      } catch {
+        // Keep the first server-rendered page if the bulk load fails.
       }
     }
 
@@ -514,18 +506,22 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     const [, buffer] = await Application.scheduleRequest({ url: chapterUrl, method: "GET" });
     const body = Application.arrayBufferToUTF8String(buffer);
 
-    let token = extractReaderToken(body);
+    const token = extractReaderToken(body);
     if (!token) throw new Error("Could not find reader token on chapter page");
 
     const pageCount = countPages(body);
     if (pageCount === 0) throw new Error("No pages found in chapter");
 
-    const pages: string[] = [];
-    for (let order = 0; order < pageCount; order++) {
-      const resolved = await this.resolvePageUrl(cid, order, chapterUrl, token);
-      pages.push(resolved.url);
-      token = resolved.token;
-    }
+    // The reader token is per-chapter, not per-page (no rotating token), so every
+    // page resolves with the same token — fire them all at once and let the global
+    // rate limiter pace the requests. Paperback needs all page URLs up front.
+    const resolved = await Promise.all(
+      Array.from({ length: pageCount }, (_, order) =>
+        this.resolvePageUrl(cid, order, chapterUrl, token),
+      ),
+    );
+    const pages = resolved.filter((url): url is string => url.length > 0);
+    if (pages.length === 0) throw new Error("Could not resolve any chapter pages");
 
     return {
       id: chapter.chapterId,
@@ -534,30 +530,27 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     };
   }
 
-  // Sequentially resolve a single page's CDN url, carrying the rotating reader
-  // token forward and refreshing it from the chapter page when it expires.
+  // Resolve a single page's signed CDN url from the tokenized page API. The token
+  // is stable for the chapter; retry on a 429 throttle. Returns "" when a page
+  // can't be resolved (e.g. a count overshoot) so one bad page never fails the
+  // whole chapter.
   private async resolvePageUrl(
     cid: string,
     order: number,
     chapterUrl: string,
     token: string,
-  ): Promise<{ url: string; token: string }> {
-    let currentToken = token;
-
+  ): Promise<string> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [response, buffer] = await Application.scheduleRequest({
         url: `${DOMAIN}/api/chapter/${cid}/page/${order}`,
         method: "GET",
         headers: {
-          "X-Reader-Token": currentToken,
+          "X-Reader-Token": token,
           "Sec-Fetch-Mode": "cors",
           "Sec-Fetch-Site": "same-origin",
           Referer: chapterUrl,
         },
       });
-
-      const nextToken = response.headers?.["x-reader-token-next"];
-      if (nextToken) currentToken = nextToken;
 
       if (response.status === 429) {
         const retryAfter = Number(response.headers?.["retry-after"]);
@@ -565,30 +558,15 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
         continue;
       }
 
-      const dto = parseJson<PageApiResponse>(
-        Application.arrayBufferToUTF8String(buffer),
-        `chapter page ${order}`,
-      );
-      if (dto.url) return { url: dto.url, token: currentToken };
-
-      const expired =
-        response.status >= 400 || (dto.message != null && /expired/i.test(dto.message));
-      if (expired) {
-        const [, refreshBuffer] = await Application.scheduleRequest({
-          url: chapterUrl,
-          method: "GET",
-        });
-        const fresh = extractReaderToken(Application.arrayBufferToUTF8String(refreshBuffer));
-        if (fresh) {
-          currentToken = fresh;
-          continue;
-        }
+      try {
+        const dto = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as PageApiResponse;
+        return dto.url ?? "";
+      } catch {
+        return "";
       }
-
-      throw new Error(`Failed to load page ${order}: ${dto.message ?? `HTTP ${response.status}`}`);
     }
 
-    throw new Error(`Failed to load page ${order} after 3 attempts`);
+    return "";
   }
 
   // ============================== Livewire browse ==============================

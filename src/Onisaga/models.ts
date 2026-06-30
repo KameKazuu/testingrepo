@@ -254,7 +254,7 @@ export interface ChapterLivewireRequest {
   _token: string;
   components: {
     snapshot: string;
-    updates: Record<string, never>;
+    updates: { chaptersLoaded: number; volumesLoaded: number };
     calls: LivewireCall[];
   }[];
 }
