@@ -9,7 +9,27 @@ import {
   type ChapterLivewireRequest,
   type LivewireState,
   type PostFilterUpdates,
+  type ToggleLivewireRequest,
 } from "./models";
+
+// Invoke a single Livewire method (setPeriod / setSort / setPlatform) on a
+// rail's component to switch its time range / platform and re-render its cards.
+export function buildSectionToggleRequest(
+  state: LivewireState,
+  method: string,
+  value: string,
+): ToggleLivewireRequest {
+  return {
+    _token: state.token,
+    components: [
+      {
+        snapshot: state.snapshot,
+        updates: {},
+        calls: [{ type: "call", path: "", method, params: [value] }],
+      },
+    ],
+  };
+}
 
 export function defaultUpdates(): PostFilterUpdates {
   return {

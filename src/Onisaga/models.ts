@@ -110,6 +110,66 @@ export const SORT_OPTIONS: Option[] = [
 
 export const DEFAULT_SORT = "created_at";
 
+// Discover rails that carry an in-section toggle on the site. Each maps to its
+// Livewire component + the method that switches the view; the option ids are the
+// method's parameter. Following MangaDot, these rails render as chip rows and a
+// chip tap runs a ranged fetch through getSearchResults.
+export interface SectionToggle {
+  component: string;
+  method: string;
+  options: Option[];
+}
+
+export const SECTION_TOGGLES: Record<string, SectionToggle> = {
+  most_popular: {
+    component: "most-popular",
+    method: "setPeriod",
+    options: [
+      { id: "day", title: "Day" },
+      { id: "week", title: "Week" },
+      { id: "month", title: "Month" },
+      { id: "year", title: "Year" },
+    ],
+  },
+  top_10_rising: {
+    component: "trending-top10",
+    method: "setPeriod",
+    options: [
+      { id: "day", title: "Day" },
+      { id: "week", title: "Week" },
+      { id: "month", title: "Month" },
+    ],
+  },
+  fan_favorites: {
+    component: "fan-favorites",
+    method: "setSort",
+    options: [
+      { id: "all-time", title: "All Time" },
+      { id: "recent", title: "This Month" },
+    ],
+  },
+  trending_platform: {
+    component: "trending-by-platform",
+    method: "setPlatform",
+    options: [
+      { id: "all", title: "All" },
+      { id: "manga", title: "Manga" },
+      { id: "manhwa", title: "Manhwa" },
+      { id: "manhua", title: "Manhua" },
+    ],
+  },
+  more_trending: {
+    component: "trending-grid",
+    method: "setPlatform",
+    options: [
+      { id: "all", title: "All" },
+      { id: "manga", title: "Manga" },
+      { id: "manhwa", title: "Manhwa" },
+      { id: "manhua", title: "Manhua" },
+    ],
+  },
+};
+
 // id = the genre id the Livewire filter expects.
 export const GENRES: Option[] = [
   { id: "1", title: "Action" },
@@ -218,6 +278,9 @@ export type OnisagaSearchMetadata = {
   sort?: string;
   minChapters?: string;
   genres?: Record<string, "included" | "excluded">;
+  // A discover chip tap: which toggle rail and which option were chosen.
+  toggleSection?: string;
+  toggleValue?: string;
 };
 
 // Livewire `post-filter` component public state. Field names (and the snake_case /
@@ -238,7 +301,16 @@ export interface LivewireCall {
   type: "call";
   path: string;
   method: string;
-  params: number[];
+  params: (string | number)[];
+}
+
+export interface ToggleLivewireRequest {
+  _token: string;
+  components: {
+    snapshot: string;
+    updates: Record<string, never>;
+    calls: LivewireCall[];
+  }[];
 }
 
 export interface BrowseLivewireRequest {

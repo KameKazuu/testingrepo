@@ -36,6 +36,7 @@ import {
 import {
   buildBrowseRequest,
   buildLoadMoreChaptersRequest,
+  buildSectionToggleRequest,
   defaultUpdates,
   extractLivewireState,
   isDefaultUpdates,
@@ -44,6 +45,7 @@ import {
   DEFAULT_SORT,
   DOMAIN,
   GENRES,
+  SECTION_TOGGLES,
   SORT_OPTIONS,
   TYPE_OPTIONS,
   type LivewireResponse,
@@ -64,7 +66,6 @@ import {
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
-  sliceSectionHtml,
   straightenQuotes,
   topMangaSubtitle,
   type MangaCard,
@@ -77,13 +78,13 @@ import type OnisagaConfig from "./pbconfig";
 const FEATURED_LIMIT = 10;
 
 // Carousel style per discover rail id (the user can reorder/hide rails, but the
-// style is fixed by what each rail renders best as).
+// style is fixed by what each rail renders best as). Rails with an on-site toggle
+// render as chip rows (Day/Week/Month, platform, …) — MangaDot's pattern.
 function discoverSectionType(id: string): DiscoverSectionType {
+  if (SECTION_TOGGLES[id]) return DiscoverSectionType.genres;
   switch (id) {
     case "top_manga":
       return DiscoverSectionType.featured;
-    case "most_popular":
-    case "top_10_rising":
     case "highest_rated":
       return DiscoverSectionType.prominentCarousel;
     case "genres":
@@ -172,56 +173,30 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     section: DiscoverSection,
     metadata: { page?: number; collectedIds?: string[] } | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
+    // Toggle rails render as chip rows; each chip carries the rail + option in its
+    // search metadata so a tap runs the ranged fetch through getSearchResults.
+    const toggle = SECTION_TOGGLES[section.id];
+    if (toggle) {
+      return {
+        items: toggle.options.map((option) => ({
+          type: "genresCarouselItem",
+          searchQuery: {
+            title: "",
+            metadata: {
+              toggleSection: section.id,
+              toggleValue: option.id,
+            } satisfies OnisagaSearchMetadata,
+          },
+          name: option.title,
+        })),
+      };
+    }
+
     switch (section.id) {
       case "top_manga":
         return this.getTopMangaFeatured();
       case "latest":
         return this.browseDiscover(DEFAULT_SORT, metadata, (card) => ({
-          type: "simpleCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
-      case "most_popular":
-        return this.homeSectionItems("Most Popular", (card) => ({
-          type: "prominentCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
-      case "top_10_rising":
-        return this.homeSectionItems("Top 10 Rising", (card) => ({
-          type: "prominentCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
-      case "trending_platform":
-        return this.homeSectionItems("Trending by Platform", (card) => ({
-          type: "simpleCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
-      case "more_trending":
-        return this.homeSectionItems("More Trending", (card) => ({
-          type: "simpleCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
-      case "fan_favorites":
-        return this.homeSectionItems("Fan Favorites", (card) => ({
           type: "simpleCarouselItem",
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
@@ -361,28 +336,46 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     return html;
   }
 
-  // Parse one home rail into discover items. Best-effort: a missing/renamed
-  // heading yields no items rather than an error.
-  private async homeSectionItems(
-    heading: string,
-    map: (card: MangaCard) => DiscoverSectionItem,
-  ): Promise<PagedResults<DiscoverSectionItem>> {
-    let cards: MangaCard[] = [];
-    try {
-      const slice = sliceSectionHtml(await this.fetchHomeHtml(), heading);
-      if (slice) cards = parseMangaCards(cheerio.load(slice), getShowNsfw());
-    } catch {
-      cards = [];
-    }
+  // A discover toggle chip was tapped: drive the rail's Livewire method
+  // (setPeriod / setSort / setPlatform) on /trending and return the re-rendered
+  // cards. Best-effort: a missing component/HTML yields no results, not an error.
+  private async getToggledSection(
+    sectionId: string,
+    value: string,
+  ): Promise<PagedResults<SearchResultItem>> {
+    const toggle = SECTION_TOGGLES[sectionId];
+    if (!toggle) return { items: [] };
 
-    const seen = new Set<string>();
-    const items: DiscoverSectionItem[] = [];
-    for (const card of cards) {
-      if (seen.has(card.mangaId)) continue;
-      seen.add(card.mangaId);
-      items.push(map(card));
+    try {
+      const trendingUrl = `${DOMAIN}/trending`;
+      const $ = cheerio.load(await this.fetchHomeHtml());
+      const state = extractLivewireState($, toggle.component);
+      if (!state) return { items: [] };
+
+      const [, buffer] = await Application.scheduleRequest({
+        url: `${DOMAIN}/livewire/update`,
+        method: "POST",
+        headers: livewireHeaders(trendingUrl),
+        body: JSON.stringify(buildSectionToggleRequest(state, toggle.method, value)),
+      });
+      const json = parseJson<LivewireResponse>(
+        Application.arrayBufferToUTF8String(buffer),
+        "livewire toggle",
+      );
+      const html = json.components?.[0]?.effects?.html;
+      const cards = html ? parseMangaCards(cheerio.load(html), getShowNsfw()) : [];
+
+      return {
+        items: cards.map((card) => ({
+          mangaId: card.mangaId,
+          title: card.title,
+          imageUrl: card.imageUrl,
+          contentRating: card.contentRating,
+        })),
+      };
+    } catch {
+      return { items: [] };
     }
-    return { items };
   }
 
   // ================================ Search =====================================
@@ -392,6 +385,11 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     metadata: { page?: number } | undefined,
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
+    // A discover toggle chip routes here with no title — fetch its ranged cards.
+    if (query.metadata?.toggleSection) {
+      return this.getToggledSection(query.metadata.toggleSection, query.metadata.toggleValue ?? "");
+    }
+
     const title = straightenQuotes(query.title ?? "").trim();
 
     if (title.startsWith("http")) {
