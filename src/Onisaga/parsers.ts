@@ -52,29 +52,21 @@ export interface MangaCard {
   title: string;
   imageUrl: string;
   contentRating: ContentRating;
-  rating?: string;
+  genres?: string;
   views?: string;
 }
 
-// Best-effort stat scrape. Conservative on purpose: a rating is only taken when
-// a literal star sits next to the number, and a view/read count only when the
-// word "views"/"reads" is present — so an unmatched layout yields nothing rather
-// than a wrong number. Verify/extend the patterns once the live markup is known.
-function extractCardStats(text: string): { rating?: string; views?: string } {
-  const ratingMatch = text.match(/★\s*(\d{1,2}(?:\.\d)?)/) ?? text.match(/(\d{1,2}(?:\.\d)?)\s*★/);
-  const rating = ratingMatch ? ratingMatch[1] : undefined;
-
-  const viewsMatch = text.match(/([\d.,]+\s*[KMB]?)\s*(?:views|reads)\b/i);
-  const views = viewsMatch ? viewsMatch[1].trim() : undefined;
-
-  return { rating, views };
+// View counts appear on the trending rows ("20,558 views"); the genre line is on
+// every card. Star ratings are NOT rendered in browse/home card markup (they only
+// live on the dedicated top-manga page), so cards fall back to genres.
+function extractCardViews(text: string): string | undefined {
+  const match = text.match(/(\d[\d.,]*\s*[KMB]?)\s*(?:views|reads)\b/i);
+  return match ? match[1].trim() : undefined;
 }
 
 export function buildStatSubtitle(card: MangaCard): string | undefined {
-  if (card.rating && card.views) return `★ ${card.rating} · ${card.views}`;
-  if (card.rating) return `★ ${card.rating}`;
   if (card.views) return `${card.views} views`;
-  return undefined;
+  return card.genres || undefined;
 }
 
 export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
@@ -96,14 +88,17 @@ export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
     if (!title) return;
 
     const imageUrl = resolveImageUrl(card.find("img").first());
-    const { rating, views } = extractCardStats(card.text());
+    const genres =
+      card.find('[class*="text-accent/50"]').first().text().replace(/\s+/g, " ").trim() ||
+      undefined;
+    const views = extractCardViews(card.text());
 
     cards.push({
       mangaId,
       title,
       imageUrl,
       contentRating: isAdult ? ContentRating.ADULT : ContentRating.EVERYONE,
-      rating,
+      genres,
       views,
     });
   });

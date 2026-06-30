@@ -68,16 +68,14 @@ import {
 } from "./parsers";
 import type OnisagaConfig from "./pbconfig";
 
-// Featured hero stat pills: a star rating and a flame view-count, each shown
-// only when the card actually carried it.
+// Featured hero stat pill: a flame view-count, shown only when the card carried
+// one. Star ratings are not rendered in browse/home card markup, so they cannot
+// surface here.
 function featuredInfoItems(card: MangaCard): FeaturedCarouselItem["infoItems"] {
-  const items: { symbol: string; text: string }[] = [];
-  if (card.rating) items.push({ symbol: "star.fill", text: card.rating });
-  if (card.views) items.push({ symbol: "flame.fill", text: card.views });
-  if (items.length === 0) return undefined;
-  return (
-    items.length === 1 ? [items[0]] : [items[0], items[1]]
-  ) as FeaturedCarouselItem["infoItems"];
+  if (!card.views) return undefined;
+  return [
+    { symbol: "flame.fill", text: `${card.views} views` },
+  ] as FeaturedCarouselItem["infoItems"];
 }
 
 export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
@@ -163,6 +161,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
+          supertitle: card.genres,
           infoItems: featuredInfoItems(card),
           contentRating: card.contentRating,
         }));
