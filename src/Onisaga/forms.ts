@@ -4,7 +4,11 @@
 import {
   AdvancedSearchForm,
   ButtonRow,
+  EditSection,
   Form,
+  type FormSectionElement,
+  LabelRow,
+  NavigationRow,
   Section,
   SelectRow,
   ToggleRow,
@@ -15,15 +19,19 @@ import {
 
 import {
   DEFAULT_IMAGE_RATE_LIMIT_MS,
+  DISCOVER_SECTIONS,
   DISCOVER_STATUS_KEY,
   DISCOVER_TYPE_KEY,
   EXCLUDED_GENRES_KEY,
   GENRES,
   MIN_CHAPTERS_OPTIONS,
   RATE_LIMIT_KEY,
+  SECTIONS_DELETED_KEY,
+  SECTIONS_ORDER_KEY,
   SHOW_NSFW_KEY,
   STATUS_OPTIONS,
   TYPE_OPTIONS,
+  type DiscoverSectionDef,
   type Option,
   type OnisagaSearchMetadata,
 } from "./models";
@@ -52,6 +60,34 @@ export function getImageRateLimitMs(): number {
   );
 }
 
+// ----- Discover section order / visibility -----
+
+export function getDeletedSections(): DiscoverSectionDef[] {
+  return (Application.getState(SECTIONS_DELETED_KEY) as DiscoverSectionDef[] | undefined) ?? [];
+}
+
+// Stored order, with any newly-shipped rails (absent from a saved order and not
+// hidden) appended so an app update never silently drops a section.
+export function getSectionsOrder(): DiscoverSectionDef[] {
+  const stored = Application.getState(SECTIONS_ORDER_KEY) as DiscoverSectionDef[] | undefined;
+  if (!stored) return [...DISCOVER_SECTIONS];
+  const known = new Set([...stored, ...getDeletedSections()].map((s) => s.id));
+  return [...stored, ...DISCOVER_SECTIONS.filter((s) => !known.has(s.id))];
+}
+
+function setSectionsOrder(sections: DiscoverSectionDef[]): void {
+  Application.setState(sections, SECTIONS_ORDER_KEY);
+}
+
+function setDeletedSections(sections: DiscoverSectionDef[]): void {
+  Application.setState(sections, SECTIONS_DELETED_KEY);
+}
+
+function resetSections(): void {
+  Application.setState(undefined, SECTIONS_ORDER_KEY);
+  Application.setState(undefined, SECTIONS_DELETED_KEY);
+}
+
 const RATE_LIMIT_OPTIONS: Option[] = [
   { id: "1500", title: "1 image / 1.50s" },
   { id: "1750", title: "1 image / 1.75s" },
@@ -61,6 +97,86 @@ const RATE_LIMIT_OPTIONS: Option[] = [
 ];
 
 const toTags = (options: Option[]): Tag[] => options.map((o) => ({ id: o.id, title: o.title }));
+
+// ----- Discover sections order/visibility form -----
+
+export class OnisagaSectionsForm extends Form {
+  override getSections() {
+    const deleted = getDeletedSections();
+
+    return [
+      {
+        ...EditSection("order", {
+          id: "order",
+          header: "Section Order",
+          footer: "Long press to reorder, swipe to hide.",
+          items: getSectionsOrder().map((section) =>
+            LabelRow(section.id, { title: section.title }),
+          ),
+        }),
+        allowReorder: true,
+        allowDeletion: true,
+        onReorder: Application.Selector(this as OnisagaSectionsForm, "rowDidReorder"),
+        onDeletion: Application.Selector(this as OnisagaSectionsForm, "rowDidDelete"),
+      } as unknown as FormSectionElement<unknown>,
+      ...(deleted.length > 0
+        ? [
+            Section({ id: "restore", footer: "Re-add hidden rails to the bottom of the list." }, [
+              SelectRow("restore", {
+                title: "Hidden Sections",
+                value: [],
+                options: deleted.map((section) => ({ id: section.id, title: section.title })),
+                minItemCount: 0,
+                maxItemCount: deleted.length,
+                onValueChange: Application.Selector(this as OnisagaSectionsForm, "handleRestore"),
+              }),
+            ]),
+          ]
+        : []),
+      Section("reset", [
+        ButtonRow("resetSections", {
+          title: "Reset Sections",
+          onSelect: Application.Selector(this as OnisagaSectionsForm, "handleReset"),
+        }),
+      ]),
+    ];
+  }
+
+  async rowDidReorder(sourceIndex: number, destinationIndex: number): Promise<void> {
+    const sections = getSectionsOrder();
+    const [moved] = sections.splice(sourceIndex, 1);
+    if (moved) sections.splice(destinationIndex, 0, moved);
+    setSectionsOrder(sections);
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async rowDidDelete(index: number): Promise<void> {
+    const sections = getSectionsOrder();
+    const [removed] = sections.splice(index, 1);
+    if (!removed) return;
+    setSectionsOrder(sections);
+    setDeletedSections([...getDeletedSections(), removed]);
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async handleRestore(ids: string[]): Promise<void> {
+    const deleted = getDeletedSections();
+    const restored = deleted.filter((section) => ids.includes(section.id));
+    if (restored.length === 0) return;
+    setSectionsOrder([...getSectionsOrder(), ...restored]);
+    setDeletedSections(deleted.filter((section) => !ids.includes(section.id)));
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async handleReset(): Promise<void> {
+    resetSections();
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+}
 
 // ----- Settings form -----
 
@@ -119,6 +235,13 @@ export class OnisagaSettingsForm extends Form {
           }),
         ],
       ),
+      Section({ id: "sections", footer: "Reorder, hide or restore the discover rails." }, [
+        NavigationRow("discoverSections", {
+          title: "Discover Sections",
+          subtitle: "Order & visibility",
+          form: new OnisagaSectionsForm(),
+        }),
+      ]),
       Section(
         { id: "blacklist", footer: "Exclude these genres from browse, search and discover." },
         [

@@ -29,6 +29,7 @@ import {
   getDiscoverType,
   getExcludedGenres,
   getImageRateLimitMs,
+  getSectionsOrder,
   getShowNsfw,
   OnisagaAdvancedSearchForm,
   OnisagaSettingsForm,
@@ -75,6 +76,24 @@ import type OnisagaConfig from "./pbconfig";
 // How many ranked titles the featured hero shows. Each one costs a detail-page
 // lookup to fetch its author + synopsis, so keep this bounded.
 const FEATURED_LIMIT = 10;
+
+// Carousel style per discover rail id (the user can reorder/hide rails, but the
+// style is fixed by what each rail renders best as).
+function discoverSectionType(id: string): DiscoverSectionType {
+  switch (id) {
+    case "top_manga":
+      return DiscoverSectionType.featured;
+    case "most_popular":
+    case "top_10_rising":
+    case "highest_rated":
+      return DiscoverSectionType.prominentCarousel;
+    case "genres":
+    case "types":
+      return DiscoverSectionType.genres;
+    default:
+      return DiscoverSectionType.simpleCarousel;
+  }
+}
 
 // Featured hero stat pills from a top-manga ranking row: ★ rating and a flame
 // read-count, each shown only when the row carried it.
@@ -144,22 +163,11 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   // =============================== Discover ====================================
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
-    return [
-      { id: "top_manga", title: "Top Manga", type: DiscoverSectionType.featured },
-      { id: "latest", title: "Latest", type: DiscoverSectionType.simpleCarousel },
-      { id: "most_popular", title: "Most Popular", type: DiscoverSectionType.prominentCarousel },
-      { id: "top_10_rising", title: "Top 10 Rising", type: DiscoverSectionType.prominentCarousel },
-      {
-        id: "trending_platform",
-        title: "Trending by Platform",
-        type: DiscoverSectionType.simpleCarousel,
-      },
-      { id: "more_trending", title: "More Trending", type: DiscoverSectionType.simpleCarousel },
-      { id: "fan_favorites", title: "Fan Favorites", type: DiscoverSectionType.simpleCarousel },
-      { id: "highest_rated", title: "Highest Rated", type: DiscoverSectionType.prominentCarousel },
-      { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
-      { id: "types", title: "Types", type: DiscoverSectionType.genres },
-    ];
+    return getSectionsOrder().map((section) => ({
+      id: section.id,
+      title: section.title,
+      type: discoverSectionType(section.id),
+    }));
   }
 
   async getDiscoverSectionItems(

@@ -10,6 +10,28 @@ export const DISCOVER_STATUS_KEY = "discover_status";
 export const EXCLUDED_GENRES_KEY = "excluded_genres";
 export const RATE_LIMIT_KEY = "image_rate_limit_ms";
 export const READER_TOKEN_KEY_PREFIX = "reader_token_";
+export const SECTIONS_ORDER_KEY = "sections_order";
+export const SECTIONS_DELETED_KEY = "sections_deleted";
+
+// Discover rail catalog. The array order is the default display order; the
+// section settings form lets the user reorder or hide individual rails.
+export interface DiscoverSectionDef {
+  id: string;
+  title: string;
+}
+
+export const DISCOVER_SECTIONS: DiscoverSectionDef[] = [
+  { id: "top_manga", title: "Top Manga" },
+  { id: "latest", title: "Latest" },
+  { id: "most_popular", title: "Most Popular" },
+  { id: "top_10_rising", title: "Top 10 Rising" },
+  { id: "trending_platform", title: "Trending by Platform" },
+  { id: "more_trending", title: "More Trending" },
+  { id: "fan_favorites", title: "Fan Favorites" },
+  { id: "highest_rated", title: "Highest Rated" },
+  { id: "genres", title: "Genres" },
+  { id: "types", title: "Types" },
+];
 
 export const DEFAULT_IMAGE_RATE_LIMIT_MS = 2000;
 
