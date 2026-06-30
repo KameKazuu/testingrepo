@@ -129,9 +129,11 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   private homeHtmlCache?: { html: string; at: number };
   private static readonly HOME_TTL = 60_000;
 
-  // The reader page API rejects more than 2 in-flight requests per token, so
-  // page urls resolve through a worker pool of this width rather than all at once.
-  private static readonly PAGE_CONCURRENCY = 2;
+  // The reader page API issues a single-use token that rotates per response
+  // (X-Reader-Token-Next), so pages must resolve strictly sequentially — each
+  // request spends the token the previous one handed back. Any parallelism spends
+  // the same token twice and trips the throttle, so the pool width is fixed at 1.
+  private static readonly PAGE_CONCURRENCY = 1;
 
   async initialise(): Promise<void> {
     this.cookieStorageInterceptor.registerInterceptor();
@@ -529,11 +531,13 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     };
   }
 
-  // Resolve every page url through a small worker pool. The reader API rejects a
-  // burst of token'd requests (429 -> dropped pages, slow opens), so we keep at
-  // most PAGE_CONCURRENCY in flight — matching the site's own limit — and thread
-  // the rotating reader token through a shared holder. Paperback needs all page
-  // urls up front, so this returns the full ordered list in one pass.
+  // Resolve every page url by walking the chapter in order, threading the
+  // single-use reader token through a shared holder: each response carries the
+  // token for the next page via X-Reader-Token-Next. Bursting token'd requests
+  // (the old approach) reused a spent token and tripped 429s -> dropped pages and
+  // slow opens. PAGE_CONCURRENCY is 1 so the chain is never broken; the pool
+  // shape is kept only so the width can be revisited if the API ever allows it.
+  // Paperback needs all page urls up front, so this returns the full ordered list.
   private async resolveAllPages(
     cid: string,
     pageCount: number,
