@@ -221,7 +221,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           contentRating: card.contentRating,
         }));
       case "fan_favorites":
-        return this.browseDiscover("fan_favorites", metadata, (card) => ({
+        return this.homeSectionItems("Fan Favorites", (card) => ({
           type: "simpleCarouselItem",
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
@@ -343,16 +343,19 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     }
   }
 
-  // The home page stacks all of its curated rails (Most Popular, Top 10 Rising,
-  // Trending by Platform, More Trending, …) in one server-rendered document, so
-  // fetch it once and slice out a rail by its heading. Cached briefly because
-  // several discover sections share the same document.
+  // The /trending page server-renders every curated rail (Most Popular, Fan
+  // Favorites, Top 10 Rising, Trending by Platform, More Trending) eagerly in one
+  // document, whereas /home lazy-loads the lower rails via Livewire (so a plain
+  // fetch misses them). Pull /trending once and slice each rail out by heading.
   private async fetchHomeHtml(): Promise<string> {
     const now = Date.now();
     const cached = this.homeHtmlCache;
     if (cached && now - cached.at < OnisagaExtension.HOME_TTL) return cached.html;
 
-    const [, buffer] = await Application.scheduleRequest({ url: `${DOMAIN}/home`, method: "GET" });
+    const [, buffer] = await Application.scheduleRequest({
+      url: `${DOMAIN}/trending`,
+      method: "GET",
+    });
     const html = Application.arrayBufferToUTF8String(buffer);
     this.homeHtmlCache = { html, at: now };
     return html;
