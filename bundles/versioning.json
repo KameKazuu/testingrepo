@@ -1,11 +1,11 @@
 {
-  "buildTime": "2026-06-30T21:30:16.256Z",
+  "buildTime": "2026-06-30T21:34:40.399Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
   },
   "repository": {
-    "name": "Popmango Extensions (0.9)",
+    "name": "Popmango Sources (0.9)",
     "description": "Paperback extensions for websites with unique, non-generic themes. Maintained by Inkdex."
   },
   "sources": [
