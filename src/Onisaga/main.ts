@@ -72,6 +72,10 @@ import {
 } from "./parsers";
 import type OnisagaConfig from "./pbconfig";
 
+// How many ranked titles the featured hero shows. Each one costs a detail-page
+// lookup to fetch its author + synopsis, so keep this bounded.
+const FEATURED_LIMIT = 10;
+
 // Featured hero stat pills from a top-manga ranking row: ★ rating and a flame
 // read-count, each shown only when the row carried it.
 function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"] {
@@ -163,20 +167,8 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     metadata: { page?: number; collectedIds?: string[] } | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
     switch (section.id) {
-      case "top_manga": {
-        const items = await this.fetchTopManga("reads");
-        return {
-          items: items.map((item) => ({
-            type: "featuredCarouselItem",
-            mangaId: item.mangaId,
-            imageUrl: item.imageUrl,
-            title: item.title,
-            supertitle: item.genres,
-            infoItems: topMangaInfoItems(item),
-            contentRating: item.contentRating,
-          })),
-        };
-      }
+      case "top_manga":
+        return this.getTopMangaFeatured();
       case "latest":
         return this.browseDiscover(DEFAULT_SORT, metadata, (card) => ({
           type: "simpleCarouselItem",
@@ -292,6 +284,42 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     return {
       items: fresh.map(map),
       metadata: hasNext ? { page: page + 1, collectedIds } : undefined,
+    };
+  }
+
+  // Featured hero: the most-read ranking, enriched with author + synopsis. The
+  // ranking page carries no author/description, so the top few are looked up on
+  // their detail pages (capped to keep the request count bounded). Enrichment is
+  // best-effort — a failed lookup just drops the author/summary for that item.
+  private async getTopMangaFeatured(): Promise<PagedResults<DiscoverSectionItem>> {
+    const items = (await this.fetchTopManga("reads")).slice(0, FEATURED_LIMIT);
+
+    const enriched = await Promise.all(
+      items.map(async (item) => {
+        try {
+          const $ = await this.fetchCheerio({
+            url: `${DOMAIN}/manga/${item.mangaId}`,
+            method: "GET",
+          });
+          const info = parseMangaDetails($, item.mangaId).mangaInfo;
+          return { item, author: info.author, summary: info.synopsis };
+        } catch {
+          return { item, author: undefined, summary: undefined };
+        }
+      }),
+    );
+
+    return {
+      items: enriched.map(({ item, author, summary }) => ({
+        type: "featuredCarouselItem",
+        mangaId: item.mangaId,
+        imageUrl: item.imageUrl,
+        title: item.title,
+        supertitle: author || item.genres,
+        summary: summary || undefined,
+        infoItems: topMangaInfoItems(item),
+        contentRating: item.contentRating,
+      })),
     };
   }
 
