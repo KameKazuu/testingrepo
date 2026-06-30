@@ -106,6 +106,100 @@ export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
   return cards;
 }
 
+// ============================= Top-manga ranking =============================
+// The /top-manga page ranks every title by total reads (?sort=reads) or by
+// rating (?sort=rated). Unlike /browse, its rows carry BOTH the read count and
+// the ★ rating, so the featured hero and the Highest Rated carousel source here.
+export interface TopMangaItem {
+  mangaId: string;
+  title: string;
+  imageUrl: string;
+  contentRating: ContentRating;
+  genres?: string;
+  reads?: string;
+  rating?: string;
+}
+
+const ADULT_GENRE_REGEX = /\b(adult|mature|smut|ecchi|hentai)\b/i;
+
+function cleanGenreLine(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\s*[·/]\s*/g, " · ")
+    .trim();
+}
+
+function ratingValue(text: string): string | undefined {
+  return text.match(/\d+(?:\.\d+)?/)?.[0];
+}
+
+export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] {
+  const items: TopMangaItem[] = [];
+  const seen = new Set<string>();
+
+  const add = (item: TopMangaItem | undefined): void => {
+    if (!item || !item.mangaId || !item.title || seen.has(item.mangaId)) return;
+    if (item.contentRating === ContentRating.ADULT && !showNsfw) return;
+    seen.add(item.mangaId);
+    items.push(item);
+  };
+
+  // Podium (ranks 1-3): poster anchors in the lead section. Title comes from the
+  // image alt ("<title> cover"); the read count sits in a "N reads" line. These
+  // cards carry no rating or genre.
+  $("section a[href*='/manga/']").each((_, el) => {
+    const a = $(el);
+    const img = a.find("img").first();
+    if (img.length === 0) return;
+    const readsMatch = a.text().match(/([\d,]+)\s*reads/i);
+    if (!readsMatch) return;
+
+    add({
+      mangaId: mangaIdFromHref(a.attr("href") ?? ""),
+      title: (img.attr("alt") ?? "").replace(/\s*cover\s*$/i, "").trim(),
+      imageUrl: resolveImageUrl(img),
+      contentRating: ContentRating.EVERYONE,
+      reads: readsMatch[1],
+    });
+  });
+
+  // Ranked list (rank 4+): each <li> wraps a grid anchor with rank, poster,
+  // title, status, genres, and a right-aligned stat block (reads then ★ rating).
+  $("ol li a[href*='/manga/']").each((_, el) => {
+    const a = $(el);
+    const genres = cleanGenreLine(a.find('[class*="text-accent/45"]').first().text()) || undefined;
+    const stats = a
+      .find('[class*="text-right"]')
+      .first()
+      .children("span")
+      .map((_, s) => $(s).text().trim())
+      .get();
+
+    add({
+      mangaId: mangaIdFromHref(a.attr("href") ?? ""),
+      title: a.find('[class*="line-clamp-1"]').first().text().trim(),
+      imageUrl: resolveImageUrl(a.find("img").first()),
+      contentRating:
+        genres && ADULT_GENRE_REGEX.test(genres) ? ContentRating.ADULT : ContentRating.EVERYONE,
+      genres,
+      reads: stats[0] || undefined,
+      rating: stats.length > 1 ? ratingValue(stats[stats.length - 1]) : undefined,
+    });
+  });
+
+  return items;
+}
+
+// Carousel subtitle for a ranked item: "★ 8.9 · 18,972 reads", falling back to
+// whichever stat is present, then the genre line.
+export function topMangaSubtitle(item: TopMangaItem): string | undefined {
+  const parts: string[] = [];
+  if (item.rating) parts.push(`★ ${item.rating}`);
+  if (item.reads) parts.push(`${item.reads} reads`);
+  if (parts.length > 0) return parts.join(" · ");
+  return item.genres || undefined;
+}
+
 export function hasNextPage($: CheerioAPI): boolean {
   let found = false;
   $("[wire\\:click*='nextPage']").each((_, el) => {

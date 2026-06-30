@@ -63,19 +63,24 @@ import {
   parseJson,
   parseMangaCards,
   parseMangaDetails,
+  parseTopManga,
   straightenQuotes,
+  topMangaSubtitle,
   type MangaCard,
+  type TopMangaItem,
 } from "./parsers";
 import type OnisagaConfig from "./pbconfig";
 
-// Featured hero stat pill: a flame view-count, shown only when the card carried
-// one. Star ratings are not rendered in browse/home card markup, so they cannot
-// surface here.
-function featuredInfoItems(card: MangaCard): FeaturedCarouselItem["infoItems"] {
-  if (!card.views) return undefined;
-  return [
-    { symbol: "flame.fill", text: `${card.views} views` },
-  ] as FeaturedCarouselItem["infoItems"];
+// Featured hero stat pills from a top-manga ranking row: ★ rating and a flame
+// read-count, each shown only when the row carried it.
+function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"] {
+  const pills: { symbol: string; text: string }[] = [];
+  if (item.rating) pills.push({ symbol: "star.fill", text: item.rating });
+  if (item.reads) pills.push({ symbol: "flame.fill", text: item.reads });
+  if (pills.length === 0) return undefined;
+  return (
+    pills.length === 1 ? [pills[0]] : [pills[0], pills[1]]
+  ) as FeaturedCarouselItem["infoItems"];
 }
 
 export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
@@ -146,16 +151,20 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     metadata: { page?: number; collectedIds?: string[] } | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
     switch (section.id) {
-      case "top_manga":
-        return this.browseDiscover("view", metadata, (card) => ({
-          type: "featuredCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          supertitle: card.genres,
-          infoItems: featuredInfoItems(card),
-          contentRating: card.contentRating,
-        }));
+      case "top_manga": {
+        const items = await this.fetchTopManga("reads");
+        return {
+          items: items.map((item) => ({
+            type: "featuredCarouselItem",
+            mangaId: item.mangaId,
+            imageUrl: item.imageUrl,
+            title: item.title,
+            supertitle: item.genres,
+            infoItems: topMangaInfoItems(item),
+            contentRating: item.contentRating,
+          })),
+        };
+      }
       case "trending":
         return this.getTrendingItems();
       case "latest":
@@ -176,15 +185,19 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           subtitle: buildStatSubtitle(card),
           contentRating: card.contentRating,
         }));
-      case "highest_rated":
-        return this.browseDiscover("vote_average", metadata, (card) => ({
-          type: "prominentCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
+      case "highest_rated": {
+        const items = await this.fetchTopManga("rated");
+        return {
+          items: items.map((item) => ({
+            type: "prominentCarouselItem",
+            mangaId: item.mangaId,
+            imageUrl: item.imageUrl,
+            title: item.title,
+            subtitle: topMangaSubtitle(item),
+            contentRating: item.contentRating,
+          })),
+        };
+      }
       case "genres":
         return {
           items: GENRES.map((genre) => ({
@@ -234,6 +247,20 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
       items: fresh.map(map),
       metadata: hasNext ? { page: page + 1, collectedIds } : undefined,
     };
+  }
+
+  // The /top-manga ranking page sorts every title by total reads (?sort=reads)
+  // or by rating (?sort=rated). Its rows carry the read count and ★ rating that
+  // /browse cards lack, so the featured hero and Highest Rated carousel use it.
+  // Best-effort: a changed/empty page yields no items rather than an error.
+  private async fetchTopManga(sort: "reads" | "rated"): Promise<TopMangaItem[]> {
+    const showNsfw = getShowNsfw();
+    try {
+      const $ = await this.fetchCheerio({ url: `${DOMAIN}/top-manga?sort=${sort}`, method: "GET" });
+      return parseTopManga($, showNsfw);
+    } catch {
+      return [];
+    }
   }
 
   // The dedicated trending page bundles its Top Rising / by-platform / more rows
