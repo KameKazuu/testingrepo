@@ -8,6 +8,7 @@ import { type Element } from "domhandler";
 import { DOMAIN, GENRES, LANGUAGES } from "./models";
 
 const READER_TOKEN_REGEX = /readerToken["']?\s*:\s*["']([^"']+)["']/;
+const TOTAL_PAGES_REGEX = /totalPages["']?\s*:\s*(\d+)/;
 const PAGE_ORDER_REGEX = /["']?order["']?\s*:\s*(\d+)/g;
 const CHAPTER_NUMBER_REGEX = /(\d+(?:\.\d+)?)/;
 
@@ -480,6 +481,13 @@ export function extractReaderToken(body: string): string {
 }
 
 export function countPages(body: string): number {
+  // The reader page embeds an authoritative `totalPages: N`; prefer it over
+  // counting `order:` occurrences (which the page may repeat for spreads).
+  const total = TOTAL_PAGES_REGEX.exec(body);
+  if (total?.[1]) {
+    const count = parseInt(total[1], 10);
+    if (count > 0) return count;
+  }
   const matches = body.match(PAGE_ORDER_REGEX);
   return matches ? matches.length : 0;
 }
