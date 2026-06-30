@@ -28,7 +28,6 @@ import {
   getDiscoverStatus,
   getDiscoverType,
   getExcludedGenres,
-  getImageRateLimitMs,
   getSectionsOrder,
   getShowNsfw,
   OnisagaAdvancedSearchForm,
@@ -124,9 +123,6 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   // Cached server-rendered home document, shared by the home-sourced rails.
   private homeHtmlCache?: { html: string; at: number };
   private static readonly HOME_TTL = 60_000;
-
-  // Throttle gate for the page-image API (one method owns the rotating token).
-  private lastApiAt = 0;
 
   async initialise(): Promise<void> {
     this.cookieStorageInterceptor.registerInterceptor();
@@ -549,8 +545,6 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     let currentToken = token;
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      await this.throttleImageApi();
-
       const [response, buffer] = await Application.scheduleRequest({
         url: `${DOMAIN}/api/chapter/${cid}/page/${order}`,
         method: "GET",
@@ -567,9 +561,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
 
       if (response.status === 429) {
         const retryAfter = Number(response.headers?.["retry-after"]);
-        await Application.sleep(
-          Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : getImageRateLimitMs() / 1000,
-        );
+        await Application.sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2);
         continue;
       }
 
@@ -597,13 +589,6 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     }
 
     throw new Error(`Failed to load page ${order} after 3 attempts`);
-  }
-
-  private async throttleImageApi(): Promise<void> {
-    const gap = getImageRateLimitMs();
-    const elapsed = Date.now() - this.lastApiAt;
-    if (elapsed < gap) await Application.sleep((gap - elapsed) / 1000);
-    this.lastApiAt = Date.now();
   }
 
   // ============================== Livewire browse ==============================

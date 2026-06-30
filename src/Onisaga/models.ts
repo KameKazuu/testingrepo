@@ -8,7 +8,6 @@ export const SHOW_NSFW_KEY = "show_nsfw";
 export const DISCOVER_TYPE_KEY = "discover_type";
 export const DISCOVER_STATUS_KEY = "discover_status";
 export const EXCLUDED_GENRES_KEY = "excluded_genres";
-export const RATE_LIMIT_KEY = "image_rate_limit_ms";
 export const READER_TOKEN_KEY_PREFIX = "reader_token_";
 export const SECTIONS_ORDER_KEY = "sections_order";
 export const SECTIONS_DELETED_KEY = "sections_deleted";
@@ -32,8 +31,6 @@ export const DISCOVER_SECTIONS: DiscoverSectionDef[] = [
   { id: "genres", title: "Genres" },
   { id: "types", title: "Types" },
 ];
-
-export const DEFAULT_IMAGE_RATE_LIMIT_MS = 2000;
 
 export interface Option {
   id: string;
