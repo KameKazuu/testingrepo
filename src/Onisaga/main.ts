@@ -64,6 +64,7 @@ import {
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
+  sliceSectionHtml,
   straightenQuotes,
   topMangaSubtitle,
   type MangaCard,
@@ -96,6 +97,10 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   // URL, refreshed lazily; shared across the discover sections that all hit /browse.
   private browseStateCache?: { url: string; state: LivewireState; at: number };
   private static readonly BROWSE_STATE_TTL = 60_000;
+
+  // Cached server-rendered home document, shared by the home-sourced rails.
+  private homeHtmlCache?: { html: string; at: number };
+  private static readonly HOME_TTL = 60_000;
 
   // Throttle gate for the page-image API (one method owns the rotating token).
   private lastApiAt = 0;
@@ -137,8 +142,15 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
       { id: "top_manga", title: "Top Manga", type: DiscoverSectionType.featured },
-      { id: "trending", title: "Trending", type: DiscoverSectionType.prominentCarousel },
       { id: "latest", title: "Latest", type: DiscoverSectionType.simpleCarousel },
+      { id: "most_popular", title: "Most Popular", type: DiscoverSectionType.prominentCarousel },
+      { id: "top_10_rising", title: "Top 10 Rising", type: DiscoverSectionType.prominentCarousel },
+      {
+        id: "trending_platform",
+        title: "Trending by Platform",
+        type: DiscoverSectionType.simpleCarousel,
+      },
+      { id: "more_trending", title: "More Trending", type: DiscoverSectionType.simpleCarousel },
       { id: "fan_favorites", title: "Fan Favorites", type: DiscoverSectionType.simpleCarousel },
       { id: "highest_rated", title: "Highest Rated", type: DiscoverSectionType.prominentCarousel },
       { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
@@ -165,10 +177,44 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           })),
         };
       }
-      case "trending":
-        return this.getTrendingItems();
       case "latest":
         return this.browseDiscover(DEFAULT_SORT, metadata, (card) => ({
+          type: "simpleCarouselItem",
+          mangaId: card.mangaId,
+          imageUrl: card.imageUrl,
+          title: card.title,
+          subtitle: buildStatSubtitle(card),
+          contentRating: card.contentRating,
+        }));
+      case "most_popular":
+        return this.homeSectionItems("Most Popular", (card) => ({
+          type: "prominentCarouselItem",
+          mangaId: card.mangaId,
+          imageUrl: card.imageUrl,
+          title: card.title,
+          subtitle: buildStatSubtitle(card),
+          contentRating: card.contentRating,
+        }));
+      case "top_10_rising":
+        return this.homeSectionItems("Top 10 Rising", (card) => ({
+          type: "prominentCarouselItem",
+          mangaId: card.mangaId,
+          imageUrl: card.imageUrl,
+          title: card.title,
+          subtitle: buildStatSubtitle(card),
+          contentRating: card.contentRating,
+        }));
+      case "trending_platform":
+        return this.homeSectionItems("Trending by Platform", (card) => ({
+          type: "simpleCarouselItem",
+          mangaId: card.mangaId,
+          imageUrl: card.imageUrl,
+          title: card.title,
+          subtitle: buildStatSubtitle(card),
+          contentRating: card.contentRating,
+        }));
+      case "more_trending":
+        return this.homeSectionItems("More Trending", (card) => ({
           type: "simpleCarouselItem",
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
@@ -263,17 +309,31 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     }
   }
 
-  // The dedicated trending page bundles its Top Rising / by-platform / more rows
-  // into one document of the same cards; pull them all, de-duplicate and show
-  // them as one carousel. Best-effort: an empty/changed page yields no items
-  // rather than an error.
-  private async getTrendingItems(): Promise<PagedResults<DiscoverSectionItem>> {
-    const showNsfw = getShowNsfw();
+  // The home page stacks all of its curated rails (Most Popular, Top 10 Rising,
+  // Trending by Platform, More Trending, …) in one server-rendered document, so
+  // fetch it once and slice out a rail by its heading. Cached briefly because
+  // several discover sections share the same document.
+  private async fetchHomeHtml(): Promise<string> {
+    const now = Date.now();
+    const cached = this.homeHtmlCache;
+    if (cached && now - cached.at < OnisagaExtension.HOME_TTL) return cached.html;
 
+    const [, buffer] = await Application.scheduleRequest({ url: `${DOMAIN}/home`, method: "GET" });
+    const html = Application.arrayBufferToUTF8String(buffer);
+    this.homeHtmlCache = { html, at: now };
+    return html;
+  }
+
+  // Parse one home rail into discover items. Best-effort: a missing/renamed
+  // heading yields no items rather than an error.
+  private async homeSectionItems(
+    heading: string,
+    map: (card: MangaCard) => DiscoverSectionItem,
+  ): Promise<PagedResults<DiscoverSectionItem>> {
     let cards: MangaCard[] = [];
     try {
-      const $ = await this.fetchCheerio({ url: `${DOMAIN}/trending`, method: "GET" });
-      cards = parseMangaCards($, showNsfw);
+      const slice = sliceSectionHtml(await this.fetchHomeHtml(), heading);
+      if (slice) cards = parseMangaCards(cheerio.load(slice), getShowNsfw());
     } catch {
       cards = [];
     }
@@ -283,16 +343,8 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     for (const card of cards) {
       if (seen.has(card.mangaId)) continue;
       seen.add(card.mangaId);
-      items.push({
-        type: "prominentCarouselItem",
-        mangaId: card.mangaId,
-        imageUrl: card.imageUrl,
-        title: card.title,
-        subtitle: buildStatSubtitle(card),
-        contentRating: card.contentRating,
-      });
+      items.push(map(card));
     }
-
     return { items };
   }
 
