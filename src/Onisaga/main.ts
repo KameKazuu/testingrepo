@@ -131,20 +131,11 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
-      { id: "most_popular", title: "Most Popular", type: DiscoverSectionType.featured },
+      { id: "top_manga", title: "Top Manga", type: DiscoverSectionType.featured },
       { id: "trending", title: "Trending", type: DiscoverSectionType.prominentCarousel },
       { id: "latest", title: "Latest", type: DiscoverSectionType.simpleCarousel },
-      {
-        id: "top_rated_read",
-        title: "Top Rated · Most Read",
-        type: DiscoverSectionType.simpleCarousel,
-      },
-      {
-        id: "top_rated_score",
-        title: "Top Rated · Highest Rated",
-        type: DiscoverSectionType.prominentCarousel,
-      },
       { id: "fan_favorites", title: "Fan Favorites", type: DiscoverSectionType.simpleCarousel },
+      { id: "highest_rated", title: "Highest Rated", type: DiscoverSectionType.prominentCarousel },
       { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
       { id: "types", title: "Types", type: DiscoverSectionType.genres },
     ];
@@ -155,7 +146,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     metadata: { page?: number; collectedIds?: string[] } | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
     switch (section.id) {
-      case "most_popular":
+      case "top_manga":
         return this.browseDiscover("view", metadata, (card) => ({
           type: "featuredCarouselItem",
           mangaId: card.mangaId,
@@ -176,27 +167,18 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           subtitle: buildStatSubtitle(card),
           contentRating: card.contentRating,
         }));
-      case "top_rated_read":
-        return this.browseDiscover("view", metadata, (card) => ({
-          type: "simpleCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
-      case "top_rated_score":
-        return this.browseDiscover("vote_average", metadata, (card) => ({
-          type: "prominentCarouselItem",
-          mangaId: card.mangaId,
-          imageUrl: card.imageUrl,
-          title: card.title,
-          subtitle: buildStatSubtitle(card),
-          contentRating: card.contentRating,
-        }));
       case "fan_favorites":
         return this.browseDiscover("fan_favorites", metadata, (card) => ({
           type: "simpleCarouselItem",
+          mangaId: card.mangaId,
+          imageUrl: card.imageUrl,
+          title: card.title,
+          subtitle: buildStatSubtitle(card),
+          contentRating: card.contentRating,
+        }));
+      case "highest_rated":
+        return this.browseDiscover("vote_average", metadata, (card) => ({
+          type: "prominentCarouselItem",
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
