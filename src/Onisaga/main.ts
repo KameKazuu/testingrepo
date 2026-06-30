@@ -13,6 +13,7 @@ import {
   type DiscoverSection,
   type DiscoverSectionItem,
   type ExtensionImpl,
+  type FeaturedCarouselItem,
   type Form,
   type PagedResults,
   type Request,
@@ -53,6 +54,7 @@ import {
 } from "./models";
 import { livewireHeaders, OnisagaInterceptor } from "./network";
 import {
+  buildStatSubtitle,
   countPages,
   extractReaderToken,
   hasNextPage,
@@ -65,6 +67,18 @@ import {
   type MangaCard,
 } from "./parsers";
 import type OnisagaConfig from "./pbconfig";
+
+// Featured hero stat pills: a star rating and a flame view-count, each shown
+// only when the card actually carried it.
+function featuredInfoItems(card: MangaCard): FeaturedCarouselItem["infoItems"] {
+  const items: { symbol: string; text: string }[] = [];
+  if (card.rating) items.push({ symbol: "star.fill", text: card.rating });
+  if (card.views) items.push({ symbol: "flame.fill", text: card.views });
+  if (items.length === 0) return undefined;
+  return (
+    items.length === 1 ? [items[0]] : [items[0], items[1]]
+  ) as FeaturedCarouselItem["infoItems"];
+}
 
 export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   requestManager = new OnisagaInterceptor("onisaga-request");
@@ -149,6 +163,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
+          infoItems: featuredInfoItems(card),
           contentRating: card.contentRating,
         }));
       case "trending":
@@ -159,6 +174,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
+          subtitle: buildStatSubtitle(card),
           contentRating: card.contentRating,
         }));
       case "top_rated_read":
@@ -167,6 +183,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
+          subtitle: buildStatSubtitle(card),
           contentRating: card.contentRating,
         }));
       case "top_rated_score":
@@ -175,6 +192,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
+          subtitle: buildStatSubtitle(card),
           contentRating: card.contentRating,
         }));
       case "fan_favorites":
@@ -183,6 +201,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           mangaId: card.mangaId,
           imageUrl: card.imageUrl,
           title: card.title,
+          subtitle: buildStatSubtitle(card),
           contentRating: card.contentRating,
         }));
       case "genres":
@@ -261,6 +280,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
         mangaId: card.mangaId,
         imageUrl: card.imageUrl,
         title: card.title,
+        subtitle: buildStatSubtitle(card),
         contentRating: card.contentRating,
       });
     }

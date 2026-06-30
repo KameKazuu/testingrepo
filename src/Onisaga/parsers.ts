@@ -52,6 +52,29 @@ export interface MangaCard {
   title: string;
   imageUrl: string;
   contentRating: ContentRating;
+  rating?: string;
+  views?: string;
+}
+
+// Best-effort stat scrape. Conservative on purpose: a rating is only taken when
+// a literal star sits next to the number, and a view/read count only when the
+// word "views"/"reads" is present — so an unmatched layout yields nothing rather
+// than a wrong number. Verify/extend the patterns once the live markup is known.
+function extractCardStats(text: string): { rating?: string; views?: string } {
+  const ratingMatch = text.match(/★\s*(\d{1,2}(?:\.\d)?)/) ?? text.match(/(\d{1,2}(?:\.\d)?)\s*★/);
+  const rating = ratingMatch ? ratingMatch[1] : undefined;
+
+  const viewsMatch = text.match(/([\d.,]+\s*[KMB]?)\s*(?:views|reads)\b/i);
+  const views = viewsMatch ? viewsMatch[1].trim() : undefined;
+
+  return { rating, views };
+}
+
+export function buildStatSubtitle(card: MangaCard): string | undefined {
+  if (card.rating && card.views) return `★ ${card.rating} · ${card.views}`;
+  if (card.rating) return `★ ${card.rating}`;
+  if (card.views) return `${card.views} views`;
+  return undefined;
 }
 
 export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
@@ -73,12 +96,15 @@ export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
     if (!title) return;
 
     const imageUrl = resolveImageUrl(card.find("img").first());
+    const { rating, views } = extractCardStats(card.text());
 
     cards.push({
       mangaId,
       title,
       imageUrl,
       contentRating: isAdult ? ContentRating.ADULT : ContentRating.EVERYONE,
+      rating,
+      views,
     });
   });
 
