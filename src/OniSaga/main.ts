@@ -68,6 +68,7 @@ import {
   genresAreStale,
   getGenres,
   mangaIdFromHref,
+  normalizeReleaseDate,
   parseJson,
   straightenQuotes,
 } from "./utils/helpers";
@@ -467,6 +468,9 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     updates.platform = meta.type ?? "";
     updates.status = meta.status ?? "";
     updates.min_chapters = meta.minChapters ?? "";
+    updates.group = meta.group?.trim() || null;
+    updates.release_start = normalizeReleaseDate(meta.releaseStart, false);
+    updates.release_end = normalizeReleaseDate(meta.releaseEnd, true);
 
     const included: string[] = [];
     const excluded: string[] = [];

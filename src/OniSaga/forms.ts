@@ -7,6 +7,7 @@ import {
   EditSection,
   Form,
   type FormSectionElement,
+  InputRow,
   LabelRow,
   NavigationRow,
   Section,
@@ -316,6 +317,9 @@ export class OniSagaAdvancedSearchForm extends AdvancedSearchForm {
   private type: string;
   private status: string;
   private minChapters: string;
+  private group: string;
+  private releaseStart: string;
+  private releaseEnd: string;
   private genres: Record<string, "included" | "excluded">;
 
   private readonly genreOptions: Tag[];
@@ -326,6 +330,9 @@ export class OniSagaAdvancedSearchForm extends AdvancedSearchForm {
     this.type = meta.type ?? "";
     this.status = meta.status ?? "";
     this.minChapters = meta.minChapters ?? "";
+    this.group = meta.group ?? "";
+    this.releaseStart = meta.releaseStart ?? "";
+    this.releaseEnd = meta.releaseEnd ?? "";
     this.genres = { ...meta.genres };
     this.genreOptions = toTags(getGenres());
   }
@@ -376,6 +383,31 @@ export class OniSagaAdvancedSearchForm extends AdvancedSearchForm {
           ),
         }),
       ]),
+      Section({ id: "group", footer: "Filter by scanlation group name." }, [
+        InputRow("group", {
+          title: "Group",
+          value: this.group,
+          onValueChange: Application.Selector(this as OniSagaAdvancedSearchForm, "handleGroup"),
+        }),
+      ]),
+      Section({ id: "release", footer: "Release date range: a year (2023) or YYYY-MM-DD." }, [
+        InputRow("releaseStart", {
+          title: "Released After",
+          value: this.releaseStart,
+          onValueChange: Application.Selector(
+            this as OniSagaAdvancedSearchForm,
+            "handleReleaseStart",
+          ),
+        }),
+        InputRow("releaseEnd", {
+          title: "Released Before",
+          value: this.releaseEnd,
+          onValueChange: Application.Selector(
+            this as OniSagaAdvancedSearchForm,
+            "handleReleaseEnd",
+          ),
+        }),
+      ]),
     ];
   }
 
@@ -395,12 +427,27 @@ export class OniSagaAdvancedSearchForm extends AdvancedSearchForm {
     this.minChapters = value[0] ?? "";
   }
 
+  async handleGroup(value: string): Promise<void> {
+    this.group = value;
+  }
+
+  async handleReleaseStart(value: string): Promise<void> {
+    this.releaseStart = value;
+  }
+
+  async handleReleaseEnd(value: string): Promise<void> {
+    this.releaseEnd = value;
+  }
+
   override getSearchQueryMetadata(): OniSagaSearchMetadata {
     const result: OniSagaSearchMetadata = {};
     if (Object.keys(this.genres).length > 0) result.genres = this.genres;
     if (this.type) result.type = this.type;
     if (this.status) result.status = this.status;
     if (this.minChapters) result.minChapters = this.minChapters;
+    if (this.group.trim()) result.group = this.group.trim();
+    if (this.releaseStart.trim()) result.releaseStart = this.releaseStart.trim();
+    if (this.releaseEnd.trim()) result.releaseEnd = this.releaseEnd.trim();
     return result;
   }
 }

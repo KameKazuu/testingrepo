@@ -22,6 +22,15 @@ export function chapterIdFromHref(href: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+// The browse filter's release inputs are native date fields (YYYY-MM-DD).
+// Accept a bare year for convenience ("2023" -> 2023-01-01 / 2023-12-31).
+export function normalizeReleaseDate(value: string | undefined, isEnd: boolean): string | null {
+  const raw = value?.trim() ?? "";
+  if (/^\d{4}$/.test(raw)) return isEnd ? `${raw}-12-31` : `${raw}-01-01`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return null;
+}
+
 export function parseJson<T>(raw: string, context: string): T {
   try {
     return JSON.parse(raw) as T;

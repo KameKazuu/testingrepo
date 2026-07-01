@@ -239,6 +239,9 @@ export type OniSagaSearchMetadata = {
   status?: string;
   sort?: string;
   minChapters?: string;
+  group?: string;
+  releaseStart?: string;
+  releaseEnd?: string;
   genres?: Record<string, "included" | "excluded">;
   // A discover chip tap: which toggle rail and which option were chosen.
   toggleSection?: string;
