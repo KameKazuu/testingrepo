@@ -32,7 +32,7 @@ import {
   type Option,
   type OnisagaSearchMetadata,
 } from "./models";
-import { getGenres } from "./utils";
+import { getGenres } from "./utils/helpers";
 
 // ----- Settings state accessors -----
 

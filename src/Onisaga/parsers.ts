@@ -6,7 +6,7 @@ import { type Cheerio, type CheerioAPI } from "cheerio";
 import { type Element } from "domhandler";
 
 import { DOMAIN, GENRES, LANGUAGES, type Option } from "./models";
-import { chapterIdFromHref, mangaIdFromHref } from "./utils";
+import { chapterIdFromHref, mangaIdFromHref } from "./utils/helpers";
 
 const READER_TOKEN_REGEX = /readerToken["']?\s*:\s*["']([^"']+)["']/;
 const TOTAL_PAGES_REGEX = /totalPages["']?\s*:\s*(\d+)/;
