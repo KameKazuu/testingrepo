@@ -30,8 +30,8 @@ import {
   getExcludedGenres,
   getSectionsOrder,
   getShowNsfw,
-  OnisagaAdvancedSearchForm,
-  OnisagaSettingsForm,
+  OniSagaAdvancedSearchForm,
+  OniSagaSettingsForm,
 } from "./forms";
 import {
   DEFAULT_SORT,
@@ -41,10 +41,10 @@ import {
   TYPE_OPTIONS,
   type LivewireResponse,
   type LivewireState,
-  type OnisagaSearchMetadata,
+  type OniSagaSearchMetadata,
   type PostFilterUpdates,
 } from "./models";
-import { OnisagaInterceptor } from "./network";
+import { OniSagaInterceptor } from "./network";
 import {
   buildStatSubtitle,
   componentHtmlByName,
@@ -60,7 +60,7 @@ import {
   type MangaCard,
   type TopMangaItem,
 } from "./parsers";
-import type OnisagaConfig from "./pbconfig";
+import type OniSagaConfig from "./pbconfig";
 import {
   cacheGenres,
   genresAreStale,
@@ -113,8 +113,8 @@ function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"
   ) as FeaturedCarouselItem["infoItems"];
 }
 
-export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
-  requestManager = new OnisagaInterceptor("onisaga-request");
+export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
+  requestManager = new OniSagaInterceptor("onisaga-request");
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
   // The site runs a strict per-IP Laravel throttle, so stay well under it: a
   // burst of HTML/API requests trips the limit and then 429s the reader's page
@@ -154,13 +154,13 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   }
 
   async getSettingsForm(): Promise<Form> {
-    return new OnisagaSettingsForm();
+    return new OniSagaSettingsForm();
   }
 
   async getAdvancedSearchForm(
-    query: SearchQuery<OnisagaSearchMetadata>,
+    query: SearchQuery<OniSagaSearchMetadata>,
   ): Promise<AdvancedSearchForm> {
-    return new OnisagaAdvancedSearchForm(query);
+    return new OniSagaAdvancedSearchForm(query);
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {
@@ -209,7 +209,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
             metadata: {
               toggleSection: section.id,
               toggleValue: option.id,
-            } satisfies OnisagaSearchMetadata,
+            } satisfies OniSagaSearchMetadata,
           },
           name: option.title,
         })),
@@ -249,7 +249,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
             type: "genresCarouselItem",
             searchQuery: {
               title: "",
-              metadata: { genres: { [genre.id]: "included" } } satisfies OnisagaSearchMetadata,
+              metadata: { genres: { [genre.id]: "included" } } satisfies OniSagaSearchMetadata,
             },
             name: genre.title,
           })),
@@ -260,7 +260,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
             type: "genresCarouselItem",
             searchQuery: {
               title: "",
-              metadata: { type: type.id } satisfies OnisagaSearchMetadata,
+              metadata: { type: type.id } satisfies OniSagaSearchMetadata,
             },
             name: type.title,
           })),
@@ -339,7 +339,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   private async fetchHomeHtml(): Promise<string> {
     const now = Date.now();
     const cached = this.homeHtmlCache;
-    if (cached && now - cached.at < OnisagaExtension.HOME_TTL) return cached.html;
+    if (cached && now - cached.at < OniSagaExtension.HOME_TTL) return cached.html;
 
     const [, buffer] = await Application.scheduleRequest({
       url: `${DOMAIN}/trending`,
@@ -442,7 +442,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   // ================================ Search =====================================
 
   async getSearchResults(
-    query: SearchQuery<OnisagaSearchMetadata>,
+    query: SearchQuery<OniSagaSearchMetadata>,
     metadata: { page?: number } | undefined,
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
@@ -475,7 +475,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     };
   }
 
-  private searchUpdates(meta: OnisagaSearchMetadata, sortId?: string): PostFilterUpdates {
+  private searchUpdates(meta: OniSagaSearchMetadata, sortId?: string): PostFilterUpdates {
     const updates = defaultUpdates();
     updates.sort = sortId || meta.sort || DEFAULT_SORT;
     updates.platform = meta.type ?? "";
@@ -563,7 +563,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   // Opening a chapter is one request: fetch the reader page for its token + page
   // count, then hand Paperback a page-API url per page WITHOUT resolving any of
   // them. Each page's signed image is fetched lazily by the interceptor only when
-  // the reader displays it (see OnisagaInterceptor). Resolving all ~80 pages up
+  // the reader displays it (see OniSagaInterceptor). Resolving all ~80 pages up
   // front took ~35s and tripped the site's per-IP throttle; lazy resolution opens
   // instantly and only ever touches pages the reader actually shows.
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
@@ -646,7 +646,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   private async resolveBrowseState(baseUrl: string): Promise<LivewireState | undefined> {
     const now = Date.now();
     const cached = this.browseStateCache;
-    if (cached && cached.url === baseUrl && now - cached.at < OnisagaExtension.BROWSE_STATE_TTL) {
+    if (cached && cached.url === baseUrl && now - cached.at < OniSagaExtension.BROWSE_STATE_TTL) {
       return cached.state;
     }
 
@@ -662,4 +662,4 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   }
 }
 
-export const Onisaga = new OnisagaExtension();
+export const OniSaga = new OniSagaExtension();

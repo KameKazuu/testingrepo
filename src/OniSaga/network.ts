@@ -14,7 +14,7 @@ import { DOMAIN, type PageApiResponse } from "./models";
 // https://onisaga.com/api/chapter/3718181/page/0
 const PAGE_API_REGEX = /\/api\/chapter\/([^/]+)\/page\/\d+/;
 
-export class OnisagaInterceptor extends PaperbackInterceptor {
+export class OniSagaInterceptor extends PaperbackInterceptor {
   // Per-chapter reader tokens (chapterId -> X-Reader-Token), populated by
   // getChapterDetails. The token authorizes the page API and is stable for the
   // chapter, so we look it up per request rather than threading it into urls.

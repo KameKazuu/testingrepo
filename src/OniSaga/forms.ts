@@ -30,7 +30,7 @@ import {
   TYPE_OPTIONS,
   type DiscoverSectionDef,
   type Option,
-  type OnisagaSearchMetadata,
+  type OniSagaSearchMetadata,
 } from "./models";
 import { getGenres } from "./utils/helpers";
 
@@ -84,7 +84,7 @@ const toTags = (options: Option[]): Tag[] => options.map((o) => ({ id: o.id, tit
 
 // ----- Discover sections order/visibility form -----
 
-export class OnisagaSectionsForm extends Form {
+export class OniSagaSectionsForm extends Form {
   override getSections() {
     const deleted = getDeletedSections();
 
@@ -100,8 +100,8 @@ export class OnisagaSectionsForm extends Form {
         }),
         allowReorder: true,
         allowDeletion: true,
-        onReorder: Application.Selector(this as OnisagaSectionsForm, "rowDidReorder"),
-        onDeletion: Application.Selector(this as OnisagaSectionsForm, "rowDidDelete"),
+        onReorder: Application.Selector(this as OniSagaSectionsForm, "rowDidReorder"),
+        onDeletion: Application.Selector(this as OniSagaSectionsForm, "rowDidDelete"),
       } as unknown as FormSectionElement<unknown>,
       ...(deleted.length > 0
         ? [
@@ -112,7 +112,7 @@ export class OnisagaSectionsForm extends Form {
                 options: deleted.map((section) => ({ id: section.id, title: section.title })),
                 minItemCount: 0,
                 maxItemCount: deleted.length,
-                onValueChange: Application.Selector(this as OnisagaSectionsForm, "handleRestore"),
+                onValueChange: Application.Selector(this as OniSagaSectionsForm, "handleRestore"),
               }),
             ]),
           ]
@@ -120,7 +120,7 @@ export class OnisagaSectionsForm extends Form {
       Section("reset", [
         ButtonRow("resetSections", {
           title: "Reset Sections",
-          onSelect: Application.Selector(this as OnisagaSectionsForm, "handleReset"),
+          onSelect: Application.Selector(this as OniSagaSectionsForm, "handleReset"),
         }),
       ]),
     ];
@@ -164,7 +164,7 @@ export class OnisagaSectionsForm extends Form {
 
 // ----- Settings form -----
 
-export class OnisagaSettingsForm extends Form {
+export class OniSagaSettingsForm extends Form {
   private showNsfw: boolean;
   private type: string;
   private status: string;
@@ -189,7 +189,7 @@ export class OnisagaSettingsForm extends Form {
           ToggleRow("showNsfw", {
             title: "Show NSFW / 18+ Content",
             value: this.showNsfw,
-            onValueChange: Application.Selector(this as OnisagaSettingsForm, "updateShowNsfw"),
+            onValueChange: Application.Selector(this as OniSagaSettingsForm, "updateShowNsfw"),
           }),
         ],
       ),
@@ -205,7 +205,7 @@ export class OnisagaSettingsForm extends Form {
             options: toTags(TYPE_OPTIONS),
             minItemCount: 0,
             maxItemCount: 1,
-            onValueChange: Application.Selector(this as OnisagaSettingsForm, "updateType"),
+            onValueChange: Application.Selector(this as OniSagaSettingsForm, "updateType"),
           }),
           SelectRow("status", {
             title: "Status",
@@ -213,7 +213,7 @@ export class OnisagaSettingsForm extends Form {
             options: toTags(STATUS_OPTIONS),
             minItemCount: 0,
             maxItemCount: 1,
-            onValueChange: Application.Selector(this as OnisagaSettingsForm, "updateStatus"),
+            onValueChange: Application.Selector(this as OniSagaSettingsForm, "updateStatus"),
           }),
         ],
       ),
@@ -221,7 +221,7 @@ export class OnisagaSettingsForm extends Form {
         NavigationRow("discoverSections", {
           title: "Discover Sections",
           subtitle: "Order & visibility",
-          form: new OnisagaSectionsForm(),
+          form: new OniSagaSectionsForm(),
         }),
       ]),
       Section(
@@ -234,13 +234,13 @@ export class OnisagaSettingsForm extends Form {
             minItemCount: 0,
             maxItemCount: getGenres().length,
             onValueChange: Application.Selector(
-              this as OnisagaSettingsForm,
+              this as OniSagaSettingsForm,
               "updateExcludedGenres",
             ),
           }),
           ButtonRow("resetFilters", {
             title: "Reset Content Filters",
-            onSelect: Application.Selector(this as OnisagaSettingsForm, "resetFilters"),
+            onSelect: Application.Selector(this as OniSagaSettingsForm, "resetFilters"),
           }),
         ],
       ),
@@ -276,7 +276,7 @@ export class OnisagaSettingsForm extends Form {
 
 // ----- Advanced search form -----
 
-export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
+export class OniSagaAdvancedSearchForm extends AdvancedSearchForm {
   private type: string;
   private status: string;
   private minChapters: string;
@@ -284,7 +284,7 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
 
   private readonly genreOptions: Tag[];
 
-  constructor(searchQuery: SearchQuery<OnisagaSearchMetadata>) {
+  constructor(searchQuery: SearchQuery<OniSagaSearchMetadata>) {
     super();
     const meta = searchQuery.metadata ?? {};
     this.type = meta.type ?? "";
@@ -304,7 +304,7 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
           items: this.genreOptions,
           allowExclusion: true,
           allowEmptySelection: true,
-          onValueChange: Application.Selector(this as OnisagaAdvancedSearchForm, "handleGenres"),
+          onValueChange: Application.Selector(this as OniSagaAdvancedSearchForm, "handleGenres"),
         }),
       ]),
       Section("type", [
@@ -314,7 +314,7 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
           options: toTags(TYPE_OPTIONS),
           minItemCount: 0,
           maxItemCount: 1,
-          onValueChange: Application.Selector(this as OnisagaAdvancedSearchForm, "handleType"),
+          onValueChange: Application.Selector(this as OniSagaAdvancedSearchForm, "handleType"),
         }),
       ]),
       Section("status", [
@@ -324,7 +324,7 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
           options: toTags(STATUS_OPTIONS),
           minItemCount: 0,
           maxItemCount: 1,
-          onValueChange: Application.Selector(this as OnisagaAdvancedSearchForm, "handleStatus"),
+          onValueChange: Application.Selector(this as OniSagaAdvancedSearchForm, "handleStatus"),
         }),
       ]),
       Section("minChapters", [
@@ -335,7 +335,7 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
           minItemCount: 0,
           maxItemCount: 1,
           onValueChange: Application.Selector(
-            this as OnisagaAdvancedSearchForm,
+            this as OniSagaAdvancedSearchForm,
             "handleMinChapters",
           ),
         }),
@@ -359,8 +359,8 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
     this.minChapters = value[0] ?? "";
   }
 
-  override getSearchQueryMetadata(): OnisagaSearchMetadata {
-    const result: OnisagaSearchMetadata = {};
+  override getSearchQueryMetadata(): OniSagaSearchMetadata {
+    const result: OniSagaSearchMetadata = {};
     if (Object.keys(this.genres).length > 0) result.genres = this.genres;
     if (this.type) result.type = this.type;
     if (this.status) result.status = this.status;

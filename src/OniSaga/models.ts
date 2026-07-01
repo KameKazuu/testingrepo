@@ -235,7 +235,7 @@ export const GENRES: Option[] = [
 
 // Search/discover metadata threaded through SearchQuery. Declared as a type alias
 // (not an interface) so it carries the implicit index signature JSONObject needs.
-export type OnisagaSearchMetadata = {
+export type OniSagaSearchMetadata = {
   page?: number;
   collectedIds?: string[];
   type?: string;
