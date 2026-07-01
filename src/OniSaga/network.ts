@@ -15,9 +15,8 @@ import { DOMAIN, type PageApiResponse } from "./models";
 const PAGE_API_REGEX = /\/api\/chapter\/([^/]+)\/page\/\d+/;
 
 export class OniSagaInterceptor extends PaperbackInterceptor {
-  // Per-chapter reader tokens (chapterId -> X-Reader-Token), populated by
-  // getChapterDetails. The token authorizes the page API and is stable for the
-  // chapter, so we look it up per request rather than threading it into urls.
+  // Per-chapter reader tokens (chapterId -> X-Reader-Token) set by
+  // getChapterDetails; the page API needs it and it's stable per chapter.
   private readerTokens = new Map<string, string>();
 
   setReaderToken(chapterId: string, token: string): void {
@@ -64,11 +63,9 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       });
     }
 
-    // Lazy page resolution: the reader fetches a page-API url, which returns JSON
-    // pointing at the real (signed, short-lived) image. Follow that url here and
-    // return the image bytes, so the reader only ever resolves the pages it
-    // actually shows instead of the whole chapter up front. The image url is on a
-    // different path (/_img/...), so this sub-request doesn't re-enter this branch.
+    // Lazy page resolution: a page-API url returns JSON pointing at the real
+    // signed image; fetch that and return its bytes. The image path (/_img/...)
+    // differs, so this sub-request doesn't re-enter this branch.
     if (PAGE_API_REGEX.test(request.url) && response.status === 200) {
       try {
         const dto = JSON.parse(Application.arrayBufferToUTF8String(data)) as PageApiResponse;

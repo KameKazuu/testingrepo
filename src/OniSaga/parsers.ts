@@ -39,9 +39,8 @@ function resolveImageUrl($el: Cheerio<Element>): string {
   const direct = $el.attr("data-src") || $el.attr("data-lazy-src") || $el.attr("src") || "";
   if (direct && !direct.startsWith("data:")) return resolveUrl(direct);
 
-  // Lazy-loaded cards leave a data:/empty src and keep the real image in a
-  // srcset — on the <img> itself or a sibling <source> in a <picture>. Prefer
-  // the webp source (broad device support) over the first listed (often avif).
+  // Lazy cards keep the real image in a srcset (on the <img> or a <picture>
+  // <source>); prefer the webp source.
   const srcset =
     $el.attr("srcset") ||
     $el.attr("data-srcset") ||
@@ -61,9 +60,7 @@ export interface MangaCard {
   views?: string;
 }
 
-// View counts appear on the trending rows ("20,558 views"); the genre line is on
-// every card. Star ratings are NOT rendered in browse/home card markup (they only
-// live on the dedicated top-manga page), so cards fall back to genres.
+// Card view count ("20,558 views"); ratings only live on the top-manga page.
 function extractCardViews(text: string): string | undefined {
   const match = text.match(/(\d[\d.,]*\s*[KMB]?)\s*(?:views|reads)\b/i);
   return match ? match[1].trim() : undefined;
@@ -116,9 +113,7 @@ export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
 }
 
 // ============================= Top-manga ranking =============================
-// The /top-manga page ranks every title by total reads (?sort=reads) or by
-// rating (?sort=rated). Unlike /browse, its rows carry BOTH the read count and
-// the ★ rating, so the featured hero and the Highest Rated carousel source here.
+// /top-manga rows carry both the read count and ★ rating that /browse lacks.
 export interface TopMangaItem {
   mangaId: string;
   title: string;
@@ -153,9 +148,8 @@ export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] 
     items.push(item);
   };
 
-  // Podium (ranks 1-3): poster anchors in the lead section. Title comes from the
-  // image alt ("<title> cover"); the read count sits in a "N reads" line. These
-  // cards carry no rating or genre.
+  // Podium (ranks 1-3): poster anchors; title from the image alt, reads from a
+  // "N reads" line. No rating/genre.
   $("section a[href*='/manga/']").each((_, el) => {
     const a = $(el);
     const img = a.find("img").first();
@@ -172,8 +166,8 @@ export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] 
     });
   });
 
-  // Ranked list (rank 4+): each <li> wraps a grid anchor with rank, poster,
-  // title, status, genres, and a right-aligned stat block (reads then ★ rating).
+  // Ranked list (rank 4+): each <li> anchor has title, genres, and a stat block
+  // (reads then ★ rating).
   $("ol li a[href*='/manga/']").each((_, el) => {
     const a = $(el);
     const genres = cleanGenreLine(a.find('[class*="text-accent/45"]').first().text()) || undefined;
@@ -199,8 +193,7 @@ export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] 
   return items;
 }
 
-// Carousel subtitle for a ranked item: "★ 8.9 · 18,972 reads", falling back to
-// whichever stat is present, then the genre line.
+// Carousel subtitle: "★ 8.9 · 18,972 reads", or whichever stat/genre is present.
 export function topMangaSubtitle(item: TopMangaItem): string | undefined {
   const parts: string[] = [];
   if (item.rating) parts.push(`★ ${item.rating}`);
@@ -210,10 +203,8 @@ export function topMangaSubtitle(item: TopMangaItem): string | undefined {
 }
 
 // =============================== Home sections ===============================
-// A curated rail (Fan Favorites, …) is a Livewire component whose root <div>
-// carries a `wire:snapshot` holding the component name. Return that component's
-// outer HTML so its cards can be parsed with parseMangaCards. Empty when the
-// page doesn't carry the component.
+// Outer HTML of the Livewire component whose wire:snapshot names it, so its
+// cards can be parsed. Empty when the page lacks the component.
 export function componentHtmlByName($: CheerioAPI, componentName: string): string {
   let html = "";
   $("[wire\\:snapshot]").each((_, el) => {
@@ -225,10 +216,8 @@ export function componentHtmlByName($: CheerioAPI, componentName: string): strin
   return html;
 }
 
-// The browse filter renders every genre as a hidden checkbox
-// (`<input name="genre[]" value="67">`) paired with a `<label for="genre67">`.
-// Read that id → title mapping so the source tracks new genres without a code
-// edit. Returns [] when the panel is absent so the caller keeps the fallback.
+// Genre id → title from the browse filter checkboxes
+// (`<input name="genre[]" value="67">` + `<label for="genre67">`). [] if absent.
 export function parseGenres($: CheerioAPI): Option[] {
   const genres: Option[] = [];
   const seen = new Set<string>();
@@ -407,8 +396,7 @@ function makeChapter(
 
   const numMatch = numberText.match(CHAPTER_NUMBER_REGEX);
   const parsedNum = numMatch ? parseFloat(numMatch[1]) : 0;
-  // Coerce unparseable numbers to 0 (matching the reference's toFloatOrNull ?: 0f)
-  // so a stray heading can't poison the chapNum sort comparator with NaN.
+  // Coerce unparseable numbers to 0 so a stray heading can't NaN the sort.
   const chapNum = Number.isFinite(parsedNum) ? parsedNum : 0;
   const langCode = LANG_CODE_BY_BADGE.get(badge.toUpperCase()) ?? "en";
 
@@ -423,9 +411,8 @@ function makeChapter(
   };
 }
 
-// The site is English-first but some series carry multi-language chapter
-// variants and there is no site-side language filter, so surface every chapter
-// and tag each with its own detected language for the app to group on.
+// Surface every chapter, tagging each with its detected language (some series
+// have multi-language variants and the site has no language filter).
 export function parseChapters($: CheerioAPI, sourceManga: SourceManga): Chapter[] {
   const chapters: Chapter[] = [];
   const seen = new Set<string>();

@@ -72,10 +72,8 @@ export function isDefaultUpdates(updates: PostFilterUpdates): boolean {
   );
 }
 
-// The Livewire snapshot lives in a `wire:snapshot` attribute on the component
-// root; the CSRF token is a `<meta name="csrf-token">` (or an `_token` input).
-// Match the component by name appearing inside the snapshot JSON, mirroring the
-// reference implementation.
+// The snapshot lives in a `wire:snapshot` attribute; the CSRF token in a
+// `<meta name="csrf-token">` (or `_token` input). Match the component by name.
 export function extractLivewireState(
   $: CheerioAPI,
   componentName: string,

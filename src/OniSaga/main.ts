@@ -79,13 +79,9 @@ import {
   livewireHeaders,
 } from "./utils/livewire";
 
-// How many ranked titles the featured hero shows, taken straight from the
-// /top-manga ranking (no per-item requests).
 const FEATURED_LIMIT = 10;
 
-// Carousel style per discover rail id (the user can reorder/hide rails, but the
-// style is fixed by what each rail renders best as). Rails with an on-site toggle
-// render as chip rows (Day/Week/Month, platform, …) — MangaDot's pattern.
+// Carousel style per rail; toggle rails render as chip rows.
 function discoverSectionType(id: string): DiscoverSectionType {
   if (SECTION_TOGGLES[id]) return DiscoverSectionType.genres;
   switch (id) {
@@ -101,8 +97,7 @@ function discoverSectionType(id: string): DiscoverSectionType {
   }
 }
 
-// Featured hero stat pills from a top-manga ranking row: ★ rating and a flame
-// read-count, each shown only when the row carried it.
+// Featured hero stat pills: ★ rating and read count, when present.
 function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"] {
   const pills: { symbol: string; text: string }[] = [];
   if (item.rating) pills.push({ symbol: "star.fill", text: item.rating });
@@ -116,18 +111,15 @@ function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"
 export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   requestManager = new OniSagaInterceptor("onisaga-request");
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
-  // The site runs a strict per-IP Laravel throttle, so stay well under it: a
-  // burst of HTML/API requests trips the limit and then 429s the reader's page
-  // API. 3/s keeps browsing responsive while leaving headroom for the reader;
-  // CDN images are ignored and load freely.
+  // Stay under the site's per-IP throttle (a burst 429s the reader's page API);
+  // images are ignored and load freely.
   globalRateLimiter = new BasicRateLimiter("onisaga-rate-limiter", {
     numberOfRequests: 3,
     bufferInterval: 1,
     ignoreImages: true,
   });
 
-  // Cached Livewire `post-filter` state (token + snapshot) for the active browse
-  // URL, refreshed lazily; shared across the discover sections that all hit /browse.
+  // Cached `post-filter` state (token + snapshot) for the active browse URL.
   private browseStateCache?: { url: string; state: LivewireState; at: number };
   private static readonly BROWSE_STATE_TTL = 60_000;
 
@@ -178,9 +170,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     }));
   }
 
-  // Keep the genre list current without a code edit: refetch it from the browse
-  // filter at most once per TTL and cache it. Best-effort — any failure leaves
-  // the existing cache (or the bundled fallback) in place.
+  // Refetch the genre list from the browse filter once per TTL and cache it.
   private async refreshGenres(): Promise<void> {
     const now = Date.now();
     if (!genresAreStale(now)) return;
@@ -197,8 +187,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     section: DiscoverSection,
     metadata: { page?: number; collectedIds?: string[] } | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
-    // Toggle rails render as chip rows; each chip carries the rail + option in its
-    // search metadata so a tap runs the ranged fetch through getSearchResults.
+    // Toggle rails render as chip rows; a chip tap routes through getSearchResults.
     const toggle = SECTION_TOGGLES[section.id];
     if (toggle) {
       return {
@@ -294,19 +283,10 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     };
   }
 
-  // Featured hero: the most-read ranking, enriched with author + synopsis. The
-  // ranking page carries no author/description, so the top few are looked up on
-  // their detail pages (capped to keep the request count bounded). Enrichment is
-  // best-effort — a failed lookup just drops the author/summary for that item.
+  // Featured hero from the /top-manga ranking (one request, no per-item lookups).
   private async getTopMangaFeatured(): Promise<PagedResults<DiscoverSectionItem>> {
     const items = (await this.fetchTopManga("reads")).slice(0, FEATURED_LIMIT);
 
-    // Build the hero straight from the /top-manga ranking (one request). We used
-    // to fan out a /manga/{id} fetch per item to add author + synopsis, but that
-    // fired 10 burst requests at app launch and helped trip the site's per-IP
-    // throttle — which then 429s the reader's page API on the very first page.
-    // The ranking already carries genres + reads + rating, which is enough for
-    // the hero; author/synopsis show once the user opens the title.
     return {
       items: items.map((item) => ({
         type: "featuredCarouselItem",
@@ -320,10 +300,8 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     };
   }
 
-  // The /top-manga ranking page sorts every title by total reads (?sort=reads)
-  // or by rating (?sort=rated). Its rows carry the read count and ★ rating that
-  // /browse cards lack, so the featured hero and Highest Rated carousel use it.
-  // Best-effort: a changed/empty page yields no items rather than an error.
+  // The /top-manga ranking (by reads or rating); its rows carry the read count
+  // and ★ rating that /browse cards lack.
   private async fetchTopManga(sort: "reads" | "rated"): Promise<TopMangaItem[]> {
     const showNsfw = getShowNsfw();
     try {
@@ -334,8 +312,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     }
   }
 
-  // The /trending page carries the Livewire toggle rails (e.g. Top 10 Rising)
-  // whose state a chip tap drives. Pull it once and cache it for those lookups.
+  // /trending carries the Livewire toggle rails; pull it once and cache it.
   private async fetchHomeHtml(): Promise<string> {
     const now = Date.now();
     const cached = this.homeHtmlCache;
@@ -350,10 +327,8 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     return html;
   }
 
-  // Fan Favorites is a Livewire component that lives on /home (not /trending).
-  // Prefer the cards already server-rendered inside its component; if the page
-  // ships an un-hydrated placeholder, drive the component's Livewire render to
-  // pull them. Best-effort: no component/cards yields no items, not an error.
+  // Fan Favorites is a Livewire component on /home. Parse its server-rendered
+  // cards; if the page ships an un-hydrated placeholder, drive its render.
   private async fetchFanFavorites(): Promise<PagedResults<DiscoverSectionItem>> {
     const showNsfw = getShowNsfw();
     try {
@@ -397,9 +372,8 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     }
   }
 
-  // A discover toggle chip was tapped: drive the rail's Livewire method
-  // (setPeriod / setSort / setPlatform) on /trending and return the re-rendered
-  // cards. Best-effort: a missing component/HTML yields no results, not an error.
+  // A toggle chip was tapped: drive the rail's Livewire method on /trending and
+  // parse the re-rendered cards.
   private async getToggledSection(
     sectionId: string,
     value: string,
@@ -553,8 +527,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       }
     }
 
-    // Newest first: after sorting by chapter number, the highest number gets the
-    // highest sortingIndex (mirrors the Mangago source's ordering).
+    // Newest first: the highest chapter number gets the highest sortingIndex.
     chapters.sort((a, b) => b.chapNum - a.chapNum);
     chapters.forEach((chapter, index) => {
       chapter.sortingIndex = chapters.length - index;
@@ -562,12 +535,9 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     return chapters;
   }
 
-  // Opening a chapter is one request: fetch the reader page for its token + page
-  // count, then hand Paperback a page-API url per page WITHOUT resolving any of
-  // them. Each page's signed image is fetched lazily by the interceptor only when
-  // the reader displays it (see OniSagaInterceptor). Resolving all ~80 pages up
-  // front took ~35s and tripped the site's per-IP throttle; lazy resolution opens
-  // instantly and only ever touches pages the reader actually shows.
+  // Open in one request: return a page-API url per page without resolving any.
+  // The interceptor fetches each page's signed image lazily as it's shown, so a
+  // long chapter opens instantly instead of resolving every page up front.
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const chapterUrl = `${DOMAIN}${chapter.chapterId}`;
     const segments = chapter.chapterId.split("/").filter(Boolean);

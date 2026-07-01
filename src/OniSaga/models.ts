@@ -46,9 +46,7 @@ export interface LanguageOption {
   title: string;
 }
 
-// Chapter-language badges → Paperback langCodes. The site has no language filter,
-// so this only tags each chapter with its detected language; badges that never
-// appear simply go unused.
+// Chapter-language badges → Paperback langCodes (used only to tag each chapter).
 export const LANGUAGES: LanguageOption[] = [
   { badge: "EN", langCode: "en", title: "🇬🇧 English" },
   { badge: "JA", langCode: "ja", title: "🇯🇵 日本語" },
@@ -111,10 +109,8 @@ export const SORT_OPTIONS: Option[] = [
 
 export const DEFAULT_SORT = "created_at";
 
-// Discover rails that carry an in-section toggle on the site. Each maps to its
-// Livewire component + the method that switches the view; the option ids are the
-// method's parameter. Following MangaDot, these rails render as chip rows and a
-// chip tap runs a ranged fetch through getSearchResults.
+// Discover rails with an in-section toggle: each maps to its Livewire component
+// + the method that switches the view (the option ids are the method's param).
 export interface SectionToggle {
   component: string;
   method: string;
