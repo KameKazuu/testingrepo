@@ -24,9 +24,6 @@ export const DISCOVER_SECTIONS: DiscoverSectionDef[] = [
   { id: "latest", title: "Latest" },
   { id: "most_popular", title: "Most Popular" },
   { id: "top_10_rising", title: "Top 10 Rising" },
-  { id: "trending_platform", title: "Trending by Platform" },
-  { id: "more_trending", title: "More Trending" },
-  { id: "fan_favorites", title: "Fan Favorites" },
   { id: "highest_rated", title: "Highest Rated" },
   { id: "genres", title: "Genres" },
   { id: "types", title: "Types" },
@@ -138,34 +135,6 @@ export const SECTION_TOGGLES: Record<string, SectionToggle> = {
       { id: "day", title: "Day" },
       { id: "week", title: "Week" },
       { id: "month", title: "Month" },
-    ],
-  },
-  fan_favorites: {
-    component: "fan-favorites",
-    method: "setSort",
-    options: [
-      { id: "all-time", title: "All Time" },
-      { id: "recent", title: "This Month" },
-    ],
-  },
-  trending_platform: {
-    component: "trending-by-platform",
-    method: "setPlatform",
-    options: [
-      { id: "all", title: "All" },
-      { id: "manga", title: "Manga" },
-      { id: "manhwa", title: "Manhwa" },
-      { id: "manhua", title: "Manhua" },
-    ],
-  },
-  more_trending: {
-    component: "trending-grid",
-    method: "setPlatform",
-    options: [
-      { id: "all", title: "All" },
-      { id: "manga", title: "Manga" },
-      { id: "manhwa", title: "Manhwa" },
-      { id: "manhua", title: "Manhua" },
     ],
   },
 };
