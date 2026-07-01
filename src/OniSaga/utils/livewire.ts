@@ -8,6 +8,7 @@ import {
   DOMAIN,
   type BrowseLivewireRequest,
   type ChapterLivewireRequest,
+  type LivewireCall,
   type LivewireState,
   type PostFilterUpdates,
   type ToggleLivewireRequest,
@@ -101,15 +102,20 @@ export function buildBrowseRequest(
   updates: PostFilterUpdates,
   page: number,
 ): BrowseLivewireRequest {
+  // Sort and platform are switched through component methods on the site
+  // (property writes alone don't re-sort), so mirror its UI before paginating.
+  const calls: LivewireCall[] = [];
+  if (updates.sort !== DEFAULT_SORT) {
+    calls.push({ type: "call", path: "", method: "updateSort", params: [updates.sort] });
+  }
+  if (updates.platform) {
+    calls.push({ type: "call", path: "", method: "updatePlatform", params: [updates.platform] });
+  }
+  calls.push({ type: "call", path: "", method: "gotoPage", params: [page] });
+
   return {
     _token: state.token,
-    components: [
-      {
-        snapshot: state.snapshot,
-        updates,
-        calls: [{ type: "call", path: "", method: "gotoPage", params: [page] }],
-      },
-    ],
+    components: [{ snapshot: state.snapshot, updates, calls }],
   };
 }
 

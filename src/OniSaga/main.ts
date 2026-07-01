@@ -98,6 +98,15 @@ function discoverSectionType(id: string): DiscoverSectionType {
   }
 }
 
+function toSearchItems(cards: MangaCard[]): SearchResultItem[] {
+  return cards.map((card) => ({
+    mangaId: card.mangaId,
+    title: card.title,
+    imageUrl: card.imageUrl,
+    contentRating: card.contentRating,
+  }));
+}
+
 // Featured hero stat pills: ★ rating and read count, when present.
 function topMangaInfoItems(item: TopMangaItem): FeaturedCarouselItem["infoItems"] {
   const pills: { symbol: string; text: string }[] = [];
@@ -328,6 +337,28 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     return html;
   }
 
+  // POST a Livewire update and return the first component's re-render.
+  private async livewireUpdate(
+    referer: string,
+    request: unknown,
+    context: string,
+  ): Promise<{ html?: string; snapshot?: string }> {
+    const [, buffer] = await Application.scheduleRequest({
+      url: `${DOMAIN}/livewire/update`,
+      method: "POST",
+      headers: livewireHeaders(referer),
+      body: JSON.stringify(request),
+    });
+    const component = parseJson<LivewireResponse>(
+      Application.arrayBufferToUTF8String(buffer),
+      context,
+    ).components?.[0];
+    return {
+      html: component?.effects?.html ?? undefined,
+      snapshot: component?.snapshot ?? undefined,
+    };
+  }
+
   // Fan Favorites is a Livewire component on /home. Parse its server-rendered
   // cards; if the page ships an un-hydrated placeholder, drive its render.
   private async fetchFanFavorites(): Promise<PagedResults<DiscoverSectionItem>> {
@@ -343,18 +374,12 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       if (cards.length === 0) {
         const state = extractLivewireState($, "fan-favorites");
         if (state) {
-          const [, buf] = await Application.scheduleRequest({
-            url: `${DOMAIN}/livewire/update`,
-            method: "POST",
-            headers: livewireHeaders(homeUrl),
-            body: JSON.stringify(buildSectionToggleRequest(state, "setSort", "all-time")),
-          });
-          const json = parseJson<LivewireResponse>(
-            Application.arrayBufferToUTF8String(buf),
+          const { html } = await this.livewireUpdate(
+            homeUrl,
+            buildSectionToggleRequest(state, "setSort", "all-time"),
             "livewire fan-favorites",
           );
-          const rendered = json.components?.[0]?.effects?.html;
-          cards = rendered ? parseMangaCards(cheerio.load(rendered), showNsfw) : [];
+          cards = html ? parseMangaCards(cheerio.load(html), showNsfw) : [];
         }
       }
 
@@ -383,32 +408,18 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     if (!toggle) return { items: [] };
 
     try {
-      const trendingUrl = `${DOMAIN}/trending`;
       const $ = cheerio.load(await this.fetchHomeHtml());
       const state = extractLivewireState($, toggle.component);
       if (!state) return { items: [] };
 
-      const [, buffer] = await Application.scheduleRequest({
-        url: `${DOMAIN}/livewire/update`,
-        method: "POST",
-        headers: livewireHeaders(trendingUrl),
-        body: JSON.stringify(buildSectionToggleRequest(state, toggle.method, value)),
-      });
-      const json = parseJson<LivewireResponse>(
-        Application.arrayBufferToUTF8String(buffer),
+      const { html } = await this.livewireUpdate(
+        `${DOMAIN}/trending`,
+        buildSectionToggleRequest(state, toggle.method, value),
         "livewire toggle",
       );
-      const html = json.components?.[0]?.effects?.html;
       const cards = html ? parseMangaCards(cheerio.load(html), getShowNsfw()) : [];
 
-      return {
-        items: cards.map((card) => ({
-          mangaId: card.mangaId,
-          title: card.title,
-          imageUrl: card.imageUrl,
-          contentRating: card.contentRating,
-        })),
-      };
+      return { items: toSearchItems(cards) };
     } catch {
       return { items: [] };
     }
@@ -440,12 +451,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     const { cards, hasNext } = await this.fetchBrowse(baseUrl, updates, page);
 
     return {
-      items: cards.map((card) => ({
-        mangaId: card.mangaId,
-        title: card.title,
-        imageUrl: card.imageUrl,
-        contentRating: card.contentRating,
-      })),
+      items: toSearchItems(cards),
       metadata: hasNext ? { page: page + 1 } : undefined,
     };
   }
@@ -508,17 +514,11 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     const state = extractLivewireState($, "manga.chapter-list");
     if (state) {
       try {
-        const [, buffer] = await Application.scheduleRequest({
-          url: `${DOMAIN}/livewire/update`,
-          method: "POST",
-          headers: livewireHeaders(mangaUrl),
-          body: JSON.stringify(buildLoadMoreChaptersRequest(state)),
-        });
-        const json = parseJson<LivewireResponse>(
-          Application.arrayBufferToUTF8String(buffer),
+        const { html } = await this.livewireUpdate(
+          mangaUrl,
+          buildLoadMoreChaptersRequest(state),
           "livewire chapters",
         );
-        const html = json.components?.[0]?.effects?.html;
         if (html) {
           const full = parseChapters(cheerio.load(html), sourceManga);
           if (full.length > chapters.length) chapters = full;
@@ -592,28 +592,20 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     const state = await this.resolveBrowseState(baseUrl);
     if (!state) return { cards: [], hasNext: false };
 
-    const [, buffer] = await Application.scheduleRequest({
-      url: `${DOMAIN}/livewire/update`,
-      method: "POST",
-      headers: livewireHeaders(baseUrl),
-      body: JSON.stringify(buildBrowseRequest(state, updates, page)),
-    });
-
-    const json = parseJson<LivewireResponse>(
-      Application.arrayBufferToUTF8String(buffer),
+    const { html, snapshot } = await this.livewireUpdate(
+      baseUrl,
+      buildBrowseRequest(state, updates, page),
       "livewire browse",
     );
-    const html = json.components?.[0]?.effects?.html;
     if (!html) {
       this.browseStateCache = undefined;
       return { cards: [], hasNext: false };
     }
 
-    const newSnapshot = json.components?.[0]?.snapshot;
-    if (newSnapshot) {
+    if (snapshot) {
       this.browseStateCache = {
         url: baseUrl,
-        state: { token: state.token, snapshot: newSnapshot },
+        state: { token: state.token, snapshot },
         at: Date.now(),
       };
     }
