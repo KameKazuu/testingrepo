@@ -416,10 +416,28 @@ function makeChapter(
     chapterId: url,
     sourceManga,
     chapNum,
+    volume: 0,
     langCode,
     title: `Chapter ${numberText}`,
     publishDate: parseChapterDate(dateStr),
   };
+}
+
+// Total chapter count from the list header badge (the "Chapters" heading paired
+// with a badge number), used to skip the bulk Livewire load when the first
+// render already holds every chapter. 0 when the badge isn't found.
+export function parseChapterCount($: CheerioAPI): number {
+  let total = 0;
+  $("[data-flux-heading]").each((_, el) => {
+    if (total) return;
+    if ($(el).text().trim() !== "Chapters") return;
+    const n = parseInt(
+      $(el).parent().find("[data-flux-badge]").first().text().replace(/\D/g, ""),
+      10,
+    );
+    if (Number.isFinite(n) && n > 0) total = n;
+  });
+  return total;
 }
 
 // The site is English-first but some series carry multi-language chapter
