@@ -6,6 +6,7 @@ import { type Cheerio, type CheerioAPI } from "cheerio";
 import { type Element } from "domhandler";
 
 import { DOMAIN, GENRES, LANGUAGES } from "./models";
+import { chapterIdFromHref, mangaIdFromHref } from "./utils/helpers";
 
 const READER_TOKEN_REGEX = /readerToken["']?\s*:\s*["']([^"']+)["']/;
 const TOTAL_PAGES_REGEX = /totalPages["']?\s*:\s*(\d+)/;
@@ -16,12 +17,6 @@ const TYPE_BADGES = new Set(["manga", "manhwa", "manhua", "shounen", "seinen", "
 
 const GENRE_ID_BY_TITLE = new Map(GENRES.map((g) => [g.title.toLowerCase(), g.id]));
 const LANG_CODE_BY_BADGE = new Map(LANGUAGES.map((l) => [l.badge.toUpperCase(), l.langCode]));
-
-// iOS swaps straight quotes for curly ones; the site only matches the straight
-// forms, so normalize before searching.
-export function straightenQuotes(value: string): string {
-  return value.replace(/[‘’‛]/g, "'").replace(/[“”]/g, '"');
-}
 
 function resolveUrl(src: string): string {
   if (!src) return "";
@@ -55,17 +50,6 @@ function resolveImageUrl($el: Cheerio<Element>): string {
     "";
   const fromSet = lastSrcsetUrl(srcset);
   return fromSet ? resolveUrl(fromSet) : "";
-}
-
-export function mangaIdFromHref(href: string): string {
-  const path = href.startsWith("http") ? href.replace(/^https?:\/\/[^/]+/, "") : href;
-  const after = path.split("/manga/")[1] ?? "";
-  return after.replace(/^\/+|\/+$/g, "");
-}
-
-export function chapterIdFromHref(href: string): string {
-  const path = href.startsWith("http") ? href.replace(/^https?:\/\/[^/]+/, "") : href;
-  return path.startsWith("/") ? path : `/${path}`;
 }
 
 export interface MangaCard {
@@ -490,12 +474,4 @@ export function countPages(body: string): number {
   }
   const matches = body.match(PAGE_ORDER_REGEX);
   return matches ? matches.length : 0;
-}
-
-export function parseJson<T>(raw: string, context: string): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch (error) {
-    throw new Error(`Failed to parse ${context}`, { cause: error });
-  }
 }

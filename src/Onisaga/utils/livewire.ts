@@ -5,12 +5,25 @@ import { type CheerioAPI } from "cheerio";
 
 import {
   DEFAULT_SORT,
+  DOMAIN,
   type BrowseLivewireRequest,
   type ChapterLivewireRequest,
   type LivewireState,
   type PostFilterUpdates,
   type ToggleLivewireRequest,
-} from "./models";
+} from "../models";
+
+// Headers a Livewire `POST /livewire/update` expects (JSON body, XHR marker).
+export function livewireHeaders(referer: string): Record<string, string> {
+  return {
+    "X-Livewire": "",
+    Accept: "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+    "Content-Type": "application/json",
+    Origin: DOMAIN,
+    Referer: referer,
+  };
+}
 
 // Invoke a single Livewire method (setPeriod / setSort / setPlatform) on a
 // rail's component to switch its time range / platform and re-render its cards.

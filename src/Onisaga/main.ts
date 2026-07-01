@@ -34,14 +34,6 @@ import {
   OnisagaSettingsForm,
 } from "./forms";
 import {
-  buildBrowseRequest,
-  buildLoadMoreChaptersRequest,
-  buildSectionToggleRequest,
-  defaultUpdates,
-  extractLivewireState,
-  isDefaultUpdates,
-} from "./livewire";
-import {
   DEFAULT_SORT,
   DOMAIN,
   GENRES,
@@ -53,25 +45,32 @@ import {
   type OnisagaSearchMetadata,
   type PostFilterUpdates,
 } from "./models";
-import { livewireHeaders, OnisagaInterceptor } from "./network";
+import { OnisagaInterceptor } from "./network";
 import {
   buildStatSubtitle,
   countPages,
   extractReaderToken,
   hasNextPage,
-  mangaIdFromHref,
   parseChapters,
-  parseJson,
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
   sliceSectionHtml,
-  straightenQuotes,
   topMangaSubtitle,
   type MangaCard,
   type TopMangaItem,
 } from "./parsers";
 import type OnisagaConfig from "./pbconfig";
+import { mangaIdFromHref, parseJson, straightenQuotes } from "./utils/helpers";
+import {
+  buildBrowseRequest,
+  buildLoadMoreChaptersRequest,
+  buildSectionToggleRequest,
+  defaultUpdates,
+  extractLivewireState,
+  isDefaultUpdates,
+  livewireHeaders,
+} from "./utils/livewire";
 
 // How many ranked titles the featured hero shows, taken straight from the
 // /top-manga ranking (no per-item requests).

@@ -89,14 +89,3 @@ export class OnisagaInterceptor extends PaperbackInterceptor {
     return data;
   }
 }
-
-export function livewireHeaders(referer: string): Record<string, string> {
-  return {
-    "X-Livewire": "",
-    Accept: "application/json",
-    "X-Requested-With": "XMLHttpRequest",
-    "Content-Type": "application/json",
-    Origin: DOMAIN,
-    Referer: referer,
-  };
-}
