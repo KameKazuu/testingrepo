@@ -22,7 +22,6 @@ export interface DiscoverSectionDef {
 export const DISCOVER_SECTIONS: DiscoverSectionDef[] = [
   { id: "top_manga", title: "Top Manga" },
   { id: "latest", title: "Latest" },
-  { id: "most_popular", title: "Most Popular" },
   { id: "top_10_rising", title: "Top 10 Rising" },
   { id: "highest_rated", title: "Highest Rated" },
   { id: "genres", title: "Genres" },
@@ -118,16 +117,6 @@ export interface SectionToggle {
 }
 
 export const SECTION_TOGGLES: Record<string, SectionToggle> = {
-  most_popular: {
-    component: "most-popular",
-    method: "setPeriod",
-    options: [
-      { id: "day", title: "Day" },
-      { id: "week", title: "Week" },
-      { id: "month", title: "Month" },
-      { id: "year", title: "Year" },
-    ],
-  },
   top_10_rising: {
     component: "trending-top10",
     method: "setPeriod",
