@@ -8,6 +8,7 @@ export const SHOW_NSFW_KEY = "show_nsfw";
 export const DISCOVER_TYPE_KEY = "discover_type";
 export const DISCOVER_STATUS_KEY = "discover_status";
 export const EXCLUDED_GENRES_KEY = "excluded_genres";
+export const LANGUAGES_KEY = "languages";
 export const READER_TOKEN_KEY_PREFIX = "reader_token_";
 export const SECTIONS_ORDER_KEY = "sections_order";
 export const SECTIONS_DELETED_KEY = "sections_deleted";

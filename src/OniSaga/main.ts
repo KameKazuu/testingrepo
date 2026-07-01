@@ -28,6 +28,7 @@ import {
   getDiscoverStatus,
   getDiscoverType,
   getExcludedGenres,
+  getLanguages,
   getSectionsOrder,
   getShowNsfw,
   OniSagaAdvancedSearchForm,
@@ -526,6 +527,12 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
         // Keep the first server-rendered page if the bulk load fails.
       }
     }
+
+    // Keep only the user's chosen languages (default English); fall back to all
+    // when a title has none in those languages so the list is never empty.
+    const languages = getLanguages();
+    const inLanguage = chapters.filter((chapter) => languages.includes(chapter.langCode));
+    if (inLanguage.length > 0) chapters = inLanguage;
 
     // Newest first: the highest chapter number gets the highest sortingIndex.
     chapters.sort((a, b) => b.chapNum - a.chapNum);

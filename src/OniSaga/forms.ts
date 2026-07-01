@@ -22,6 +22,8 @@ import {
   DISCOVER_STATUS_KEY,
   DISCOVER_TYPE_KEY,
   EXCLUDED_GENRES_KEY,
+  LANGUAGES,
+  LANGUAGES_KEY,
   MIN_CHAPTERS_OPTIONS,
   SECTIONS_DELETED_KEY,
   SECTIONS_ORDER_KEY,
@@ -50,6 +52,11 @@ export function getDiscoverStatus(): string {
 
 export function getExcludedGenres(): string[] {
   return (Application.getState(EXCLUDED_GENRES_KEY) as string[] | undefined) ?? [];
+}
+
+// Chapter languages to show (langCodes); defaults to English.
+export function getLanguages(): string[] {
+  return (Application.getState(LANGUAGES_KEY) as string[] | undefined) ?? ["en"];
 }
 
 // ----- Discover section order / visibility -----
@@ -169,6 +176,7 @@ export class OniSagaSettingsForm extends Form {
   private type: string;
   private status: string;
   private excludedGenres: string[];
+  private languages: string[];
 
   constructor() {
     super();
@@ -176,6 +184,7 @@ export class OniSagaSettingsForm extends Form {
     this.type = getDiscoverType();
     this.status = getDiscoverStatus();
     this.excludedGenres = getExcludedGenres();
+    this.languages = getLanguages();
   }
 
   override getSections() {
@@ -214,6 +223,22 @@ export class OniSagaSettingsForm extends Form {
             minItemCount: 0,
             maxItemCount: 1,
             onValueChange: Application.Selector(this as OniSagaSettingsForm, "updateStatus"),
+          }),
+        ],
+      ),
+      Section(
+        {
+          id: "languages",
+          footer: "Only show chapters in these languages. Defaults to English.",
+        },
+        [
+          SelectRow("languages", {
+            title: "Chapter Languages",
+            value: this.languages,
+            options: LANGUAGES.map((lang) => ({ id: lang.langCode, title: lang.title })),
+            minItemCount: 1,
+            maxItemCount: LANGUAGES.length,
+            onValueChange: Application.Selector(this as OniSagaSettingsForm, "updateLanguages"),
           }),
         ],
       ),
@@ -265,6 +290,11 @@ export class OniSagaSettingsForm extends Form {
   async updateExcludedGenres(value: string[]): Promise<void> {
     this.excludedGenres = value;
     Application.setState(value, EXCLUDED_GENRES_KEY);
+  }
+
+  async updateLanguages(value: string[]): Promise<void> {
+    this.languages = value;
+    Application.setState(value, LANGUAGES_KEY);
   }
 
   async resetFilters(): Promise<void> {
