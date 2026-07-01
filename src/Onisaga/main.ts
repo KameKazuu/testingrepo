@@ -48,6 +48,7 @@ import {
 import { OnisagaInterceptor } from "./network";
 import {
   buildStatSubtitle,
+  componentHtmlByName,
   countPages,
   extractReaderToken,
   hasNextPage,
@@ -55,7 +56,6 @@ import {
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
-  sliceSectionHtml,
   topMangaSubtitle,
   type MangaCard,
   type TopMangaItem,
@@ -219,7 +219,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
         };
       }
       case "fan_favorites":
-        return this.homeRailSection("Fan Favorites");
+        return this.fetchFanFavorites();
       case "genres":
         return {
           items: GENRES.map((genre) => ({
@@ -311,10 +311,8 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     }
   }
 
-  // The /trending page server-renders every curated rail (Most Popular, Fan
-  // Favorites, Top 10 Rising, Trending by Platform, More Trending) eagerly in one
-  // document, whereas /home lazy-loads the lower rails via Livewire (so a plain
-  // fetch misses them). Pull /trending once and slice each rail out by heading.
+  // The /trending page carries the Livewire toggle rails (e.g. Top 10 Rising)
+  // whose state a chip tap drives. Pull it once and cache it for those lookups.
   private async fetchHomeHtml(): Promise<string> {
     const now = Date.now();
     const cached = this.homeHtmlCache;
@@ -329,15 +327,38 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     return html;
   }
 
-  // A curated rail (e.g. Fan Favorites) is server-rendered into the home/trending
-  // document, so slice it out by heading and parse its cards — no Livewire
-  // round-trip, so it's as reliable as the page load. Best-effort: a missing rail
-  // yields no items rather than an error.
-  private async homeRailSection(heading: string): Promise<PagedResults<DiscoverSectionItem>> {
+  // Fan Favorites is a Livewire component that lives on /home (not /trending).
+  // Prefer the cards already server-rendered inside its component; if the page
+  // ships an un-hydrated placeholder, drive the component's Livewire render to
+  // pull them. Best-effort: no component/cards yields no items, not an error.
+  private async fetchFanFavorites(): Promise<PagedResults<DiscoverSectionItem>> {
+    const showNsfw = getShowNsfw();
     try {
-      const section = sliceSectionHtml(await this.fetchHomeHtml(), heading);
-      if (!section) return { items: [] };
-      const cards = parseMangaCards(cheerio.load(section), getShowNsfw());
+      const homeUrl = `${DOMAIN}/home`;
+      const [, buffer] = await Application.scheduleRequest({ url: homeUrl, method: "GET" });
+      const $ = cheerio.load(Application.arrayBufferToUTF8String(buffer));
+
+      const component = componentHtmlByName($, "fan-favorites");
+      let cards = component ? parseMangaCards(cheerio.load(component), showNsfw) : [];
+
+      if (cards.length === 0) {
+        const state = extractLivewireState($, "fan-favorites");
+        if (state) {
+          const [, buf] = await Application.scheduleRequest({
+            url: `${DOMAIN}/livewire/update`,
+            method: "POST",
+            headers: livewireHeaders(homeUrl),
+            body: JSON.stringify(buildSectionToggleRequest(state, "setSort", "all-time")),
+          });
+          const json = parseJson<LivewireResponse>(
+            Application.arrayBufferToUTF8String(buf),
+            "livewire fan-favorites",
+          );
+          const rendered = json.components?.[0]?.effects?.html;
+          cards = rendered ? parseMangaCards(cheerio.load(rendered), showNsfw) : [];
+        }
+      }
+
       return {
         items: cards.map((card) => ({
           type: "simpleCarouselItem",

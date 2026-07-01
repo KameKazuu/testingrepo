@@ -210,24 +210,19 @@ export function topMangaSubtitle(item: TopMangaItem): string | undefined {
 }
 
 // =============================== Home sections ===============================
-// The home page stacks every curated rail (Most Popular, Top 10 Rising,
-// Trending by Platform, More Trending, Latest, Fan Favorites …) in a single
-// document, each introduced by an <h2 data-flux-heading> with no enclosing
-// <section> wrapper. Slice the markup between one heading and the next so each
-// rail can be parsed independently with parseMangaCards.
-const SECTION_HEADING_REGEX = /data-flux-heading>\s*([^<]+?)\s*<\/h2>/gi;
-
-export function sliceSectionHtml(html: string, heading: string): string | undefined {
-  const wanted = heading.toLowerCase();
-  const headings = [...html.matchAll(SECTION_HEADING_REGEX)];
-  for (let i = 0; i < headings.length; i++) {
-    if (headings[i][1].trim().toLowerCase() === wanted) {
-      const start = headings[i].index ?? 0;
-      const end = headings[i + 1]?.index ?? html.length;
-      return html.slice(start, end);
+// A curated rail (Fan Favorites, …) is a Livewire component whose root <div>
+// carries a `wire:snapshot` holding the component name. Return that component's
+// outer HTML so its cards can be parsed with parseMangaCards. Empty when the
+// page doesn't carry the component.
+export function componentHtmlByName($: CheerioAPI, componentName: string): string {
+  let html = "";
+  $("[wire\\:snapshot]").each((_, el) => {
+    if (html) return;
+    if (($(el).attr("wire:snapshot") ?? "").includes(componentName)) {
+      html = $.html(el);
     }
-  }
-  return undefined;
+  });
+  return html;
 }
 
 export function hasNextPage($: CheerioAPI): boolean {
