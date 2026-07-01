@@ -51,7 +51,6 @@ import {
   type LivewireResponse,
   type LivewireState,
   type OnisagaSearchMetadata,
-  type PageApiResponse,
   type PostFilterUpdates,
 } from "./models";
 import { livewireHeaders, OnisagaInterceptor } from "./network";
@@ -491,10 +490,16 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     return chapters;
   }
 
+  // Opening a chapter is one request: fetch the reader page for its token + page
+  // count, then hand Paperback a page-API url per page WITHOUT resolving any of
+  // them. Each page's signed image is fetched lazily by the interceptor only when
+  // the reader displays it (see OnisagaInterceptor). Resolving all ~80 pages up
+  // front took ~35s and tripped the site's per-IP throttle; lazy resolution opens
+  // instantly and only ever touches pages the reader actually shows.
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const chapterUrl = `${DOMAIN}${chapter.chapterId}`;
     const segments = chapter.chapterId.split("/").filter(Boolean);
-    const cid = segments[segments.length - 1];
+    const cid = segments[segments.length - 1] ?? "";
 
     const [, buffer] = await Application.scheduleRequest({ url: chapterUrl, method: "GET" });
     const body = Application.arrayBufferToUTF8String(buffer);
@@ -505,93 +510,16 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     const pageCount = countPages(body);
     if (pageCount === 0) throw new Error("No pages found in chapter");
 
-    const pages = await this.resolveAllPages(cid, pageCount, chapterUrl, token);
-    if (pages.length === 0) throw new Error("Could not resolve any chapter pages");
+    this.requestManager.setReaderToken(cid, token);
 
     return {
       id: chapter.chapterId,
       mangaId: chapter.sourceManga.mangaId,
-      pages,
+      pages: Array.from(
+        { length: pageCount },
+        (_, order) => `${DOMAIN}/api/chapter/${cid}/page/${order}`,
+      ),
     };
-  }
-
-  // Resolve every page url by walking the chapter in order, threading the
-  // single-use reader token through a shared holder: each response carries the
-  // token for the next page via X-Reader-Token-Next. PAGE_CONCURRENCY is 1 so the
-  // chain is never broken. A 429 is the site's per-IP throttle (typically tripped
-  // by browsing before the reader even opens); because it is global, every
-  // remaining page would 429 too, so we abort the whole walk on a sustained
-  // throttle rather than hammering it page by page (which only deepens the
-  // cooldown). A non-throttle miss on a single page is skipped, not fatal.
-  // Paperback needs all page urls up front, so this returns the full ordered list.
-  private async resolveAllPages(
-    cid: string,
-    pageCount: number,
-    chapterUrl: string,
-    initialToken: string,
-  ): Promise<string[]> {
-    const holder = { token: initialToken };
-    const urls: string[] = [];
-
-    for (let order = 0; order < pageCount; order++) {
-      const url = await this.resolvePageUrl(cid, order, chapterUrl, holder);
-      if (url) urls.push(url);
-    }
-
-    return urls;
-  }
-
-  // Resolve a single page's signed CDN url from the tokenized page API. Retries a
-  // 429 a couple of times with a short, capped backoff (the site's Retry-After
-  // can be a full minute, which is no use mid-reader), and adopts a rotated
-  // reader token from X-Reader-Token-Next. Throws on a sustained 429 so the walk
-  // can stop and report the throttle; returns "" for a non-throttle miss so one
-  // bad page never fails an otherwise-good chapter.
-  private async resolvePageUrl(
-    cid: string,
-    order: number,
-    chapterUrl: string,
-    holder: { token: string },
-  ): Promise<string> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const [response, buffer] = await Application.scheduleRequest({
-        url: `${DOMAIN}/api/chapter/${cid}/page/${order}`,
-        method: "GET",
-        headers: {
-          "X-Reader-Token": holder.token,
-          "Sec-Fetch-Mode": "cors",
-          "Sec-Fetch-Site": "same-origin",
-          Referer: chapterUrl,
-        },
-      });
-
-      if (response.status === 429) {
-        if (attempt === 2) {
-          throw new Error(
-            "OniSaga is rate-limiting page requests (HTTP 429). Wait a minute, then reopen the chapter — browsing many covers first can trip the limit.",
-          );
-        }
-        const retryAfter = Number(response.headers?.["retry-after"]);
-        const seconds =
-          Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2 * attempt + 1;
-        await Application.sleep(Math.min(seconds, 5));
-        continue;
-      }
-
-      // The site may rotate the token for subsequent requests; adopt it so the
-      // next page stays authorized.
-      const nextToken = response.headers?.["x-reader-token-next"];
-      if (nextToken) holder.token = nextToken;
-
-      try {
-        const dto = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as PageApiResponse;
-        return dto.url ?? "";
-      } catch {
-        return "";
-      }
-    }
-
-    return "";
   }
 
   // ============================== Livewire browse ==============================
