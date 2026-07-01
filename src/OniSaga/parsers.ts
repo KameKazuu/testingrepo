@@ -423,23 +423,6 @@ function makeChapter(
   };
 }
 
-// Total chapter count from the list header badge (the "Chapters" heading paired
-// with a badge number), used to skip the bulk Livewire load when the first
-// render already holds every chapter. 0 when the badge isn't found.
-export function parseChapterCount($: CheerioAPI): number {
-  let total = 0;
-  $("[data-flux-heading]").each((_, el) => {
-    if (total) return;
-    if ($(el).text().trim() !== "Chapters") return;
-    const n = parseInt(
-      $(el).parent().find("[data-flux-badge]").first().text().replace(/\D/g, ""),
-      10,
-    );
-    if (Number.isFinite(n) && n > 0) total = n;
-  });
-  return total;
-}
-
 // The site is English-first but some series carry multi-language chapter
 // variants and there is no site-side language filter, so surface every chapter
 // and tag each with its own detected language for the app to group on.

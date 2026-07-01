@@ -51,7 +51,6 @@ import {
   countPages,
   extractReaderToken,
   hasNextPage,
-  parseChapterCount,
   parseChapters,
   parseGenres,
   parseMangaCards,
@@ -530,31 +529,27 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     let chapters = parseChapters($, sourceManga);
 
     // The chapter list is paginated client-side; one Livewire call that bumps the
-    // loaded-counts past any real series returns the whole list at once. Skip that
-    // round-trip when the first render already holds every chapter.
-    const total = parseChapterCount($);
-    if (!(total > 0 && chapters.length >= total)) {
-      const state = extractLivewireState($, "manga.chapter-list");
-      if (state) {
-        try {
-          const [, buffer] = await Application.scheduleRequest({
-            url: `${DOMAIN}/livewire/update`,
-            method: "POST",
-            headers: livewireHeaders(mangaUrl),
-            body: JSON.stringify(buildLoadMoreChaptersRequest(state)),
-          });
-          const json = parseJson<LivewireResponse>(
-            Application.arrayBufferToUTF8String(buffer),
-            "livewire chapters",
-          );
-          const html = json.components?.[0]?.effects?.html;
-          if (html) {
-            const full = parseChapters(cheerio.load(html), sourceManga);
-            if (full.length > chapters.length) chapters = full;
-          }
-        } catch {
-          // Keep the first server-rendered page if the bulk load fails.
+    // loaded-counts past any real series returns the whole list at once.
+    const state = extractLivewireState($, "manga.chapter-list");
+    if (state) {
+      try {
+        const [, buffer] = await Application.scheduleRequest({
+          url: `${DOMAIN}/livewire/update`,
+          method: "POST",
+          headers: livewireHeaders(mangaUrl),
+          body: JSON.stringify(buildLoadMoreChaptersRequest(state)),
+        });
+        const json = parseJson<LivewireResponse>(
+          Application.arrayBufferToUTF8String(buffer),
+          "livewire chapters",
+        );
+        const html = json.components?.[0]?.effects?.html;
+        if (html) {
+          const full = parseChapters(cheerio.load(html), sourceManga);
+          if (full.length > chapters.length) chapters = full;
         }
+      } catch {
+        // Keep the first server-rendered page if the bulk load fails.
       }
     }
 
