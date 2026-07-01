@@ -24,6 +24,7 @@ export const DISCOVER_SECTIONS: DiscoverSectionDef[] = [
   { id: "latest", title: "Latest" },
   { id: "top_10_rising", title: "Top 10 Rising" },
   { id: "highest_rated", title: "Highest Rated" },
+  { id: "fan_favorites", title: "Fan Favorites" },
   { id: "genres", title: "Genres" },
   { id: "types", title: "Types" },
 ];

@@ -65,6 +65,7 @@ import {
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
+  sliceSectionHtml,
   straightenQuotes,
   topMangaSubtitle,
   type MangaCard,
@@ -218,6 +219,8 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
           })),
         };
       }
+      case "fan_favorites":
+        return this.homeRailSection("Fan Favorites");
       case "genres":
         return {
           items: GENRES.map((genre) => ({
@@ -325,6 +328,30 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
     const html = Application.arrayBufferToUTF8String(buffer);
     this.homeHtmlCache = { html, at: now };
     return html;
+  }
+
+  // A curated rail (e.g. Fan Favorites) is server-rendered into the home/trending
+  // document, so slice it out by heading and parse its cards — no Livewire
+  // round-trip, so it's as reliable as the page load. Best-effort: a missing rail
+  // yields no items rather than an error.
+  private async homeRailSection(heading: string): Promise<PagedResults<DiscoverSectionItem>> {
+    try {
+      const section = sliceSectionHtml(await this.fetchHomeHtml(), heading);
+      if (!section) return { items: [] };
+      const cards = parseMangaCards(cheerio.load(section), getShowNsfw());
+      return {
+        items: cards.map((card) => ({
+          type: "simpleCarouselItem",
+          mangaId: card.mangaId,
+          imageUrl: card.imageUrl,
+          title: card.title,
+          subtitle: buildStatSubtitle(card),
+          contentRating: card.contentRating,
+        })),
+      };
+    } catch {
+      return { items: [] };
+    }
   }
 
   // A discover toggle chip was tapped: drive the rail's Livewire method
