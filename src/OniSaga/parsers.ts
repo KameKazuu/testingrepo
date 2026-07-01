@@ -137,6 +137,11 @@ function ratingValue(text: string): string | undefined {
   return text.match(/\d+(?:\.\d+)?/)?.[0];
 }
 
+// The 18+ overlay/badge the site stamps on adult posters.
+function hasAdultMarker(el: Cheerio<Element>): boolean {
+  return el.find("span:contains('18+')").length > 0;
+}
+
 export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] {
   const items: TopMangaItem[] = [];
   const seen = new Set<string>();
@@ -161,7 +166,7 @@ export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] 
       mangaId: mangaIdFromHref(a.attr("href") ?? ""),
       title: (img.attr("alt") ?? "").replace(/\s*cover\s*$/i, "").trim(),
       imageUrl: resolveImageUrl(img),
-      contentRating: ContentRating.EVERYONE,
+      contentRating: hasAdultMarker(a) ? ContentRating.ADULT : ContentRating.EVERYONE,
       reads: readsMatch[1],
     });
   });
@@ -177,13 +182,13 @@ export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] 
       .children("span")
       .map((_, s) => $(s).text().trim())
       .get();
+    const adult = hasAdultMarker(a) || (genres !== undefined && ADULT_GENRE_REGEX.test(genres));
 
     add({
       mangaId: mangaIdFromHref(a.attr("href") ?? ""),
       title: a.find('[class*="line-clamp-1"]').first().text().trim(),
       imageUrl: resolveImageUrl(a.find("img").first()),
-      contentRating:
-        genres && ADULT_GENRE_REGEX.test(genres) ? ContentRating.ADULT : ContentRating.EVERYONE,
+      contentRating: adult ? ContentRating.ADULT : ContentRating.EVERYONE,
       genres,
       reads: stats[0] || undefined,
       rating: stats.length > 1 ? ratingValue(stats[stats.length - 1]) : undefined,
@@ -284,19 +289,24 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string): SourceManga {
     if (name) genres.push(name);
   });
 
+  // Normalize by the displayed denominator ("8.6/10", "4.3/5"); default /10.
   let rating = 0;
   $("span.text-xs").each((_, el) => {
     if (rating) return;
     const match = $(el)
       .text()
       .trim()
-      .match(/^(\d+\.\d+)/);
-    if (match) rating = parseFloat(match[1]) / 10;
+      .match(/^(\d+\.\d+)(?:\s*\/\s*(\d+))?/);
+    if (!match) return;
+    const scale = match[2] ? parseInt(match[2], 10) : 10;
+    if (scale > 0) rating = Math.min(parseFloat(match[1]) / scale, 1);
   });
 
   const synopsis = $("p.leading-relaxed").first().text().trim();
 
-  const isAdult = $("span:contains('18+')").length > 0;
+  // Scope to the details header (info block + poster) so an 18+ card in a
+  // recommendations rail further down the page can't mislabel this title.
+  const isAdult = hasAdultMarker(infoSection) || hasAdultMarker($(".w-32").first());
 
   const tagGroups: TagSection[] = [];
   if (genres.length > 0) {

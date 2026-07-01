@@ -24,12 +24,16 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
   }
 
   override async interceptRequest(request: Request): Promise<Request> {
-    const headers: Record<string, string> = {
-      ...request.headers,
-      referer: `${DOMAIN}/`,
-      origin: DOMAIN,
-      "user-agent": await Application.getDefaultUserAgent(),
-    };
+    // Keep a caller-provided Referer/Origin (Livewire calls send page-specific
+    // ones); normalize to lower-case so the map never carries both casings.
+    const headers: Record<string, string> = { ...request.headers };
+    const referer = headers.referer ?? headers.Referer ?? `${DOMAIN}/`;
+    const origin = headers.origin ?? headers.Origin ?? DOMAIN;
+    delete headers.Referer;
+    delete headers.Origin;
+    headers.referer = referer;
+    headers.origin = origin;
+    headers["user-agent"] = await Application.getDefaultUserAgent();
 
     // A reader page-API request carries the chapter's signed token so the server
     // hands back the page's short-lived image url.

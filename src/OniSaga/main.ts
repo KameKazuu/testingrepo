@@ -3,6 +3,7 @@
 
 import {
   BasicRateLimiter,
+  CloudflareError,
   ContentRating,
   CookieStorageInterceptor,
   DiscoverSectionType,
@@ -317,7 +318,9 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     try {
       const $ = await this.fetchCheerio({ url: `${DOMAIN}/top-manga?sort=${sort}`, method: "GET" });
       return parseTopManga($, showNsfw);
-    } catch {
+    } catch (error) {
+      // A Cloudflare wall must reach the user as the bypass prompt.
+      if (error instanceof CloudflareError) throw error;
       return [];
     }
   }
@@ -393,7 +396,8 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
           contentRating: card.contentRating,
         })),
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
       return { items: [] };
     }
   }
@@ -420,7 +424,8 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       const cards = html ? parseMangaCards(cheerio.load(html), getShowNsfw()) : [];
 
       return { items: toSearchItems(cards) };
-    } catch {
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
       return { items: [] };
     }
   }

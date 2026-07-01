@@ -205,7 +205,8 @@ export class OniSagaSettingsForm extends Form {
       Section(
         {
           id: "discoverFilters",
-          footer: "Applies to the Popular, Latest, Top Rated and Fan Favorites sections.",
+          footer:
+            "Applies to the Latest section and search. The ranked rails follow the site's own lists.",
         },
         [
           SelectRow("type", {
@@ -275,21 +276,25 @@ export class OniSagaSettingsForm extends Form {
   async updateShowNsfw(value: boolean): Promise<void> {
     this.showNsfw = value;
     Application.setState(value, SHOW_NSFW_KEY);
+    Application.invalidateDiscoverSections();
   }
 
   async updateType(value: string[]): Promise<void> {
     this.type = value[0] ?? "";
     Application.setState(this.type, DISCOVER_TYPE_KEY);
+    Application.invalidateDiscoverSections();
   }
 
   async updateStatus(value: string[]): Promise<void> {
     this.status = value[0] ?? "";
     Application.setState(this.status, DISCOVER_STATUS_KEY);
+    Application.invalidateDiscoverSections();
   }
 
   async updateExcludedGenres(value: string[]): Promise<void> {
     this.excludedGenres = value;
     Application.setState(value, EXCLUDED_GENRES_KEY);
+    Application.invalidateDiscoverSections();
   }
 
   async updateLanguages(value: string[]): Promise<void> {
@@ -300,6 +305,7 @@ export class OniSagaSettingsForm extends Form {
   async resetFilters(): Promise<void> {
     this.excludedGenres = [];
     Application.setState([], EXCLUDED_GENRES_KEY);
+    Application.invalidateDiscoverSections();
     this.reloadForm();
   }
 }
