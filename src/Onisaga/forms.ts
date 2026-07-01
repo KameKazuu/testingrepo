@@ -22,7 +22,6 @@ import {
   DISCOVER_STATUS_KEY,
   DISCOVER_TYPE_KEY,
   EXCLUDED_GENRES_KEY,
-  GENRES,
   MIN_CHAPTERS_OPTIONS,
   SECTIONS_DELETED_KEY,
   SECTIONS_ORDER_KEY,
@@ -33,6 +32,7 @@ import {
   type Option,
   type OnisagaSearchMetadata,
 } from "./models";
+import { getGenres } from "./utils";
 
 // ----- Settings state accessors -----
 
@@ -230,9 +230,9 @@ export class OnisagaSettingsForm extends Form {
           SelectRow("excludedGenres", {
             title: "Genre Blacklist",
             value: this.excludedGenres,
-            options: toTags(GENRES),
+            options: toTags(getGenres()),
             minItemCount: 0,
-            maxItemCount: GENRES.length,
+            maxItemCount: getGenres().length,
             onValueChange: Application.Selector(
               this as OnisagaSettingsForm,
               "updateExcludedGenres",
@@ -291,7 +291,7 @@ export class OnisagaAdvancedSearchForm extends AdvancedSearchForm {
     this.status = meta.status ?? "";
     this.minChapters = meta.minChapters ?? "";
     this.genres = { ...meta.genres };
-    this.genreOptions = toTags(GENRES);
+    this.genreOptions = toTags(getGenres());
   }
 
   override getSections() {

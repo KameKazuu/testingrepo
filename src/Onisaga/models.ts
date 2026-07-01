@@ -11,6 +11,10 @@ export const EXCLUDED_GENRES_KEY = "excluded_genres";
 export const READER_TOKEN_KEY_PREFIX = "reader_token_";
 export const SECTIONS_ORDER_KEY = "sections_order";
 export const SECTIONS_DELETED_KEY = "sections_deleted";
+export const GENRES_KEY = "genres_cache";
+export const GENRES_FETCHED_KEY = "genres_fetched_at";
+// Refetch the genre list from the site at most once every 48h.
+export const GENRES_TTL = 172_800_000;
 
 // Discover rail catalog. The array order is the default display order; the
 // section settings form lets the user reorder or hide individual rails.
@@ -129,7 +133,9 @@ export const SECTION_TOGGLES: Record<string, SectionToggle> = {
   },
 };
 
-// id = the genre id the Livewire filter expects.
+// Fallback genre list, used until the live list is fetched from the browse
+// filter and cached (see parseGenres / getGenres). id = the Livewire filter's
+// genre id; kept current so a fresh install or a failed fetch still filters.
 export const GENRES: Option[] = [
   { id: "1", title: "Action" },
   { id: "61", title: "Adaptation" },

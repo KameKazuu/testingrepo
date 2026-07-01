@@ -5,8 +5,8 @@ import { ContentRating, type Chapter, type SourceManga, type TagSection } from "
 import { type Cheerio, type CheerioAPI } from "cheerio";
 import { type Element } from "domhandler";
 
-import { DOMAIN, GENRES, LANGUAGES } from "./models";
-import { chapterIdFromHref, mangaIdFromHref } from "./utils/helpers";
+import { DOMAIN, GENRES, LANGUAGES, type Option } from "./models";
+import { chapterIdFromHref, mangaIdFromHref } from "./utils";
 
 const READER_TOKEN_REGEX = /readerToken["']?\s*:\s*["']([^"']+)["']/;
 const TOTAL_PAGES_REGEX = /totalPages["']?\s*:\s*(\d+)/;
@@ -223,6 +223,25 @@ export function componentHtmlByName($: CheerioAPI, componentName: string): strin
     }
   });
   return html;
+}
+
+// The browse filter renders every genre as a hidden checkbox
+// (`<input name="genre[]" value="67">`) paired with a `<label for="genre67">`.
+// Read that id → title mapping so the source tracks new genres without a code
+// edit. Returns [] when the panel is absent so the caller keeps the fallback.
+export function parseGenres($: CheerioAPI): Option[] {
+  const genres: Option[] = [];
+  const seen = new Set<string>();
+  $('input[name="genre[]"]').each((_, el) => {
+    const id = $(el).attr("value")?.trim();
+    if (!id || seen.has(id)) return;
+    const title = $(`label[for="genre${id}"]`).first().text().trim();
+    if (!title) return;
+    seen.add(id);
+    genres.push({ id, title });
+  });
+  genres.sort((a, b) => a.title.localeCompare(b.title));
+  return genres;
 }
 
 export function hasNextPage($: CheerioAPI): boolean {

@@ -36,7 +36,6 @@ import {
 import {
   DEFAULT_SORT,
   DOMAIN,
-  GENRES,
   SECTION_TOGGLES,
   SORT_OPTIONS,
   TYPE_OPTIONS,
@@ -53,6 +52,7 @@ import {
   extractReaderToken,
   hasNextPage,
   parseChapters,
+  parseGenres,
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
@@ -61,16 +61,21 @@ import {
   type TopMangaItem,
 } from "./parsers";
 import type OnisagaConfig from "./pbconfig";
-import { mangaIdFromHref, parseJson, straightenQuotes } from "./utils/helpers";
 import {
   buildBrowseRequest,
   buildLoadMoreChaptersRequest,
   buildSectionToggleRequest,
+  cacheGenres,
   defaultUpdates,
   extractLivewireState,
+  genresAreStale,
+  getGenres,
   isDefaultUpdates,
   livewireHeaders,
-} from "./utils/livewire";
+  mangaIdFromHref,
+  parseJson,
+  straightenQuotes,
+} from "./utils";
 
 // How many ranked titles the featured hero shows, taken straight from the
 // /top-manga ranking (no per-item requests).
@@ -163,11 +168,27 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
   // =============================== Discover ====================================
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
+    void this.refreshGenres();
     return getSectionsOrder().map((section) => ({
       id: section.id,
       title: section.title,
       type: discoverSectionType(section.id),
     }));
+  }
+
+  // Keep the genre list current without a code edit: refetch it from the browse
+  // filter at most once per TTL and cache it. Best-effort — any failure leaves
+  // the existing cache (or the bundled fallback) in place.
+  private async refreshGenres(): Promise<void> {
+    const now = Date.now();
+    if (!genresAreStale(now)) return;
+    try {
+      const $ = await this.fetchCheerio({ url: `${DOMAIN}/browse`, method: "GET" });
+      const genres = parseGenres($);
+      if (genres.length > 0) cacheGenres(genres, now);
+    } catch {
+      // Keep the current cache / fallback.
+    }
   }
 
   async getDiscoverSectionItems(
@@ -222,7 +243,7 @@ export class OnisagaExtension implements ExtensionImpl<typeof OnisagaConfig> {
         return this.fetchFanFavorites();
       case "genres":
         return {
-          items: GENRES.map((genre) => ({
+          items: getGenres().map((genre) => ({
             type: "genresCarouselItem",
             searchQuery: {
               title: "",
