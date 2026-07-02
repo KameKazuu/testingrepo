@@ -2,6 +2,7 @@
 /* Copyright © 2026 Inkdex */
 
 import {
+  BasicRateLimiter,
   CloudflareError,
   PaperbackInterceptor,
   type Request,
@@ -21,12 +22,6 @@ const PAGE_RETRY_LIMIT = 2;
 // Backoff when the page API 429s without a Retry-After.
 const RATE_LIMIT_FALLBACK_SECONDS = 3;
 
-// The reader's prefetcher fires a whole window of page-API requests at once,
-// which bursts past the site's per-IP throttle and 429s every page. Serialize
-// the page API (one request in flight, spaced apart) so it stays well under
-// the limit — the site's own reader loads pages sequentially the same way.
-const PAGE_API_SPACING_SECONDS = 1;
-
 // Response headers can arrive in any casing; read them case-insensitively.
 function headerValue(
   headers: Record<string, string> | undefined,
@@ -44,19 +39,8 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
   // by getChapterDetails; the page API wants both, like the site's own reader.
   private readerSessions = new Map<string, { token: string; referer: string }>();
 
-  // Serializes reader page-API requests: each waits for the previous one plus a
-  // fixed gap, so a prefetch window drains one-at-a-time instead of bursting.
-  private pageGate: Promise<unknown> = Promise.resolve();
-
   setReaderToken(chapterId: string, token: string, referer: string): void {
     this.readerSessions.set(chapterId, { token, referer });
-  }
-
-  private throttlePageApi(): Promise<unknown> {
-    const ready = this.pageGate.then(() => Application.sleep(PAGE_API_SPACING_SECONDS));
-    // Keep the chain alive even if one wait rejects.
-    this.pageGate = ready.catch(() => undefined);
-    return ready;
   }
 
   override async interceptRequest(request: Request): Promise<Request> {
@@ -84,8 +68,6 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
         headers["sec-fetch-site"] = "same-origin";
         headers.referer = session.referer;
       }
-      // Space this request behind any page-API request already in flight.
-      await this.throttlePageApi();
     }
 
     return { ...request, headers };
@@ -179,5 +161,17 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     }
 
     return data;
+  }
+}
+
+// The reader's prefetcher fires a whole window of page-API requests at once,
+// which bursts past the site's per-IP throttle and 429s every page. Give the
+// page API its own strict, serialized budget (the base limiter already
+// serializes via a lock) so it drains one-at-a-time; everything else keeps the
+// generous global limiter. This mirrors Webtoon's per-endpoint limiters.
+export class OniSagaPageRateLimiter extends BasicRateLimiter {
+  override async interceptRequest(request: Request): Promise<Request> {
+    if (!PAGE_API_REGEX.test(request.url)) return request;
+    return super.interceptRequest(request);
   }
 }
