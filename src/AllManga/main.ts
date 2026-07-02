@@ -189,8 +189,14 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     metadata: PageMetadata | undefined,
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
-    const page = metadata?.page ?? 1;
     const title = (query.title ?? "").trim();
+
+    // Let users paste a manga link (allmanga.to or the mkissa.to mirror) or an
+    // `id:<id>` reference into search to open it directly.
+    const pasted = await this.resolveDirectQuery(title);
+    if (pasted) return pasted;
+
+    const page = metadata?.page ?? 1;
     const data = await this.runSearch(title, query.metadata, sortingOption?.id, page);
 
     const contentRating = contentRatingForAdult();
@@ -198,6 +204,36 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     const hasNext = data.mangas.edges.length === LIMIT;
 
     return { items, metadata: hasNext ? { page: page + 1 } : undefined };
+  }
+
+  private async resolveDirectQuery(
+    query: string,
+  ): Promise<PagedResults<SearchResultItem> | undefined> {
+    let id: string | undefined;
+    const urlMatch = query.match(/^https?:\/\/[^/]*(?:allmanga\.to|mkissa\.to)\/manga\/([^/?#]+)/i);
+    if (urlMatch) {
+      id = decodeURIComponent(urlMatch[1]);
+    } else if (query.toLowerCase().startsWith("id:")) {
+      id = query.slice(3).trim();
+    }
+    if (!id) return undefined;
+
+    try {
+      const manga = await this.getMangaDetails(id);
+      return {
+        items: [
+          {
+            mangaId: manga.mangaId,
+            title: manga.mangaInfo.primaryTitle,
+            imageUrl: manga.mangaInfo.thumbnailUrl,
+            contentRating: manga.mangaInfo.contentRating,
+          },
+        ],
+        metadata: undefined,
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   private async runSearch(

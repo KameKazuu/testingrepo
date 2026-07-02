@@ -48,6 +48,7 @@ import {
   parseComicCards,
   parseGenres,
   parseMangaDetails,
+  parsePath,
   parsePinnedCards,
   safeDecode,
 } from "./parsers";
@@ -180,9 +181,13 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
     metadata: PageMetadata | undefined,
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
-    const page = metadata?.page ?? 1;
     const titleQuery = (query.title || "").trim();
 
+    // Let users paste a comic link into search to open it directly.
+    const pasted = await this.resolveUrlQuery(titleQuery);
+    if (pasted) return pasted;
+
+    const page = metadata?.page ?? 1;
     const builder = this.comicsUrl(page).setQueryItem("post_type", "comic");
     if (titleQuery) builder.setQueryItem("s", titleQuery);
 
@@ -207,6 +212,32 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
       items,
       metadata: hasNextPage($) ? { page: page + 1 } : undefined,
     };
+  }
+
+  // Resolves a pasted `rinkocomics.com` comic link to a single result.
+  private async resolveUrlQuery(
+    query: string,
+  ): Promise<PagedResults<SearchResultItem> | undefined> {
+    if (!/^https?:\/\/[^/]*rinkocomics\.com\//i.test(query)) return undefined;
+    const mangaId = parsePath(query);
+    if (!mangaId) return undefined;
+
+    try {
+      const manga = await this.getMangaDetails(mangaId);
+      return {
+        items: [
+          {
+            mangaId: manga.mangaId,
+            title: manga.mangaInfo.primaryTitle,
+            imageUrl: manga.mangaInfo.thumbnailUrl,
+            contentRating: ContentRating.EVERYONE,
+          },
+        ],
+        metadata: undefined,
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   // ----------------------------------------------------------------
