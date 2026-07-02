@@ -76,8 +76,7 @@ export class RinkoComicsAdvancedSearchForm extends AdvancedSearchForm {
           layout: "flow",
           value: this.genres,
           items: this.genreOptions,
-          // The site only supports inclusive genre filtering.
-          allowExclusion: false,
+          allowExclusion: true,
           allowEmptySelection: true,
           onValueChange: Application.Selector(
             this as RinkoComicsAdvancedSearchForm,
@@ -95,10 +94,6 @@ export class RinkoComicsAdvancedSearchForm extends AdvancedSearchForm {
   async handleNoop(): Promise<void> {}
 
   override getSearchQueryMetadata(): SearchMetadata {
-    const included: Record<string, "included"> = {};
-    for (const [slug, state] of Object.entries(this.genres)) {
-      if (state === "included") included[slug] = "included";
-    }
-    return Object.keys(included).length > 0 ? { genres: included } : {};
+    return Object.keys(this.genres).length > 0 ? { genres: this.genres } : {};
   }
 }

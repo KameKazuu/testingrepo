@@ -15,6 +15,7 @@ import {
 
 import {
   COUNTRY_OPTIONS,
+  genreId,
   GENRE_OPTIONS,
   IMAGE_QUALITY_DEFAULT,
   IMAGE_QUALITY_KEY,
@@ -90,7 +91,7 @@ export class AllMangaSettingsForm extends Form {
 // --- advanced search ---
 
 const GENRE_TAGS: Tag[] = GENRE_OPTIONS.map((name) => ({
-  id: name,
+  id: genreId(name),
   title: name,
 }));
 

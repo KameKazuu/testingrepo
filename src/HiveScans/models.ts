@@ -22,7 +22,7 @@ export type SearchMetadata = {
   status?: string[];
   type?: string[];
   direction?: string[];
-  genres?: Record<string, "included">;
+  genres?: Record<string, "included" | "excluded">;
 };
 
 export type OptionItem = {

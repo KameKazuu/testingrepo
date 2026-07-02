@@ -188,8 +188,11 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
     if (meta?.type?.[0]) builder.setQueryItem("seriesType", meta.type[0]);
     if (meta?.direction?.[0]) builder.setQueryItem("orderDirection", meta.direction[0]);
 
-    const genreIds = Object.keys(meta?.genres ?? {});
-    if (genreIds.length > 0) builder.setQueryItem("genreIds", genreIds.join(","));
+    const genres = Object.entries(meta?.genres ?? {});
+    const includeIds = genres.filter(([, state]) => state === "included").map(([id]) => id);
+    const excludeIds = genres.filter(([, state]) => state === "excluded").map(([id]) => id);
+    if (includeIds.length > 0) builder.setQueryItem("genreIds", includeIds.join(","));
+    if (excludeIds.length > 0) builder.setQueryItem("excludeGenreIds", excludeIds.join(","));
 
     const data = await fetchJSON<HiveScansSearchResponse>({
       url: builder.toString(),
