@@ -21,6 +21,9 @@ const PAGE_RETRY_HEADER = "x-pb-page-retry";
 const PAGE_RETRY_LIMIT = 2;
 // Backoff when the page API 429s without a Retry-After.
 const RATE_LIMIT_FALLBACK_MS = 2500;
+// Ceiling on how long a 429 can park the pipeline, so a pathological
+// Retry-After can't freeze the reader (onisaga's real penalty is ~60s).
+const MAX_COOLDOWN_MS = 90_000;
 
 // Shared page-API cooldown. A 429 carries Retry-After (~60s) and does NOT
 // decrement the advertised 300/min counter, so it's a separate burst/penalty
@@ -139,10 +142,8 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     // backs off for the penalty window, then retry: the retry re-enters the
     // rate limiter and waits out that cooldown before firing.
     if (PAGE_API_REGEX.test(request.url) && response.status === 429) {
-      pageCooldown.until = Math.max(
-        pageCooldown.until,
-        Date.now() + getRetryDelayMs(response.headers),
-      );
+      const backoffMs = Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS);
+      pageCooldown.until = Math.max(pageCooldown.until, Date.now() + backoffMs);
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
       if (attempt < PAGE_RETRY_LIMIT) {
         const [, buffer] = await Application.scheduleRequest({
