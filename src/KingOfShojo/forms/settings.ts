@@ -1,9 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { ButtonRow, Form, InputRow, LabelRow, Section } from "@paperback/types";
+import { ButtonRow, Form, InputRow, LabelRow, Section, ToggleRow } from "@paperback/types";
 
 const BASE_URL_KEY = "kingofshojo.baseUrlOverride";
+const SHOW_ADULT_KEY = "kingofshojo.showAdultContent";
+
+// Off by default: adult-tagged titles are hidden from search/browse and the
+// featured hero until the reader opts in.
+export function getShowAdultContent(): boolean {
+  return (Application.getState(SHOW_ADULT_KEY) ?? false) as boolean;
+}
 
 // These sites rotate domains often; let users point at the new one without
 // waiting for an extension update.
@@ -67,6 +74,30 @@ export class KingOfShojoSettingsForm extends Form {
           }),
         ],
       ),
+      Section(
+        {
+          id: "content",
+          footer:
+            "When off, titles tagged as adult are hidden from search and browse. " +
+            "Turn on to include them.",
+        },
+        [
+          ToggleRow("show_adult", {
+            title: "Show adult content",
+            value: getShowAdultContent(),
+            onValueChange: Application.Selector(
+              this as KingOfShojoSettingsForm,
+              "handleShowAdultChange",
+            ),
+          }),
+        ],
+      ),
     ];
+  }
+
+  async handleShowAdultChange(value: boolean): Promise<void> {
+    Application.setState(value, SHOW_ADULT_KEY);
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
   }
 }

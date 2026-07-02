@@ -2,8 +2,8 @@
 /* Copyright © 2026 Inkdex */
 
 import {
+  ContentRating,
   type Chapter,
-  type ContentRating,
   type SourceManga,
   type Tag,
   type TagSection,
@@ -12,6 +12,7 @@ import { type Cheerio, type CheerioAPI } from "cheerio";
 import { type AnyNode } from "domhandler";
 
 import {
+  ADULT_GENRE_NAMES,
   ALT_NAME_SELECTOR,
   ARTIST_SELECTOR,
   AUTHOR_SELECTOR,
@@ -366,6 +367,13 @@ export function parseMangaDetails(
   const tagGroups: TagSection[] =
     genreTags.length > 0 ? [{ id: "genres", title: "Genres", tags: genreTags }] : [];
 
+  // Adult-tagged titles report ADULT so Paperback's own content filter applies.
+  const effectiveRating = genreTags.some((tag) =>
+    ADULT_GENRE_NAMES.has(tag.title.trim().toLowerCase()),
+  )
+    ? ContentRating.ADULT
+    : contentRating;
+
   const status = parseStatus(scope.find(STATUS_SELECTOR).first().text().trim());
 
   return {
@@ -378,7 +386,7 @@ export function parseMangaDetails(
       author,
       artist,
       status,
-      contentRating,
+      contentRating: effectiveRating,
       tagGroups,
       shareUrl,
     },

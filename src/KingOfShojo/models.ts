@@ -35,6 +35,23 @@ export const IMAGE_LIST_REGEX = /"images"\s*:\s*(\[.*?\])/s;
 // Genre filter checkboxes on the browse page.
 export const GENRE_FILTER_SELECTOR = "ul.genrez li";
 
+// Genres that mark a title as adult. Matched case-insensitively against genre
+// display names. When "Show adult content" is off, titles carrying any of these
+// are excluded from search/browse and dropped from the featured hero; on the
+// details page they are reported as ContentRating.ADULT regardless.
+export const ADULT_GENRE_NAMES: ReadonlySet<string> = new Set([
+  "adult",
+  "adult content",
+  "smut",
+  "hentai",
+  "erotica",
+  "pornographic",
+  "ecchi",
+  "mature",
+  "18+",
+  "nsfw",
+]);
+
 export type PageMetadata = {
   page?: number;
   collectedIds?: string[];
