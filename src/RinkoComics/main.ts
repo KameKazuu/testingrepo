@@ -3,6 +3,7 @@
 
 import {
   BasicRateLimiter,
+  ContentRating,
   CookieStorageInterceptor,
   DiscoverSectionType,
   URL,
@@ -119,6 +120,7 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
       mangaId: card.mangaId,
       imageUrl: card.imageUrl,
       title: card.title,
+      contentRating: ContentRating.EVERYONE,
       metadata: undefined,
     }));
     return { items, metadata: undefined };
@@ -137,6 +139,7 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
       mangaId: card.mangaId,
       imageUrl: card.imageUrl,
       title: card.title,
+      contentRating: ContentRating.EVERYONE,
       metadata: undefined,
     }));
 
@@ -197,7 +200,7 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
       mangaId: card.mangaId,
       imageUrl: card.imageUrl,
       title: card.title,
-      contentRating: undefined,
+      contentRating: ContentRating.EVERYONE,
     }));
 
     return {
