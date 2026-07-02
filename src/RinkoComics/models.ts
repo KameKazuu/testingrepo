@@ -3,7 +3,7 @@
 
 export const DOMAIN = "https://rinkocomics.com";
 
-// WordPress "comicworld" theme AJAX endpoint used to lazily load chapters.
+// Site AJAX endpoint used to lazily load the rest of the chapter list.
 export const AJAX_ENDPOINT = `${DOMAIN}/wp-admin/admin-ajax.php`;
 
 // Locked chapters are tagged with this suffix on their id so getChapterDetails
@@ -11,12 +11,12 @@ export const AJAX_ENDPOINT = `${DOMAIN}/wp-admin/admin-ajax.php`;
 export const LOCK_SUFFIX = "#lock";
 export const LOCK_PREFIX = "🔒 ";
 
-// The theme paginates the chapter list 10 at a time behind "load more".
+// The site paginates the chapter list 10 at a time behind "load more".
 export const CHAPTERS_PER_PAGE = 10;
 
 export const CHAPTER_SELECTOR = "li.chapter";
 
-// Extracts the WordPress nonce embedded in the inline `comicworld_ajax` object.
+// Extracts the nonce embedded in the inline ajax config object on the page.
 export const NONCE_REGEX = /comicworld_ajax\s*=\s*\{[^}]*"nonce"\s*:\s*"([^"]+)"/;
 
 export type PageMetadata = {

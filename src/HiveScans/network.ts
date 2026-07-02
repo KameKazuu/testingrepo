@@ -1,18 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import type { Request, Response } from "@paperback/types";
-import { CloudflareError, PaperbackInterceptor } from "@paperback/types";
+import {
+  CloudflareError,
+  PaperbackInterceptor,
+  type Request,
+  type Response,
+} from "@paperback/types";
 
-import { DOMAIN } from "../implementations/shared/models";
+import { DOMAIN } from "./models";
 
 const IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|gif|avif|bmp|svg)(\?|#|$)/i;
 
 export class HiveScansInterceptor extends PaperbackInterceptor {
-  async interceptRequest(request: Request): Promise<Request> {
-    // Image hosts sit behind their own Cloudflare challenge and a JSON
-    // `accept` header on an image request reads as an anomalous, bot-like
-    // signal that can trigger it. Use a browser-like image accept instead.
+  override async interceptRequest(request: Request): Promise<Request> {
+    // Image CDNs sit behind their own Cloudflare challenge; sending the JSON
+    // `accept` used for the API on an image request is an anomalous, bot-like
+    // signal that can trigger it. Use a browser-like image accept for images.
     const accept = IMAGE_EXTENSION_REGEX.test(request.url)
       ? "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8"
       : "application/json, text/plain, */*";
@@ -25,6 +29,7 @@ export class HiveScansInterceptor extends PaperbackInterceptor {
         origin: DOMAIN,
         "user-agent": await Application.getDefaultUserAgent(),
         accept,
+        "accept-language": "en-US,en;q=0.5",
       },
     };
   }
@@ -34,8 +39,7 @@ export class HiveScansInterceptor extends PaperbackInterceptor {
     response: Response,
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
-    const cfMitigated = response.headers?.["cf-mitigated"];
-    if (cfMitigated === "challenge") {
+    if (response.headers?.["cf-mitigated"] === "challenge") {
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",
@@ -55,7 +59,6 @@ export async function fetchJSON<T>(request: Request): Promise<T> {
   if (response.status === 404) {
     throw new Error(`Content not found: ${request.url}`);
   }
-
   if (response.status !== 200) {
     throw new Error(`Request failed with status ${response.status}: ${request.url}`);
   }

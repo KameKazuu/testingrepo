@@ -1,29 +1,78 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import type { Cookie, Extension, MangaProviding } from "@paperback/types";
-import { BasicRateLimiter, CookieStorageInterceptor } from "@paperback/types";
+import {
+  BasicRateLimiter,
+  CookieStorageInterceptor,
+  DiscoverSectionType,
+  URL,
+  type AdvancedSearchForm,
+  type Chapter,
+  type ChapterDetails,
+  type Cookie,
+  type DiscoverSection,
+  type DiscoverSectionItem,
+  type ExtensionImpl,
+  type Form,
+  type PagedResults,
+  type Request,
+  type SearchQuery,
+  type SearchResultItem,
+  type SortingOption,
+  type SourceManga,
+} from "@paperback/types";
 
-import { ChapterProvider } from "./implementations/chapter-providing/main";
-import { DiscoverProvider } from "./implementations/discover-section/main";
-import { MangaProvider } from "./implementations/manga/main";
-import { SearchProvider } from "./implementations/search-results/main";
-import { applyMixins } from "./implementations/shared/utils";
-import { HiveScansInterceptor } from "./services/network";
+import { HiveScansAdvancedSearchForm } from "./forms/search";
+import { getShowLockedChapters, HiveScansSettingsForm } from "./forms/settings";
+import {
+  DOMAIN_API,
+  PAGE_SIZE,
+  type HiveScansGenre,
+  type HiveScansPostDetailsResponse,
+  type HiveScansChapterResponse,
+  type HiveScansSearchResponse,
+  type Metadata,
+  type OptionItem,
+  type SearchMetadata,
+} from "./models";
+import { fetchJSON, HiveScansInterceptor } from "./network";
+import {
+  decodeMangaId,
+  genresToOptions,
+  normalizeSearchTerm,
+  parseChapterDetails,
+  parseChapterList,
+  parseMangaDetails,
+  parseSearchResults,
+  toFeaturedItems,
+  toSimpleItems,
+} from "./parsers";
+import type HiveScansConfig from "./pbconfig";
 
-export interface HiveScansImplementation
-  extends SearchProvider, MangaProvider, ChapterProvider, DiscoverProvider {}
+const SECTION_POPULAR = "popular";
+const SECTION_LATEST = "latest";
+const SECTION_GENRES = "genres";
 
-export class HiveScansExtension implements Omit<Extension, keyof MangaProviding> {
-  cookieStorageInterceptor = new CookieStorageInterceptor({
-    storage: "stateManager",
-  });
+const GENRES_CACHE_TTL = 60 * 60 * 1000;
+
+const SORTING_OPTIONS: SortingOption[] = [
+  { id: "lastChapterAddedAt", label: "Last Chapter" },
+  { id: "totalViews", label: "Views" },
+  { id: "createdAt", label: "Added Date" },
+  { id: "chaptersCount", label: "Chapters Count" },
+  { id: "postTitle", label: "Alphabetical" },
+];
+
+export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
     numberOfRequests: 5,
     bufferInterval: 4,
     ignoreImages: true,
   });
-  hiveScansInterceptor = new HiveScansInterceptor("hivescans-interceptor");
+  cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
+  hiveScansInterceptor = new HiveScansInterceptor("main");
+
+  private genresCache: { options: OptionItem[]; timestamp: number } | null = null;
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -31,7 +80,15 @@ export class HiveScansExtension implements Omit<Extension, keyof MangaProviding>
     this.hiveScansInterceptor.registerInterceptor();
   }
 
-  async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {
+  async getSettingsForm(): Promise<Form> {
+    return new HiveScansSettingsForm();
+  }
+
+  async cloudflareBypassCompleted(
+    _request: Request,
+    cookies: Cookie[],
+    _localStorage: Record<string, string>,
+  ): Promise<void> {
     for (const cookie of cookies) {
       if (
         cookie.name.startsWith("cf") ||
@@ -43,11 +100,157 @@ export class HiveScansExtension implements Omit<Extension, keyof MangaProviding>
     }
   }
 
-  async bypassCloudflareRequest(request: Request): Promise<Request> {
-    return request;
+  // ----------------------------------------------------------------
+  // Discover
+  // ----------------------------------------------------------------
+
+  async getDiscoverSections(): Promise<DiscoverSection[]> {
+    return [
+      { id: SECTION_POPULAR, title: "Popular", type: DiscoverSectionType.featured },
+      { id: SECTION_LATEST, title: "Latest Updates", type: DiscoverSectionType.simpleCarousel },
+      { id: SECTION_GENRES, title: "Genres", type: DiscoverSectionType.genres },
+    ];
+  }
+
+  async getDiscoverSectionItems(
+    section: DiscoverSection,
+    _metadata: Metadata | undefined,
+  ): Promise<PagedResults<DiscoverSectionItem>> {
+    if (section.id === SECTION_GENRES) {
+      const genres = await this.getGenres();
+      const items: DiscoverSectionItem[] = genres.map((genre) => ({
+        type: "genresCarouselItem",
+        name: genre.value,
+        searchQuery: {
+          title: "",
+          metadata: { genres: { [genre.id]: "included" } } satisfies SearchMetadata,
+        },
+        metadata: undefined,
+      }));
+      return { items, metadata: undefined };
+    }
+
+    const orderBy = section.id === SECTION_POPULAR ? "totalViews" : "lastChapterAddedAt";
+    const url = new URL(DOMAIN_API)
+      .addPathComponent("query")
+      .setQueryItem("page", "1")
+      .setQueryItem("perPage", PAGE_SIZE.toString())
+      .setQueryItem("searchTerm", "")
+      .setQueryItem("orderBy", orderBy)
+      .toString();
+
+    const data = await fetchJSON<HiveScansSearchResponse>({ url, method: "GET" });
+    const items =
+      section.id === SECTION_POPULAR
+        ? toFeaturedItems(data.posts ?? [])
+        : toSimpleItems(data.posts ?? []);
+
+    return { items, metadata: undefined };
+  }
+
+  // ----------------------------------------------------------------
+  // Search
+  // ----------------------------------------------------------------
+
+  async getSortingOptions(_query: SearchQuery<SearchMetadata>): Promise<SortingOption[]> {
+    return SORTING_OPTIONS;
+  }
+
+  async getAdvancedSearchForm(query: SearchQuery<SearchMetadata>): Promise<AdvancedSearchForm> {
+    return new HiveScansAdvancedSearchForm(query, await this.getGenres());
+  }
+
+  async getSearchResults(
+    query: SearchQuery<SearchMetadata>,
+    metadata: Metadata | undefined,
+    sortingOption?: SortingOption,
+  ): Promise<PagedResults<SearchResultItem>> {
+    const page = metadata?.page ?? 1;
+    const searchTerm = normalizeSearchTerm(query.title ?? "");
+
+    const builder = new URL(DOMAIN_API)
+      .addPathComponent("query")
+      .setQueryItem("page", page.toString())
+      .setQueryItem("perPage", PAGE_SIZE.toString())
+      .setQueryItem("searchTerm", searchTerm);
+
+    if (sortingOption?.id) builder.setQueryItem("orderBy", sortingOption.id);
+
+    const meta = query.metadata;
+    if (meta?.status?.[0]) builder.setQueryItem("seriesStatus", meta.status[0]);
+    if (meta?.type?.[0]) builder.setQueryItem("seriesType", meta.type[0]);
+    if (meta?.direction?.[0]) builder.setQueryItem("orderDirection", meta.direction[0]);
+
+    const genreIds = Object.keys(meta?.genres ?? {});
+    if (genreIds.length > 0) builder.setQueryItem("genreIds", genreIds.join(","));
+
+    const data = await fetchJSON<HiveScansSearchResponse>({
+      url: builder.toString(),
+      method: "GET",
+    });
+
+    const items = parseSearchResults(data.posts ?? []);
+    const hasNextPage = data.totalCount > page * PAGE_SIZE;
+
+    return { items, metadata: hasNextPage ? { page: page + 1 } : undefined };
+  }
+
+  // ----------------------------------------------------------------
+  // Manga details & chapters
+  // ----------------------------------------------------------------
+
+  async getMangaDetails(mangaId: string): Promise<SourceManga> {
+    const data = await this.fetchPost(mangaId);
+    return parseMangaDetails(data.post);
+  }
+
+  async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
+    const data = await this.fetchPost(sourceManga.mangaId);
+    return parseChapterList(data.post.chapters ?? [], sourceManga, getShowLockedChapters());
+  }
+
+  async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
+    const url = new URL(DOMAIN_API)
+      .addPathComponent("chapter")
+      .setQueryItem("chapterId", chapter.chapterId)
+      .toString();
+
+    const data = await fetchJSON<HiveScansChapterResponse>({ url, method: "GET" });
+    if (!data.chapter) {
+      throw new Error(`No chapter data returned for chapter ${chapter.chapterId}`);
+    }
+    return parseChapterDetails(data.chapter, chapter);
+  }
+
+  // ----------------------------------------------------------------
+  // Helpers
+  // ----------------------------------------------------------------
+
+  private async fetchPost(mangaId: string): Promise<HiveScansPostDetailsResponse> {
+    const slug = decodeMangaId(mangaId);
+    const url = new URL(DOMAIN_API)
+      .addPathComponent("post")
+      .setQueryItem("postSlug", slug)
+      .toString();
+    return fetchJSON<HiveScansPostDetailsResponse>({ url, method: "GET" });
+  }
+
+  private async getGenres(): Promise<OptionItem[]> {
+    if (this.genresCache && Date.now() - this.genresCache.timestamp < GENRES_CACHE_TTL) {
+      return this.genresCache.options;
+    }
+
+    try {
+      const url = new URL(DOMAIN_API).addPathComponent("genres").toString();
+      const genres = await fetchJSON<HiveScansGenre[]>({ url, method: "GET" });
+      const options = genresToOptions(genres);
+      this.genresCache = { options, timestamp: Date.now() };
+      return options;
+    } catch {
+      // Genres are optional; a failure shouldn't break the search form.
+      return this.genresCache?.options ?? [];
+    }
   }
 }
-
-applyMixins(HiveScansExtension, [SearchProvider, MangaProvider, ChapterProvider, DiscoverProvider]);
 
 export const HiveScans = new HiveScansExtension();
