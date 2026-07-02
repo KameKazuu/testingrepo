@@ -38,6 +38,7 @@ import {
 import { fetchJSON, HiveScansInterceptor } from "./network";
 import {
   decodeMangaId,
+  encodeMangaId,
   genresToOptions,
   normalizeSearchTerm,
   parseChapterDetails,
@@ -167,6 +168,10 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
     metadata: Metadata | undefined,
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
+    // Let users paste a series link into search to open it directly.
+    const pasted = await this.resolveUrlQuery(query.title ?? "");
+    if (pasted) return pasted;
+
     const page = metadata?.page ?? 1;
     const searchTerm = normalizeSearchTerm(query.title ?? "");
 
@@ -195,6 +200,31 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
     const hasNextPage = data.totalCount > page * PAGE_SIZE;
 
     return { items, metadata: hasNextPage ? { page: page + 1 } : undefined };
+  }
+
+  // Resolves a pasted `hivetoons.org/series/<slug>` link to a single result.
+  private async resolveUrlQuery(
+    query: string,
+  ): Promise<PagedResults<SearchResultItem> | undefined> {
+    const match = query.trim().match(/^https?:\/\/[^/]*hivetoons\.org\/series\/([^/?#]+)/i);
+    if (!match) return undefined;
+
+    try {
+      const manga = await this.getMangaDetails(encodeMangaId(decodeURIComponent(match[1])));
+      return {
+        items: [
+          {
+            mangaId: manga.mangaId,
+            title: manga.mangaInfo.primaryTitle,
+            imageUrl: manga.mangaInfo.thumbnailUrl,
+            contentRating: manga.mangaInfo.contentRating,
+          },
+        ],
+        metadata: undefined,
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   // ----------------------------------------------------------------
