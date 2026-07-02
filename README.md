@@ -25,6 +25,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [HiveScans](https://hivetoons.org)
 - [RinkoComics](https://rinkocomics.com)
 - [AllManga](https://allmanga.to)
+- [KingOfShojo](https://kingofshojo.com)
 
 ## Installation
 
