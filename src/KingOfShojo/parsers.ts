@@ -164,6 +164,7 @@ export function parseCard($: CheerioAPI, base: string, element: AnyNode): MangaC
     title,
     imageUrl: imgAttr(base, unit.find("img").first()),
     subtitle,
+    rating: rating || undefined,
   };
 }
 
@@ -205,13 +206,18 @@ export function parseRecommendation($: CheerioAPI, base: string): MangaCard[] {
   );
 }
 
-// "Popular Series" — the ranked wpop widget (weekly tab, present in the HTML).
-export function parsePopularSeries($: CheerioAPI, base: string): MangaCard[] {
+// "Popular Series" — the ranked wpop widget. `rangeClass` selects the tab
+// (wpop-weekly | wpop-monthly | wpop-alltime); all three ship in the HTML.
+export function parsePopularSeries(
+  $: CheerioAPI,
+  base: string,
+  rangeClass = "wpop-weekly",
+): MangaCard[] {
   const scope = widgetByHeading($, "Popular Series");
   const cards: MangaCard[] = [];
   const seen = new Set<string>();
   for (const element of scope
-    .find(".serieslist.wpop-weekly ul li, #wpop-items .wpop-weekly ul li")
+    .find(`.serieslist.${rangeClass} ul li, #wpop-items .${rangeClass} ul li`)
     .toArray()) {
     const li = $(element);
     const link = li.find("a.series").first();
@@ -234,6 +240,7 @@ export function parsePopularSeries($: CheerioAPI, base: string): MangaCard[] {
       title,
       imageUrl: imgAttr(base, li.find("img").first()),
       subtitle: rating ? `★ ${rating}` : undefined,
+      rating: rating || undefined,
     });
   }
   return cards;

@@ -47,6 +47,9 @@ export type SearchMetadata = {
   type?: string[];
   orderBy?: string[];
   genres?: Record<string, "included" | "excluded">;
+  // When set, getSearchResults returns the "Popular Series" ranking for the
+  // given wpop range instead of running a normal search.
+  popularRange?: string;
 };
 
 export type OptionItem = {
@@ -60,7 +63,15 @@ export type MangaCard = {
   title: string;
   imageUrl: string;
   subtitle?: string;
+  rating?: string;
 };
+
+// The wpop "Popular Series" ranges, shown as selectable chips.
+export const POPULAR_RANGE_OPTIONS: OptionItem[] = [
+  { id: "wpop-weekly", value: "Weekly" },
+  { id: "wpop-monthly", value: "Monthly" },
+  { id: "wpop-alltime", value: "All" },
+];
 
 // A "Latest Update" card carries its newest chapter for a chapter-updates item.
 export type LatestCard = MangaCard & {

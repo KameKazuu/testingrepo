@@ -14,6 +14,7 @@ import {
   type DiscoverSection,
   type DiscoverSectionItem,
   type ExtensionImpl,
+  type FeaturedCarouselItem,
   type Form,
   type PagedResults,
   type Request,
@@ -32,6 +33,7 @@ import {
   MANGA_DIR,
   NEXT_PAGE_SELECTOR,
   ORDER_OPTIONS,
+  POPULAR_RANGE_OPTIONS,
   type OptionItem,
   type PageMetadata,
   type SearchMetadata,
@@ -59,6 +61,18 @@ const SORTING_OPTIONS: SortingOption[] = ORDER_OPTIONS.map((option) => ({
 const MAX_SEARCH_PAGES = 5;
 const HOMEPAGE_TTL = 60 * 1000;
 const GENRES_TTL = 60 * 60 * 1000;
+// The featured hero fetches per-title details (author/description), so cap the
+// count and cache the result longer to keep discover snappy.
+const FEATURED_LIMIT = 10;
+const FEATURED_TTL = 5 * 60 * 1000;
+
+function buildInfoItems(rating?: string, status?: string): FeaturedCarouselItem["infoItems"] {
+  const items: { symbol: string; text: string }[] = [];
+  if (rating) items.push({ symbol: "star.fill", text: rating });
+  if (status && status !== "Unknown") items.push({ symbol: "book.closed", text: status });
+  if (items.length === 0) return undefined;
+  return items.length === 1 ? [items[0]] : [items[0], items[1]];
+}
 
 export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
@@ -71,6 +85,7 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
 
   private homepageCache: { $: CheerioAPI; timestamp: number } | null = null;
   private genresCache: { options: OptionItem[]; timestamp: number } | null = null;
+  private featuredCache: { items: DiscoverSectionItem[]; timestamp: number } | null = null;
 
   get baseUrl(): string {
     return getBaseUrlOverride() ?? DEFAULT_DOMAIN;
@@ -115,11 +130,8 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
       { id: "popular_today", title: "Popular Today", type: DiscoverSectionType.featured },
       { id: "latest_update", title: "Latest Update", type: DiscoverSectionType.chapterUpdates },
       { id: "recommendation", title: "Recommendation", type: DiscoverSectionType.simpleCarousel },
-      {
-        id: "popular_series",
-        title: "Popular Series",
-        type: DiscoverSectionType.prominentCarousel,
-      },
+      // Weekly/Monthly/All is exposed as selectable chips via the genres type.
+      { id: "popular_series", title: "Popular Series", type: DiscoverSectionType.genres },
       { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
     ];
   }
@@ -146,33 +158,33 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
       return { items, metadata: undefined };
     }
 
+    // Popular Series — Weekly/Monthly/All range chips; each opens the ranked
+    // list for that range via getSearchResults.
+    if (section.id === "popular_series") {
+      const items: DiscoverSectionItem[] = POPULAR_RANGE_OPTIONS.map((range) => ({
+        type: "genresCarouselItem",
+        name: range.value,
+        searchQuery: {
+          title: "",
+          metadata: { popularRange: range.id } satisfies SearchMetadata,
+        },
+        metadata: undefined,
+      }));
+      return { items, metadata: undefined };
+    }
+
+    // Popular Today — the featured hero, enriched with author + description.
+    if (section.id === "popular_today") {
+      return { items: await this.buildFeaturedItems(), metadata: undefined };
+    }
+
     const $ = await this.getHomepage();
     let items: DiscoverSectionItem[] = [];
 
     switch (section.id) {
-      case "popular_today":
-        items = parsePopularToday($, this.baseUrl).map((card) => ({
-          type: "featuredCarouselItem",
-          mangaId: card.mangaId,
-          title: card.title,
-          imageUrl: card.imageUrl,
-          supertitle: card.subtitle,
-          contentRating: rating,
-        }));
-        break;
       case "recommendation":
         items = parseRecommendation($, this.baseUrl).map((card) => ({
           type: "simpleCarouselItem",
-          mangaId: card.mangaId,
-          title: card.title,
-          imageUrl: card.imageUrl,
-          subtitle: card.subtitle,
-          contentRating: rating,
-        }));
-        break;
-      case "popular_series":
-        items = parsePopularSeries($, this.baseUrl).map((card) => ({
-          type: "prominentCarouselItem",
           mangaId: card.mangaId,
           title: card.title,
           imageUrl: card.imageUrl,
@@ -217,13 +229,28 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
     const title = (query.title || "").trim();
+    const meta = query.metadata;
+
+    // Popular Series range chip tapped — return that ranking from the homepage.
+    if (meta?.popularRange) {
+      const $ = await this.getHomepage();
+      const items: SearchResultItem[] = parsePopularSeries($, this.baseUrl, meta.popularRange).map(
+        (card) => ({
+          mangaId: card.mangaId,
+          title: card.title,
+          imageUrl: card.imageUrl,
+          subtitle: card.subtitle,
+          contentRating: this.contentRating,
+        }),
+      );
+      return { items, metadata: undefined };
+    }
 
     // Let users paste a manga link into search to open it directly.
     const pasted = await this.resolveUrlQuery(title);
     if (pasted) return pasted;
 
     const page = metadata?.page ?? 1;
-    const meta = query.metadata;
     const order = sortingOption?.id || meta?.orderBy?.[0] || "";
 
     const builder = new URL(this.baseUrl)
@@ -319,6 +346,47 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
     const $ = await fetchCheerio({ url: `${this.baseUrl}/`, method: "GET" });
     this.homepageCache = { $, timestamp: Date.now() };
     return $;
+  }
+
+  // Enriches the "Popular Today" hero cards with author + description + status
+  // by fetching each title's details (capped and cached).
+  private async buildFeaturedItems(): Promise<DiscoverSectionItem[]> {
+    if (this.featuredCache && Date.now() - this.featuredCache.timestamp < FEATURED_TTL) {
+      return this.featuredCache.items;
+    }
+
+    const $ = await this.getHomepage();
+    const cards = parsePopularToday($, this.baseUrl).slice(0, FEATURED_LIMIT);
+    const rating = this.contentRating;
+
+    const items = await Promise.all(
+      cards.map(async (card): Promise<DiscoverSectionItem> => {
+        let supertitle: string | undefined;
+        let summary: string | undefined;
+        let status: string | undefined;
+        try {
+          const manga = await this.getMangaDetails(card.mangaId);
+          supertitle = manga.mangaInfo.author;
+          summary = manga.mangaInfo.synopsis || undefined;
+          status = manga.mangaInfo.status;
+        } catch {
+          // Keep the basic card if the details request fails.
+        }
+        return {
+          type: "featuredCarouselItem",
+          mangaId: card.mangaId,
+          title: card.title,
+          imageUrl: card.imageUrl,
+          supertitle,
+          summary,
+          infoItems: buildInfoItems(card.rating, status),
+          contentRating: rating,
+        };
+      }),
+    );
+
+    this.featuredCache = { items, timestamp: Date.now() };
+    return items;
   }
 
   private async getGenres(): Promise<OptionItem[]> {
