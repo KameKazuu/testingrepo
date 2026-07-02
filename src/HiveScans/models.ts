@@ -1,13 +1,36 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-// HiveScans (hivetoons.org) runs on the "Iken" platform, the same JSON API
-// shared by several manga/manhwa sites (see keiyoushi's `lib-multisrc/iken`).
+// HiveScans pulls from the hivetoons.org JSON API (api.hivetoons.org).
 
 export const DOMAIN = "https://hivetoons.org";
 export const DOMAIN_API = "https://api.hivetoons.org/api";
 
 export const PAGE_SIZE = 18;
+
+// Prefix shown on chapters the account can't currently read (locked/paid).
+export const LOCK_PREFIX = "🔒 ";
+
+export type Metadata = {
+  page?: number;
+};
+
+// Persisted advanced-search selections. Status/type/direction are single
+// select (stored as arrays to match SelectRow); genres are inclusive
+// multi-select, matching the API's comma-joined `genreIds`.
+export type SearchMetadata = {
+  status?: string[];
+  type?: string[];
+  direction?: string[];
+  genres?: Record<string, "included">;
+};
+
+export type OptionItem = {
+  id: string;
+  value: string;
+};
+
+// --- API response DTOs (subset of the fields this extension uses) ---
 
 export interface HiveScansGenre {
   id: number;
@@ -71,6 +94,25 @@ export interface HiveScansChapterResponse {
   chapter?: HiveScansPage;
 }
 
-export type Metadata = {
-  page?: number;
-};
+// Static filter option sets (genres are fetched at runtime).
+export const STATUS_OPTIONS: OptionItem[] = [
+  { id: "ONGOING", value: "Ongoing" },
+  { id: "COMPLETED", value: "Completed" },
+  { id: "CANCELLED", value: "Cancelled" },
+  { id: "DROPPED", value: "Dropped" },
+  { id: "COMING_SOON", value: "Coming Soon" },
+  { id: "MASS_RELEASED", value: "Mass Released" },
+];
+
+export const TYPE_OPTIONS: OptionItem[] = [
+  { id: "MANGA", value: "Manga" },
+  { id: "MANHUA", value: "Manhua" },
+  { id: "MANHWA", value: "Manhwa" },
+  { id: "RUSSIAN", value: "Russian" },
+  { id: "SPANISH", value: "Spanish" },
+];
+
+export const DIRECTION_OPTIONS: OptionItem[] = [
+  { id: "desc", value: "Descending" },
+  { id: "asc", value: "Ascending" },
+];
