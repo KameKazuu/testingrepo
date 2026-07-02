@@ -21,10 +21,10 @@ const PAGE_API_REGEX = /\/api\/chapter\/([^/]+)\/page\/\d+/;
 const PAGE_RETRY_HEADER = "x-pb-page-retry";
 const PAGE_RETRY_LIMIT = 2;
 // Backoff when the page API 429s without a Retry-After.
-const RATE_LIMIT_FALLBACK_SECONDS = 3;
+const RATE_LIMIT_FALLBACK_MS = 2500;
 
 // Response headers can arrive in any casing; read them case-insensitively.
-function headerValue(
+export function getHeaderValue(
   headers: Record<string, string> | undefined,
   name: string,
 ): string | undefined {
@@ -33,6 +33,12 @@ function headerValue(
     if (key.toLowerCase() === wanted) return value;
   }
   return undefined;
+}
+
+// Delay before retrying a rate-limited request, honouring Retry-After.
+export function getRetryDelayMs(headers: Record<string, string> | undefined): number {
+  const retryAfter = Number(getHeaderValue(headers, "retry-after"));
+  return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : RATE_LIMIT_FALLBACK_MS;
 }
 
 export class OniSagaInterceptor extends PaperbackInterceptor {
@@ -79,7 +85,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     response: Response,
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
-    const cfMitigated = headerValue(response.headers, "cf-mitigated");
+    const cfMitigated = getHeaderValue(response.headers, "cf-mitigated");
     if (cfMitigated === "challenge") {
       throw new CloudflareError({
         url: `${DOMAIN}/`,
@@ -95,7 +101,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 
     // The reader can rotate the chapter token; adopt the replacement so later
     // page requests stay authorized (the site's own reader does the same).
-    const nextToken = headerValue(response.headers, "x-reader-token-next");
+    const nextToken = getHeaderValue(response.headers, "x-reader-token-next");
     if (session && nextToken) session.token = nextToken;
 
     // Reader tokens expire after ~10 minutes, and the app requests pages long
@@ -128,10 +134,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     if (PAGE_API_REGEX.test(request.url) && response.status === 429) {
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
       if (attempt < PAGE_RETRY_LIMIT) {
-        const retryAfter = Number(headerValue(response.headers, "retry-after"));
-        const seconds =
-          Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : RATE_LIMIT_FALLBACK_SECONDS;
-        await Application.sleep(seconds);
+        await Application.sleep(getRetryDelayMs(response.headers) / 1000);
         const [, buffer] = await Application.scheduleRequest({
           url: request.url,
           method: "GET",
