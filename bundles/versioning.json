@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-07-02T13:05:47.168Z",
+  "buildTime": "2026-07-02T13:33:52.942Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -103,7 +103,7 @@
     {
       "name": "KingOfShojo",
       "description": "Extension that pulls content from kingofshojo.com.",
-      "version": "1.0.0-alpha.3",
+      "version": "1.0.0-alpha.4",
       "icon": "icon.png",
       "language": "en",
       "contentRating": "MATURE",
