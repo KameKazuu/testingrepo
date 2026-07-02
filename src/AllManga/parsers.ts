@@ -23,14 +23,20 @@ import {
 
 const ABSOLUTE_URL_REGEX = /^https?:\/\//;
 
+// A valid stand-in for entries the API returns without a cover. Carousel and
+// search items reject an empty imageUrl, so we always hand back a real URL and
+// let the app fall back to its own placeholder when it fails to load.
+const THUMBNAIL_FALLBACK = `${THUMBNAIL_CDN}?w=250`;
+
 // ---------------------------------------------------------------------------
 // image / field helpers
 // ---------------------------------------------------------------------------
 
 export function parseThumbnailUrl(thumb?: string | null): string {
-  if (!thumb) return "";
-  if (ABSOLUTE_URL_REGEX.test(thumb)) return thumb;
-  return `${THUMBNAIL_CDN}${thumb.replace(/^\//, "")}?w=250`;
+  const trimmed = thumb?.trim();
+  if (!trimmed) return THUMBNAIL_FALLBACK;
+  if (ABSOLUTE_URL_REGEX.test(trimmed)) return trimmed;
+  return `${THUMBNAIL_CDN}${trimmed.replace(/^\//, "")}?w=250`;
 }
 
 export function parseStatus(status?: string | null): string {
