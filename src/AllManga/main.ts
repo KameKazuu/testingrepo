@@ -46,7 +46,13 @@ import {
   type SearchMetadata,
 } from "./models";
 import { AllMangaInterceptor, getGraphQL, postGraphQL } from "./network";
-import { buildChapters, cardToSearchResult, detailToSourceManga, resolvePageUrls } from "./parsers";
+import {
+  buildChapters,
+  cardToSearchResult,
+  detailToSourceManga,
+  parseThumbnailUrl,
+  resolvePageUrls,
+} from "./parsers";
 import type AllMangaConfig from "./pbconfig";
 import { pageListViaWebView } from "./webView";
 
@@ -136,17 +142,19 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
         allowAdult: getShowAdult(),
         allowUnknown: false,
       });
-      const cards = data.queryPopular.recommendations
+      const recommendations = data.queryPopular.recommendations;
+      const items: DiscoverSectionItem[] = recommendations
         .map((rec) => rec.anyCard)
-        .filter((card): card is NonNullable<typeof card> => card != null);
-      const items: DiscoverSectionItem[] = cards.map((card) => ({
-        type: "featuredCarouselItem",
-        mangaId: card._id,
-        title: Application.decodeHTMLEntities(card.englishName || card.name),
-        imageUrl: cardToSearchResult(card, contentRating).imageUrl,
-        contentRating,
-      }));
-      const hasNext = cards.length === LIMIT;
+        .filter((card): card is NonNullable<typeof card> => card != null)
+        .map((card) => ({
+          type: "featuredCarouselItem",
+          mangaId: card._id,
+          title: Application.decodeHTMLEntities(card.englishName || card.name),
+          imageUrl: parseThumbnailUrl(card.thumbnail),
+          contentRating,
+        }));
+      // Base pagination on the raw page size, not the filtered item count.
+      const hasNext = recommendations.length === LIMIT;
       return { items, metadata: hasNext ? { page: page + 1 } : undefined };
     }
 
@@ -156,7 +164,7 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
       type: "simpleCarouselItem",
       mangaId: card._id,
       title: Application.decodeHTMLEntities(card.englishName || card.name),
-      imageUrl: cardToSearchResult(card, contentRating).imageUrl,
+      imageUrl: parseThumbnailUrl(card.thumbnail),
       contentRating,
     }));
     const hasNext = data.mangas.edges.length === LIMIT;

@@ -114,7 +114,7 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
 
   async getDiscoverSectionItems(
     section: DiscoverSection,
-    _metadata: Metadata | undefined,
+    metadata: Metadata | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
     if (section.id === SECTION_GENRES) {
       const genres = await this.getGenres();
@@ -130,10 +130,11 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
       return { items, metadata: undefined };
     }
 
+    const page = (metadata as { page?: number } | undefined)?.page ?? 1;
     const orderBy = section.id === SECTION_POPULAR ? "totalViews" : "lastChapterAddedAt";
     const url = new URL(DOMAIN_API)
       .addPathComponent("query")
-      .setQueryItem("page", "1")
+      .setQueryItem("page", page.toString())
       .setQueryItem("perPage", PAGE_SIZE.toString())
       .setQueryItem("searchTerm", "")
       .setQueryItem("orderBy", orderBy)
@@ -145,7 +146,8 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
         ? toFeaturedItems(data.posts ?? [])
         : toSimpleItems(data.posts ?? []);
 
-    return { items, metadata: undefined };
+    const hasNextPage = data.totalCount > page * PAGE_SIZE;
+    return { items, metadata: hasNextPage ? { page: page + 1 } : undefined };
   }
 
   // ----------------------------------------------------------------

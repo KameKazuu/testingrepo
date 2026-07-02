@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import type { ExtensionInfo } from "@paperback/types";
-import { ContentRating, SourceIntents } from "@paperback/types";
+import { ContentRating, SourceIntents, type ExtensionInfo } from "@paperback/types";
 
 export default {
   name: "HiveScans",
