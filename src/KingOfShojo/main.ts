@@ -239,15 +239,18 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
     // Popular Series range chip tapped — return that ranking from the homepage.
     if (meta?.popularRange) {
       const $ = await this.getHomepage();
-      const items: SearchResultItem[] = parsePopularSeries($, this.baseUrl, meta.popularRange).map(
-        (card) => ({
-          mangaId: card.mangaId,
-          title: card.title,
-          imageUrl: card.imageUrl,
-          subtitle: card.subtitle,
-          contentRating: this.contentRating,
-        }),
-      );
+      const items: SearchResultItem[] = parsePopularSeries(
+        $,
+        this.baseUrl,
+        meta.popularRange,
+        getShowAdultContent(),
+      ).map((card) => ({
+        mangaId: card.mangaId,
+        title: card.title,
+        imageUrl: card.imageUrl,
+        subtitle: card.subtitle,
+        contentRating: card.isAdult ? ContentRating.ADULT : this.contentRating,
+      }));
       return { items, metadata: undefined };
     }
 

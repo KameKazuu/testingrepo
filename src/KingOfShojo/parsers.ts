@@ -213,6 +213,7 @@ export function parsePopularSeries(
   $: CheerioAPI,
   base: string,
   rangeClass = "wpop-weekly",
+  showAdult = true,
 ): MangaCard[] {
   const scope = widgetByHeading($, "Popular Series");
   const cards: MangaCard[] = [];
@@ -234,6 +235,15 @@ export function parsePopularSeries(
       ).trim(),
     );
     if (!title) continue;
+
+    // Popular Series rows list their genres inline, so honor the adult toggle
+    // right here — the only discover widget where a per-card signal exists.
+    const isAdult = li
+      .find('a[href*="/genres/"]')
+      .toArray()
+      .some((genre) => ADULT_GENRE_NAMES.has($(genre).text().trim().toLowerCase()));
+    if (isAdult && !showAdult) continue;
+
     seen.add(mangaId);
     const rating = li.find(".numscore").first().text().trim();
     cards.push({
@@ -242,6 +252,7 @@ export function parsePopularSeries(
       imageUrl: imgAttr(base, li.find("img").first()),
       subtitle: rating ? `★ ${rating}` : undefined,
       rating: rating || undefined,
+      isAdult,
     });
   }
   return cards;

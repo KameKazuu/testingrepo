@@ -81,6 +81,9 @@ export type MangaCard = {
   imageUrl: string;
   subtitle?: string;
   rating?: string;
+  // Set when the card exposes its genres inline (Popular Series rows) and at
+  // least one is adult. Plain `.bsx` cards carry no genres, so it stays unset.
+  isAdult?: boolean;
 };
 
 // The wpop "Popular Series" ranges, shown as selectable chips.
