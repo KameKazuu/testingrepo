@@ -24,8 +24,9 @@ export type PageMetadata = {
 };
 
 export type SearchMetadata = {
-  // slug -> included (this theme only supports inclusive genre filtering)
-  genres?: { [slug: string]: "included" };
+  // slug -> include/exclude. The site only filters on included genres; the
+  // excluded state is kept for the tri-state selector but isn't sent.
+  genres?: { [slug: string]: "included" | "excluded" };
 };
 
 export type ComicCard = {

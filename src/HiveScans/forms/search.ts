@@ -97,8 +97,7 @@ export class HiveScansAdvancedSearchForm extends AdvancedSearchForm {
             layout: "flow",
             value: this.genres,
             items: this.genreOptions,
-            // The API only supports inclusive genre filtering.
-            allowExclusion: false,
+            allowExclusion: true,
             allowEmptySelection: true,
             onValueChange: Application.Selector(
               this as HiveScansAdvancedSearchForm,
@@ -134,11 +133,7 @@ export class HiveScansAdvancedSearchForm extends AdvancedSearchForm {
     if (this.type.length > 0) result.type = this.type;
     if (this.direction.length > 0) result.direction = this.direction;
 
-    const includedGenres: Record<string, "included"> = {};
-    for (const [id, state] of Object.entries(this.genres)) {
-      if (state === "included") includedGenres[id] = "included";
-    }
-    if (Object.keys(includedGenres).length > 0) result.genres = includedGenres;
+    if (Object.keys(this.genres).length > 0) result.genres = this.genres;
 
     return result;
   }

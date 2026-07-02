@@ -223,3 +223,13 @@ export const GENRE_OPTIONS: string[] = [
   "Yuri",
   "Zombies",
 ];
+
+// Paperback tag IDs may not contain spaces, but the API filters on the genre's
+// display name (e.g. "4 Koma"). Map a safe id back to the API name.
+export function genreId(name: string): string {
+  return name.replace(/[^A-Za-z0-9]+/g, "_");
+}
+
+export const GENRE_NAME_BY_ID: Record<string, string> = Object.fromEntries(
+  GENRE_OPTIONS.map((name) => [genreId(name), name]),
+);

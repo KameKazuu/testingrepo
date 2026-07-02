@@ -32,6 +32,8 @@ import {
 import {
   CHAPTERS_QUERY,
   DETAILS_QUERY,
+  genreId,
+  GENRE_NAME_BY_ID,
   GENRE_OPTIONS,
   LIMIT,
   PAGES_QUERY,
@@ -125,7 +127,7 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
         name: genre,
         searchQuery: {
           title: "",
-          metadata: { genres: { [genre]: "included" } } satisfies SearchMetadata,
+          metadata: { genres: { [genreId(genre)]: "included" } } satisfies SearchMetadata,
         },
         metadata: undefined,
       }));
@@ -242,12 +244,14 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     sortId: string | undefined,
     page: number,
   ): Promise<SearchData> {
+    // Tag ids are space-free (e.g. "4_Koma"); the API filters on the display
+    // name ("4 Koma"), so map ids back before sending.
     const included = Object.entries(meta?.genres ?? {})
       .filter(([, state]) => state === "included")
-      .map(([genre]) => genre);
+      .map(([id]) => GENRE_NAME_BY_ID[id] ?? id);
     const excluded = Object.entries(meta?.genres ?? {})
       .filter(([, state]) => state === "excluded")
-      .map(([genre]) => genre);
+      .map(([id]) => GENRE_NAME_BY_ID[id] ?? id);
 
     return postGraphQL<SearchData>(SEARCH_QUERY, {
       search: {
