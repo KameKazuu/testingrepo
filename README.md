@@ -23,6 +23,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [Webtoon](https://webtoons.com)
 - [WeebCentral](https://weebcentral.com)
 - [HiveScans](https://hivetoons.org)
+- [RinkoComics](https://rinkocomics.com)
 
 ## Installation
 
