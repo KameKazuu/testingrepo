@@ -57,9 +57,11 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
 }`;
 
-export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeEnumType!, $chapterString: String!) {
+// `pictureUrls` is an opaque scalar array (the API rejects a subfield
+// selection on it), and this query expects the manga translation-type enum.
+export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!) {
   chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString) {
-    edges { pictureUrlHead pictureUrls { url } }
+    edges { pictureUrlHead pictureUrls }
   }
 }`;
 
@@ -123,13 +125,13 @@ export interface ChaptersData {
   episodeInfos?: EpisodeInfo[] | null;
 }
 
-export interface PageUrl {
-  url?: string | null;
-}
+// `pictureUrls` elements come back either as a bare URL string or as an object
+// with a `url` field, depending on the entry.
+export type PictureUrl = string | { url?: string | null };
 
 export interface ChapterPageEdge {
   pictureUrlHead?: string | null;
-  pictureUrls?: PageUrl[] | null;
+  pictureUrls?: PictureUrl[] | null;
 }
 
 export interface PagesData {
