@@ -48,6 +48,7 @@ import {
 import { AllMangaInterceptor, getGraphQL, postGraphQL } from "./network";
 import { buildChapters, cardToSearchResult, detailToSourceManga, resolvePageUrls } from "./parsers";
 import type AllMangaConfig from "./pbconfig";
+import { pageListViaWebView } from "./webView";
 
 const SECTION_POPULAR = "popular";
 const SECTION_LATEST = "latest";
@@ -240,18 +241,30 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const mangaId = chapter.sourceManga.mangaId;
+    const quality = getImageQuality();
     const variables = {
       mangaId,
       translationType: "sub",
       chapterString: chapter.chapterId,
     };
 
-    // The pages query is served over GET; retry via POST if it comes back empty.
-    let data = await getGraphQL<PagesData>(PAGES_QUERY, variables);
-    let pages = resolvePageUrls(data, getImageQuality());
+    // Fast path: the direct `chapterPages` query served over GET.
+    let pages = resolvePageUrls(await getGraphQL<PagesData>(PAGES_QUERY, variables), quality);
+
+    // Fallback: load the reader in a WebView and capture the pages payload the
+    // site parses itself. This mirrors the reader's own flow, so it keeps
+    // working if the direct query is ever gated.
     if (pages.length === 0) {
-      data = await postGraphQL<PagesData>(PAGES_QUERY, variables);
-      pages = resolvePageUrls(data, getImageQuality());
+      try {
+        const data = await pageListViaWebView(
+          mangaId,
+          chapter.chapterId,
+          this.cookieStorageInterceptor,
+        );
+        if (data) pages = resolvePageUrls(data, quality);
+      } catch {
+        // Fall through to the error below.
+      }
     }
 
     if (pages.length === 0) {
