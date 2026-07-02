@@ -18,6 +18,7 @@ import {
   type MangaCard,
   type MangaDetail,
   type PagesData,
+  type PictureUrl,
 } from "./models";
 
 const ABSOLUTE_URL_REGEX = /^https?:\/\//;
@@ -169,6 +170,10 @@ export function buildChapters(sourceManga: SourceManga, data: ChaptersData): Cha
 // pages
 // ---------------------------------------------------------------------------
 
+function pictureUrlOf(entry: PictureUrl): string | undefined {
+  return typeof entry === "string" ? entry : (entry?.url ?? undefined);
+}
+
 export function resolvePageUrls(data: PagesData, quality: string): string[] {
   const edges = data.chapterPages?.edges ?? [];
   if (edges.length === 0) return [];
@@ -176,9 +181,10 @@ export function resolvePageUrls(data: PagesData, quality: string): string[] {
   // Prefer an edge that either serves absolute image URLs or names its server.
   const edge =
     edges.find((e) => {
-      const hasAbsolute = (e.pictureUrls ?? []).some(
-        (p) => p.url && ABSOLUTE_URL_REGEX.test(p.url),
-      );
+      const hasAbsolute = (e.pictureUrls ?? []).some((p) => {
+        const url = pictureUrlOf(p);
+        return url != null && ABSOLUTE_URL_REGEX.test(url);
+      });
       return hasAbsolute || e.pictureUrlHead != null;
     }) ?? edges[0];
 
@@ -190,7 +196,7 @@ export function resolvePageUrls(data: PagesData, quality: string): string[] {
     : DEFAULT_IMAGE_SERVER;
 
   return (edge.pictureUrls ?? [])
-    .map((p) => p.url)
+    .map(pictureUrlOf)
     .filter((url): url is string => typeof url === "string" && url.length > 0)
     .map((url) => (ABSOLUTE_URL_REGEX.test(url) ? url : imageDomain + url.replace(/^\//, "")))
     .map((url) => applyImageQuality(url, quality));

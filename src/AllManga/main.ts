@@ -3,6 +3,7 @@
 
 import {
   BasicRateLimiter,
+  CloudflareError,
   CookieStorageInterceptor,
   DiscoverSectionType,
   type AdvancedSearchForm,
@@ -256,8 +257,15 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
       chapterString: chapter.chapterId,
     };
 
-    // Fast path: the direct `chapterPages` query served over GET.
-    let pages = resolvePageUrls(await getGraphQL<PagesData>(PAGES_QUERY, variables), quality);
+    // Fast path: the direct `chapterPages` query served over GET. A Cloudflare
+    // challenge must bubble up so the app can run the bypass; any other failure
+    // (e.g. a transient 502) falls through to the WebView below.
+    let pages: string[] = [];
+    try {
+      pages = resolvePageUrls(await getGraphQL<PagesData>(PAGES_QUERY, variables), quality);
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+    }
 
     // Fallback: load the reader in a WebView and capture the pages payload the
     // site parses itself. This mirrors the reader's own flow, so it keeps
