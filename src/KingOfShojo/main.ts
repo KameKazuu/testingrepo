@@ -77,7 +77,7 @@ function buildInfoItems(rating?: string, status?: string): FeaturedCarouselItem[
 export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
     numberOfRequests: 5,
-    bufferInterval: 4,
+    bufferInterval: 2,
     ignoreImages: true,
   });
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });

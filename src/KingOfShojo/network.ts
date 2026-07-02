@@ -12,6 +12,10 @@ import * as cheerio from "cheerio";
 const IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|gif|avif|bmp|svg)(\?|#|$)/i;
 
 export class KingOfShojoInterceptor extends PaperbackInterceptor {
+  // A reader page fires 40+ image requests; resolving the default user agent is
+  // a native-bridge call, so cache it instead of paying that cost per image.
+  private cachedUserAgent?: string;
+
   constructor(
     id: string,
     private readonly getBaseUrl: () => string,
@@ -19,11 +23,30 @@ export class KingOfShojoInterceptor extends PaperbackInterceptor {
     super(id);
   }
 
+  private async userAgent(): Promise<string> {
+    if (this.cachedUserAgent === undefined) {
+      this.cachedUserAgent = await Application.getDefaultUserAgent();
+    }
+    return this.cachedUserAgent;
+  }
+
   override async interceptRequest(request: Request): Promise<Request> {
     const baseUrl = this.getBaseUrl();
-    const accept = IMAGE_EXTENSION_REGEX.test(request.url)
-      ? "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8"
-      : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
+    const userAgent = await this.userAgent();
+
+    // Image GETs only need referer + user agent; dropping origin and
+    // accept-language keeps the per-page request overhead minimal.
+    if (IMAGE_EXTENSION_REGEX.test(request.url)) {
+      return {
+        ...request,
+        headers: {
+          ...request.headers,
+          referer: `${baseUrl}/`,
+          "user-agent": userAgent,
+          accept: "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8",
+        },
+      };
+    }
 
     return {
       ...request,
@@ -31,8 +54,9 @@ export class KingOfShojoInterceptor extends PaperbackInterceptor {
         ...request.headers,
         referer: `${baseUrl}/`,
         origin: baseUrl,
-        "user-agent": await Application.getDefaultUserAgent(),
-        accept,
+        "user-agent": userAgent,
+        accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "accept-language": "en-US,en;q=0.5",
       },
     };
@@ -47,7 +71,7 @@ export class KingOfShojoInterceptor extends PaperbackInterceptor {
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",
-        headers: { "user-agent": await Application.getDefaultUserAgent() },
+        headers: { "user-agent": await this.userAgent() },
       });
     }
     return data;
