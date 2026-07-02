@@ -23,7 +23,7 @@ const PAGE_RETRY_LIMIT = 2;
 const RATE_LIMIT_FALLBACK_MS = 2500;
 
 // Response headers can arrive in any casing; read them case-insensitively.
-export function getHeaderValue(
+function getHeaderValue(
   headers: Record<string, string> | undefined,
   name: string,
 ): string | undefined {
@@ -35,7 +35,7 @@ export function getHeaderValue(
 }
 
 // Delay before retrying a rate-limited request, honouring Retry-After.
-export function getRetryDelayMs(headers: Record<string, string> | undefined): number {
+function getRetryDelayMs(headers: Record<string, string> | undefined): number {
   const retryAfter = Number(getHeaderValue(headers, "retry-after"));
   return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : RATE_LIMIT_FALLBACK_MS;
 }
