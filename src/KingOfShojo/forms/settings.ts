@@ -78,8 +78,8 @@ export class KingOfShojoSettingsForm extends Form {
         {
           id: "content",
           footer:
-            "When off, titles tagged as adult are hidden from search and browse. " +
-            "Turn on to include them.",
+            "When off, adult-tagged titles are hidden from search, browse and " +
+            "popular lists. Turn on to include them.",
         },
         [
           ToggleRow("show_adult", {
