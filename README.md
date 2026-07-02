@@ -22,6 +22,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [QiScans](https://qimanhwa.com)
 - [Webtoon](https://webtoons.com)
 - [WeebCentral](https://weebcentral.com)
+- [HiveScans](https://hivetoons.org)
 
 ## Installation
 
