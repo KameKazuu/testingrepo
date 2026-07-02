@@ -125,7 +125,7 @@ export function parseSearchResults(posts: HiveScansPost[]): SearchResultItem[] {
       mangaId: encodeMangaId(post.slug),
       title: Application.decodeHTMLEntities(post.postTitle),
       imageUrl: post.featuredImage ?? "",
-      subtitle: formatSeriesSubtitle(post.seriesType, post.seriesStatus),
+      subtitle: formatSeriesSubtitle(post.seriesType, post.seriesStatus) || undefined,
       contentRating: ContentRating.EVERYONE,
     }));
 }
