@@ -185,7 +185,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 // keeps the first screen snappy while staying well under the penalty
 // threshold. Everything except the page API passes through untouched
 // (Webtoon-style per-endpoint scoping).
-const BURST_CAPACITY = 5;
+const BURST_CAPACITY = 10;
 const BURST_SPACING_SECONDS = 0.3;
 
 export class OniSagaPageRateLimiter extends PaperbackInterceptor {
