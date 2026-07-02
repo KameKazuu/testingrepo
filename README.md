@@ -24,6 +24,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [WeebCentral](https://weebcentral.com)
 - [HiveScans](https://hivetoons.org)
 - [RinkoComics](https://rinkocomics.com)
+- [AllManga](https://allmanga.to)
 
 ## Installation
 
