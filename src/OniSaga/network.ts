@@ -9,42 +9,49 @@ import {
 } from "@paperback/types";
 
 import { DOMAIN, type PageApiResponse } from "./models";
+import { extractReaderToken } from "./parsers";
 
 // Matches a reader page-API url and captures the chapter id, e.g.
 // https://onisaga.com/api/chapter/3718181/page/0
 const PAGE_API_REGEX = /\/api\/chapter\/([^/]+)\/page\/\d+/;
 
-export class OniSagaInterceptor extends PaperbackInterceptor {
-  // Per-chapter reader tokens (chapterId -> X-Reader-Token) set by
-  // getChapterDetails; the page API needs it and it's stable per chapter.
-  private readerTokens = new Map<string, string>();
+// Bounds re-entrant page retries (the retry re-runs both interceptors).
+const PAGE_RETRY_HEADER = "x-pb-page-retry";
+const PAGE_RETRY_LIMIT = 2;
 
-  setReaderToken(chapterId: string, token: string): void {
-    this.readerTokens.set(chapterId, token);
+export class OniSagaInterceptor extends PaperbackInterceptor {
+  // Per-chapter reader sessions (chapterId -> token + reader-page referer) set
+  // by getChapterDetails; the page API wants both, like the site's own reader.
+  private readerSessions = new Map<string, { token: string; referer: string }>();
+
+  setReaderToken(chapterId: string, token: string, referer: string): void {
+    this.readerSessions.set(chapterId, { token, referer });
   }
 
   override async interceptRequest(request: Request): Promise<Request> {
     // Keep a caller-provided Referer/Origin (Livewire calls send page-specific
     // ones); normalize to lower-case so the map never carries both casings.
+    // Origin is only sent when a caller set it (browsers omit it on plain GETs).
     const headers: Record<string, string> = { ...request.headers };
     const referer = headers.referer ?? headers.Referer ?? `${DOMAIN}/`;
-    const origin = headers.origin ?? headers.Origin ?? DOMAIN;
+    const origin = headers.origin ?? headers.Origin;
     delete headers.Referer;
     delete headers.Origin;
     headers.referer = referer;
-    headers.origin = origin;
+    if (origin) headers.origin = origin;
     headers["user-agent"] = await Application.getDefaultUserAgent();
 
-    // A reader page-API request carries the chapter's signed token so the server
-    // hands back the page's short-lived image url.
+    // A reader page-API request carries the chapter's signed token and the
+    // reader page as referer, matching the site's own reader fetch.
     const cid = PAGE_API_REGEX.exec(request.url)?.[1];
     if (cid) {
-      const token = this.readerTokens.get(cid);
-      if (token) {
-        headers["x-reader-token"] = token;
+      const session = this.readerSessions.get(cid);
+      if (session) {
+        headers["x-reader-token"] = session.token;
         headers.accept = "application/json";
         headers["sec-fetch-mode"] = "cors";
         headers["sec-fetch-site"] = "same-origin";
+        headers.referer = session.referer;
       }
     }
 
@@ -67,6 +74,38 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       });
     }
 
+    const cid = PAGE_API_REGEX.exec(request.url)?.[1];
+    const session = cid ? this.readerSessions.get(cid) : undefined;
+
+    // The reader can rotate the chapter token; adopt the replacement so later
+    // page requests stay authorized (the site's own reader does the same).
+    const nextToken = response.headers?.["x-reader-token-next"];
+    if (session && nextToken) session.token = nextToken;
+
+    // Reader tokens expire after ~10 minutes, and the app requests pages long
+    // after the chapter was opened. On an auth failure, re-mint a token from
+    // the reader page and retry; the retry re-enters this interceptor with the
+    // fresh token, bounded by a retry-count header.
+    if (session && (response.status === 403 || response.status === 401)) {
+      const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
+      if (attempt < PAGE_RETRY_LIMIT) {
+        const [, page] = await Application.scheduleRequest({
+          url: session.referer,
+          method: "GET",
+        });
+        const token = extractReaderToken(Application.arrayBufferToUTF8String(page));
+        if (token) {
+          session.token = token;
+          const [, buffer] = await Application.scheduleRequest({
+            url: request.url,
+            method: "GET",
+            headers: { ...request.headers, [PAGE_RETRY_HEADER]: String(attempt + 1) },
+          });
+          return buffer;
+        }
+      }
+    }
+
     // Lazy page resolution: a page-API url returns JSON pointing at the real
     // signed image; fetch that and return its bytes. The image path (/_img/...)
     // differs, so this sub-request doesn't re-enter this branch.
@@ -77,7 +116,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
           const [, imageBuffer] = await Application.scheduleRequest({
             url: dto.url,
             method: "GET",
-            headers: { referer: `${DOMAIN}/` },
+            headers: { referer: session?.referer ?? `${DOMAIN}/` },
           });
           return imageBuffer;
         }

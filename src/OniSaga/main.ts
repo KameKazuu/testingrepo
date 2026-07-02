@@ -568,7 +568,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     const pageCount = countPages(body);
     if (pageCount === 0) throw new Error("No pages found in chapter");
 
-    this.requestManager.setReaderToken(cid, token);
+    this.requestManager.setReaderToken(cid, token, chapterUrl);
 
     return {
       id: chapter.chapterId,
