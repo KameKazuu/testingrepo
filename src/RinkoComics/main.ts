@@ -31,6 +31,7 @@ import {
   CHAPTERS_PER_PAGE,
   DOMAIN,
   LOCK_SUFFIX,
+  NONCE_REGEX,
   type AjaxChapterResponse,
   type ComicCard,
   type Genre,
@@ -39,9 +40,7 @@ import {
 } from "./models";
 import { RinkoComicsInterceptor } from "./network";
 import {
-  extractNonce,
   finalizeChapters,
-  genresToTagSection,
   hasNextPage,
   parseChapterDetails,
   parseChapterElements,
@@ -173,7 +172,12 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
   }
 
   async getAdvancedSearchForm(query: SearchQuery<SearchMetadata>): Promise<AdvancedSearchForm> {
-    return new RinkoComicsAdvancedSearchForm(query, genresToTagSection(await this.getGenres()));
+    const genres = await this.getGenres();
+    return new RinkoComicsAdvancedSearchForm(query, {
+      id: "genres",
+      title: "Genres",
+      tags: genres.map((genre) => ({ id: genre.slug, title: genre.name })),
+    });
   }
 
   async getSearchResults(
@@ -265,7 +269,7 @@ export class RinkoComicsExtension implements ExtensionImpl<typeof RinkoComicsCon
     // The theme lazy-loads the rest of the chapter list through admin-ajax.
     const loadMoreBtn = $("#loadMoreChaptersBtn").first();
     const comicId = (loadMoreBtn.attr("data-comic-id") || "").trim();
-    const nonce = extractNonce($) || "";
+    const nonce = $.html().match(NONCE_REGEX)?.[1] ?? "";
     let offset = parseInt(loadMoreBtn.attr("data-offset") || "", 10);
     if (isNaN(offset) || offset <= 0) {
       offset = chapters.size;

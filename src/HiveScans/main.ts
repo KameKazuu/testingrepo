@@ -39,7 +39,6 @@ import { fetchJSON, HiveScansInterceptor } from "./network";
 import {
   decodeMangaId,
   encodeMangaId,
-  genresToOptions,
   normalizeSearchTerm,
   parseChapterDetails,
   parseChapterList,
@@ -278,7 +277,10 @@ export class HiveScansExtension implements ExtensionImpl<typeof HiveScansConfig>
     try {
       const url = new URL(DOMAIN_API).addPathComponent("genres").toString();
       const genres = await fetchJSON<HiveScansGenre[]>({ url, method: "GET" });
-      const options = genresToOptions(genres);
+      const options = genres.map((genre) => ({
+        id: genre.id.toString(),
+        value: genre.name.trim(),
+      }));
       this.genresCache = { options, timestamp: Date.now() };
       return options;
     } catch {

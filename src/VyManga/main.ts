@@ -37,12 +37,12 @@ import {
 } from "./models";
 import { fetchCheerio, VyMangaInterceptor } from "./network";
 import {
-  hasNextPage,
   parseCards,
   parseChapterPages,
   parseChapters,
   parseGenreFilter,
   parseMangaDetails,
+  parsePath,
 } from "./parsers";
 import type VyMangaConfig from "./pbconfig";
 
@@ -64,14 +64,6 @@ const GENRES_TTL = 60 * 60 * 1000;
 // count and cache the result to keep discover snappy.
 const FEATURED_LIMIT = 8;
 const FEATURED_TTL = 5 * 60 * 1000;
-
-function buildInfoItems(rating?: string, status?: string): FeaturedCarouselItem["infoItems"] {
-  const items: { symbol: string; text: string }[] = [];
-  if (rating) items.push({ symbol: "star.fill", text: rating });
-  if (status && status !== "Unknown") items.push({ symbol: "book.closed", text: status });
-  if (items.length === 0) return undefined;
-  return items.length === 1 ? [items[0]] : [items[0], items[1]];
-}
 
 export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
@@ -169,7 +161,7 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
       contentRating: this.contentRating,
     }));
 
-    const nextPage = hasNextPage($, NEXT_PAGE_SELECTOR);
+    const nextPage = $(NEXT_PAGE_SELECTOR).length > 0;
     return { items, metadata: nextPage ? { page: page + 1 } : undefined };
   }
 
@@ -209,7 +201,7 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
       contentRating: this.contentRating,
     }));
 
-    const nextPage = hasNextPage($, NEXT_PAGE_SELECTOR);
+    const nextPage = $(NEXT_PAGE_SELECTOR).length > 0;
     return { items, metadata: nextPage ? { page: page + 1 } : undefined };
   }
 
@@ -264,7 +256,7 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
     if (!/\/manga(?:-detail)?\//i.test(query)) return undefined;
 
     try {
-      const manga = await this.getMangaDetails(this.mangaIdFromUrl(query));
+      const manga = await this.getMangaDetails(parsePath(query));
       return {
         items: [
           {
@@ -314,13 +306,6 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
     return new URL(this.baseUrl).addPathComponent(mangaId).toString();
   }
 
-  private mangaIdFromUrl(url: string): string {
-    return url
-      .replace(/^https?:\/\/[^/]+/i, "")
-      .replace(/[?#].*$/, "")
-      .replace(/^\/+|\/+$/g, "");
-  }
-
   // Enriches the Popular hero with author + description + rating by fetching
   // each title's details (capped and cached).
   private async buildFeaturedItems(): Promise<DiscoverSectionItem[]> {
@@ -345,6 +330,8 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
         } catch {
           // Keep the basic card if the details request fails.
         }
+        const infoItems: FeaturedCarouselItem["infoItems"] =
+          status && status !== "Unknown" ? [{ symbol: "book.closed", text: status }] : undefined;
         return {
           type: "featuredCarouselItem",
           mangaId: card.mangaId,
@@ -352,7 +339,7 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
           imageUrl: card.imageUrl,
           supertitle,
           summary,
-          infoItems: buildInfoItems(undefined, status),
+          infoItems,
           contentRating: rating,
         };
       }),

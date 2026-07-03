@@ -161,10 +161,6 @@ export function parseCards($: CheerioAPI, base: string): MangaCard[] {
   return cards;
 }
 
-export function hasNextPage($: CheerioAPI, selector: string): boolean {
-  return $(selector).length > 0;
-}
-
 // ---------------------------------------------------------------------------
 // genres (advanced-search checkboxes)
 // ---------------------------------------------------------------------------
