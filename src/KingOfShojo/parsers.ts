@@ -296,10 +296,6 @@ function dedupeCards(cards: (MangaCard | undefined)[]): MangaCard[] {
   return out;
 }
 
-export function hasNextPage($: CheerioAPI, selector: string): boolean {
-  return $(selector).length > 0;
-}
-
 // ---------------------------------------------------------------------------
 // genres (browse-page filter checkboxes)
 // ---------------------------------------------------------------------------

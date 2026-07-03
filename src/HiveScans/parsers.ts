@@ -17,7 +17,6 @@ import {
   type HiveScansChapter,
   type HiveScansPage,
   type HiveScansPost,
-  type OptionItem,
 } from "./models";
 
 // ---------------------------------------------------------------------------
@@ -156,10 +155,6 @@ export function toSimpleItems(posts: HiveScansPost[]): DiscoverSectionItem[] {
     }));
 }
 
-export function genresToOptions(genres: { id: number; name: string }[]): OptionItem[] {
-  return genres.map((genre) => ({ id: genre.id.toString(), value: genre.name.trim() }));
-}
-
 // ---------------------------------------------------------------------------
 // manga details
 // ---------------------------------------------------------------------------
@@ -211,10 +206,6 @@ function chapterNumber(chapter: HiveScansChapter): number {
     : parseFloat(String(chapter.number)) || 0;
 }
 
-function isChapterLocked(chapter: HiveScansChapter): boolean {
-  return chapter.isLocked === true || chapter.isTimeLocked === true;
-}
-
 // Visibility rule: keep public chapters that are either accessible, or (when
 // the user opts in) locked. Inaccessible chapters are prefixed with a lock
 // glyph so they read as paid in the list.
@@ -225,7 +216,10 @@ export function parseChapterList(
 ): Chapter[] {
   const visible = chapters.filter((chapter) => {
     if (chapter.chapterStatus !== "PUBLIC") return false;
-    return chapter.isAccessible || (showLocked && isChapterLocked(chapter));
+    return (
+      chapter.isAccessible ||
+      (showLocked && (chapter.isLocked === true || chapter.isTimeLocked === true))
+    );
   });
 
   const sorted = [...visible].sort((a, b) => {

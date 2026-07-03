@@ -7,19 +7,11 @@ import {
   type ChapterDetails,
   type SourceManga,
   type Tag,
-  type TagSection,
 } from "@paperback/types";
 import { type Cheerio, type CheerioAPI } from "cheerio";
 import { type AnyNode } from "domhandler";
 
-import {
-  DOMAIN,
-  LOCK_PREFIX,
-  LOCK_SUFFIX,
-  NONCE_REGEX,
-  type ComicCard,
-  type Genre,
-} from "./models";
+import { DOMAIN, LOCK_PREFIX, LOCK_SUFFIX, type ComicCard, type Genre } from "./models";
 
 const MONTHS: Record<string, number> = {
   jan: 0,
@@ -90,11 +82,6 @@ export function absoluteUrl(src: string): string {
 function imageFromElement($: CheerioAPI, img: Cheerio<AnyNode>): string {
   const src = img.attr("data-src") || img.attr("data-lazy-src") || img.attr("src") || "";
   return absoluteUrl(src);
-}
-
-export function extractNonce($: CheerioAPI): string | undefined {
-  const match = $.html().match(NONCE_REGEX);
-  return match ? match[1] : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,11 +165,6 @@ export function parseGenres($: CheerioAPI): Genre[] {
   }
 
   return genres;
-}
-
-export function genresToTagSection(genres: Genre[]): TagSection {
-  const tags: Tag[] = genres.map((genre) => ({ id: genre.slug, title: genre.name }));
-  return { id: "genres", title: "Genres", tags };
 }
 
 // ---------------------------------------------------------------------------

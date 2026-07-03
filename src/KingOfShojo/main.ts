@@ -41,7 +41,6 @@ import {
 } from "./models";
 import { fetchCheerio, KingOfShojoInterceptor } from "./network";
 import {
-  hasNextPage,
   parseCards,
   parseChapterPages,
   parseChapters,
@@ -293,7 +292,7 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
       contentRating: this.contentRating,
     }));
 
-    const nextPage = hasNextPage($, NEXT_PAGE_SELECTOR) && page < MAX_SEARCH_PAGES;
+    const nextPage = $(NEXT_PAGE_SELECTOR).length > 0 && page < MAX_SEARCH_PAGES;
     return { items, metadata: nextPage ? { page: page + 1 } : undefined };
   }
 
