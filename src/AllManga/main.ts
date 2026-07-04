@@ -57,7 +57,7 @@ import {
   resolvePageUrls,
 } from "./parsers";
 import type AllMangaConfig from "./pbconfig";
-import { pageListViaWebView } from "./webView";
+import { pageListViaWebView } from "./utils/webView";
 
 const SECTION_POPULAR = "popular";
 const SECTION_LATEST = "latest";

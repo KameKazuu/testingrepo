@@ -4,7 +4,7 @@
 import { type CookieStorageInterceptor } from "@paperback/types";
 import * as cheerio from "cheerio";
 
-import { DOMAIN, type PagesData } from "./models";
+import { DOMAIN, type PagesData } from "../models";
 
 // Loads the chapter reader page in a WebView and lets the site's own JS fetch
 // the pages. A Proxy on JSON.parse captures the `chapterPages` payload the
