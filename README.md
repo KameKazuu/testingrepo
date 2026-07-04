@@ -26,7 +26,7 @@ Paperback extensions for websites with unique, non-generic themes.
 - [RinkoComics](https://rinkocomics.com)
 - [AllManga](https://allmanga.to)
 - [KingOfShojo](https://kingofshojo.com)
-- [VyManga](https://vyvymanga.net)
+- [VyManga](https://vymanga.com)
 
 ## Installation
 
