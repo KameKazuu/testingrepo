@@ -112,7 +112,12 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       session.token = token;
       session.pagesServed = 0;
       return true;
-    })().catch(() => false);
+    })().catch((error: unknown) => {
+      // A Cloudflare challenge on the reader-page reload must surface so the
+      // app opens the bypass; any other failure just means "couldn't refresh".
+      if (error instanceof CloudflareError) throw error;
+      return false;
+    });
 
     this.refreshInFlight.set(cid, task);
     try {
@@ -250,7 +255,9 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
             Date.now() >= pageCooldown.strikeUntil
           ) {
             session.pagesServed = 0;
-            void this.refreshSession(cid);
+            // Swallow rejections here: this refresh is opportunistic, and a
+            // Cloudflare challenge will surface on the next real page request.
+            void this.refreshSession(cid).catch(() => undefined);
           }
           const [, imageBuffer] = await Application.scheduleRequest({
             url: dto.url,
