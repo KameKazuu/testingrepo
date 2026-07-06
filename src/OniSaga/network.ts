@@ -288,10 +288,21 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 const BURST_CAPACITY = 10;
 const BURST_SPACING_SECONDS = 0.3;
 
+// Hard ceiling on page requests per rolling minute. The per-page delay sets the
+// cadence, but only this caps the *average* — so neither the initial burst nor a
+// fast Image Requests Limit setting can push the sustained rate past onisaga's
+// hidden frequency limiter (the "Rate limit exceeded" 429, seen tripping around
+// ~35/min). The burst still fires fast for a snappy first screen; it just counts
+// against the window like every other request.
+const RATE_WINDOW_MS = 60_000;
+const RATE_WINDOW_MAX = 25;
+
 export class OniSagaPageRateLimiter extends PaperbackInterceptor {
   private burst = BURST_CAPACITY;
   private lastChapterId = "";
   private chain: Promise<unknown> = Promise.resolve();
+  // Fire times of recent page requests, for the rolling-window rate cap.
+  private requestTimes: number[] = [];
 
   override async interceptRequest(request: Request): Promise<Request> {
     const cid = PAGE_API_REGEX.exec(request.url)?.[1];
@@ -324,15 +335,35 @@ export class OniSagaPageRateLimiter extends PaperbackInterceptor {
       await Application.sleep(cooldownMs / 1000);
       this.burst = 0; // after a penalty, hold the steady rate — don't burst again
     }
-    // A few quick pages for a snappy first screen, then the steady spacing.
+
+    // Per-page cadence: a few quick pages for a snappy first screen, then the
+    // user's spacing (held to the safe floor while a strike is active).
     if (this.burst > 0) {
       this.burst -= 1;
       await Application.sleep(BURST_SPACING_SECONDS);
-      return;
+    } else {
+      let seconds = getPageDelaySeconds();
+      if (Date.now() < pageCooldown.strikeUntil) seconds = Math.max(seconds, STRIKE_FLOOR_SECONDS);
+      await Application.sleep(seconds);
     }
-    // Honour the user's spacing, but hold the safe floor while a strike is active.
-    let seconds = getPageDelaySeconds();
-    if (Date.now() < pageCooldown.strikeUntil) seconds = Math.max(seconds, STRIKE_FLOOR_SECONDS);
-    await Application.sleep(seconds);
+
+    // Rolling-window backstop: whatever the burst or the user's spacing, hold to
+    // at most RATE_WINDOW_MAX page requests per minute so the frequency limiter
+    // can't trip. This is the average-rate guarantee the per-page delay lacks.
+    await this.throttleWindow();
+  }
+
+  private async throttleWindow(): Promise<void> {
+    let now = Date.now();
+    this.requestTimes = this.requestTimes.filter((t) => now - t < RATE_WINDOW_MS);
+    if (this.requestTimes.length >= RATE_WINDOW_MAX) {
+      const waitMs = RATE_WINDOW_MS - (now - this.requestTimes[0]);
+      if (waitMs > 0) {
+        await Application.sleep(waitMs / 1000);
+        now = Date.now();
+        this.requestTimes = this.requestTimes.filter((t) => now - t < RATE_WINDOW_MS);
+      }
+    }
+    this.requestTimes.push(now);
   }
 }
