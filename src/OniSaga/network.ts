@@ -32,6 +32,12 @@ const MAX_COOLDOWN_MS = 90_000;
 const STRIKE_FLOOR_SECONDS = 2;
 const STRIKE_DECAY_MS = 120_000;
 
+// Proactively re-home the reader session after this many pages. The "Session
+// page limit" 429 was observed at ~page 84, so refreshing well before it (like
+// MangaDex refreshes its token before `exp`) keeps a long chapter from hitting
+// the wall at all. Normal-length chapters never reach it, so they pay nothing.
+const SESSION_PAGE_BUDGET = 50;
+
 // Shared page-API throttle state. A 429 carries Retry-After (~60s) and does
 // NOT decrement the advertised 300/min counter, so it's a separate
 // burst/penalty limit: once tripped, every page request is rejected for the
@@ -61,7 +67,12 @@ function getRetryDelayMs(headers: Record<string, string> | undefined): number {
 export class OniSagaInterceptor extends PaperbackInterceptor {
   // Per-chapter reader sessions (chapterId -> token + reader-page referer) set
   // by getChapterDetails; the page API wants both, like the site's own reader.
-  private readerSessions = new Map<string, { token: string; referer: string }>();
+  // `pagesServed` counts pages resolved on the current session key, so we can
+  // re-home it before the server's per-session page quota trips.
+  private readerSessions = new Map<
+    string,
+    { token: string; referer: string; pagesServed: number }
+  >();
 
   // De-duped reader-session refreshes: a prefetch burst can 429 many pages at
   // once, so the first refresh re-fetches the reader page (minting a token with
@@ -69,7 +80,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
   private refreshInFlight = new Map<string, Promise<boolean>>();
 
   setReaderToken(chapterId: string, token: string, referer: string): void {
-    this.readerSessions.set(chapterId, { token, referer });
+    this.readerSessions.set(chapterId, { token, referer, pagesServed: 0 });
   }
 
   // Mint a brand-new reader session by reloading the reader page. Adopting the
@@ -88,6 +99,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       const token = extractReaderToken(Application.arrayBufferToUTF8String(page));
       if (!token) return false;
       session.token = token;
+      session.pagesServed = 0;
       return true;
     })().catch(() => false);
 
@@ -203,6 +215,15 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       try {
         const dto = JSON.parse(Application.arrayBufferToUTF8String(data)) as PageApiResponse;
         if (dto.url) {
+          // Count this page against the session's budget and re-home it a few
+          // pages early, so a long chapter never reaches the "Session page
+          // limit" 429. The refresh is de-duped and fire-and-forget: the
+          // current token is still valid, so it keeps serving until the fresh
+          // one is ready. Reset first so it triggers once, not every page after.
+          if (session && cid && ++session.pagesServed >= SESSION_PAGE_BUDGET) {
+            session.pagesServed = 0;
+            void this.refreshSession(cid);
+          }
           const [, imageBuffer] = await Application.scheduleRequest({
             url: dto.url,
             method: "GET",
