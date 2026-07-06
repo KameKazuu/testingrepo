@@ -55,7 +55,7 @@ import {
   parsePopularSeries,
   parsePopularToday,
   parseRecommendation,
-  photonImage,
+  proxyImage,
 } from "./parsers";
 import type KingOfShojoConfig from "./pbconfig";
 
@@ -354,7 +354,7 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
     this.lastChapterUrl = url;
     const $ = await fetchCheerio({ url, method: "GET" });
     const mode = getImageMode();
-    const pages = parseChapterPages($, this.baseUrl).map((page) => photonImage(page, mode));
+    const pages = parseChapterPages($, this.baseUrl).map((page) => proxyImage(page, mode));
     if (pages.length === 0) {
       throw new Error(`No pages found for chapter ${chapter.chapterId}`);
     }
