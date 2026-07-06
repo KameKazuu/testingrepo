@@ -16,8 +16,8 @@ const SHOW_ADULT_KEY = "kingofshojo.showAdultContent";
 const IMAGE_MODE_KEY = "kingofshojo.imageMode";
 
 // Reader images are served full-resolution from the site's CDN, which is slow on
-// mobile data. "fast"/"saver" route them through the site's own image CDN
-// (Jetpack Photon) resized + WebP-compressed; "original" leaves them untouched.
+// mobile data. "fast"/"saver" route them through an image proxy (wsrv.nl) resized
+// + WebP-compressed; "original" leaves them untouched.
 export function getImageMode(): string {
   const value = Application.getState(IMAGE_MODE_KEY);
   return typeof value === "string" ? value : "fast";
@@ -114,8 +114,8 @@ export class KingOfShojoSettingsForm extends Form {
           id: "images",
           footer:
             "Reader pages are served full-size and can be slow to load. Faster / " +
-            "Data saver resize and compress them through the site's image CDN. If " +
-            "pages fail to load, switch back to Original.",
+            "Data saver resize and compress them through an image proxy (wsrv.nl). " +
+            "If pages fail to load, switch back to Original.",
         },
         [
           SelectRow("image_mode", {
