@@ -55,6 +55,7 @@ import {
   hasNextPage,
   parseChapters,
   parseGenres,
+  parseAnchorCards,
   parseMangaCards,
   parseMangaDetails,
   parseTopManga,
@@ -78,7 +79,7 @@ import {
   buildSectionToggleRequest,
   defaultUpdates,
   extractLivewireState,
-  isDefaultUpdates,
+  extractLivewireStateFromHtml,
   livewireHeaders,
 } from "./utils/livewire";
 
@@ -426,7 +427,12 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
         buildSectionToggleRequest(state, toggle.method, value),
         "livewire toggle",
       );
-      const cards = html ? parseMangaCards(cheerio.load(html), getShowNsfw()) : [];
+      if (!html) return { items: [] };
+      const $component = cheerio.load(html);
+      // The Top 10 component re-renders as a ranked list, not poster cards;
+      // fall back to the anchor-based parser when the card markup is absent.
+      let cards = parseMangaCards($component, getShowNsfw());
+      if (cards.length === 0) cards = parseAnchorCards($component, getShowNsfw());
 
       return { items: toSearchItems(cards) };
     } catch (error) {
@@ -469,8 +475,10 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   private searchUpdates(meta: OniSagaSearchMetadata, sortId?: string): PostFilterUpdates {
     const updates = defaultUpdates();
     updates.sort = sortId || meta.sort || DEFAULT_SORT;
-    updates.platform = meta.type ?? "";
-    updates.status = meta.status ?? "";
+    // Advanced-search picks win; otherwise apply the saved discover filters,
+    // which the settings form promises also apply to search.
+    updates.platform = meta.type ?? getDiscoverType();
+    updates.status = meta.status ?? getDiscoverStatus();
     updates.min_chapters = meta.minChapters ?? "";
     updates.group = meta.group?.trim() || null;
     updates.release_start = normalizeReleaseDate(meta.releaseStart, false);
@@ -489,18 +497,23 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   }
 
   private async resolveDirectUrl(rawUrl: string): Promise<SearchResultItem | undefined> {
-    let mangaUrl = rawUrl;
-    if (/\/read\//.test(rawUrl)) {
-      const $ = await this.fetchCheerio({ url: rawUrl, method: "GET" });
-      const href = $("a[href*='/manga/']").first().attr("href");
-      if (href) mangaUrl = href;
-    }
+    // Only resolve links that actually point at this source's site; a pasted
+    // foreign URL must not be fetched with this source's headers.
+    const host = rawUrl.match(/^https?:\/\/([^/]+)/i)?.[1]?.toLowerCase();
+    if (!host || (host !== "onisaga.com" && !host.endsWith(".onisaga.com"))) return undefined;
 
-    const mangaId = mangaIdFromHref(mangaUrl);
+    // Reader URLs embed the manga slug directly (/read/<slug>/<chapter>).
+    const mangaId = mangaIdFromHref(rawUrl) || (rawUrl.match(/\/read\/([^/]+)/)?.[1] ?? "");
     if (!mangaId) return undefined;
 
     const $ = await this.fetchCheerio({ url: `${DOMAIN}/manga/${mangaId}`, method: "GET" });
     const details = parseMangaDetails($, mangaId);
+
+    // Direct results honour the NSFW setting like every other list.
+    if (!getShowNsfw() && details.mangaInfo.contentRating === ContentRating.ADULT) {
+      return undefined;
+    }
+
     return {
       mangaId,
       title: details.mangaInfo.primaryTitle,
@@ -536,8 +549,10 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
           const full = parseChapters(cheerio.load(html), sourceManga);
           if (full.length > chapters.length) chapters = full;
         }
-      } catch {
-        // Keep the first server-rendered page if the bulk load fails.
+      } catch (error) {
+        // Surface a Cloudflare challenge so the app opens the bypass flow;
+        // keep the first server-rendered page for any other failure.
+        if (error instanceof CloudflareError) throw error;
       }
     }
 
@@ -586,21 +601,15 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
 
   // ============================== Livewire browse ==============================
 
+  // All browse/search listing goes through the Livewire component, page 1
+  // included: its responses carry only one page of cards, while the /browse
+  // document itself can exceed 10 MB — far too big to parse on-device.
   private async fetchBrowse(
     baseUrl: string,
     updates: PostFilterUpdates,
     page: number,
   ): Promise<{ cards: MangaCard[]; hasNext: boolean }> {
     const showNsfw = getShowNsfw();
-
-    // Page 1 with default filters: the server-rendered HTML already holds the
-    // first batch, so skip the Livewire round-trip.
-    if (page === 1 && isDefaultUpdates(updates)) {
-      const $ = await this.fetchCheerio({ url: baseUrl, method: "GET" });
-      const state = extractLivewireState($, "post-filter");
-      if (state) this.browseStateCache = { url: baseUrl, state, at: Date.now() };
-      return { cards: parseMangaCards($, showNsfw), hasNext: hasNextPage($) };
-    }
 
     const state = await this.resolveBrowseState(baseUrl);
     if (!state) return { cards: [], hasNext: false };
@@ -634,8 +643,12 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       return cached.state;
     }
 
-    const $ = await this.fetchCheerio({ url: baseUrl, method: "GET" });
-    const state = extractLivewireState($, "post-filter");
+    // Regex extraction on the raw text — never cheerio-parse the huge document.
+    const [, data] = await Application.scheduleRequest({ url: baseUrl, method: "GET" });
+    const state = extractLivewireStateFromHtml(
+      Application.arrayBufferToUTF8String(data),
+      "post-filter",
+    );
     if (state) this.browseStateCache = { url: baseUrl, state, at: now };
     return state;
   }

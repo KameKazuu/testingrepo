@@ -112,6 +112,41 @@ export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
   return cards;
 }
 
+// Fallback for component markup that doesn't use the browse card layout (the
+// /trending Top 10 re-renders as a compact ranked list, not poster cards):
+// any manga anchor wrapping a poster image becomes a card.
+export function parseAnchorCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
+  const cards: MangaCard[] = [];
+  const seen = new Set<string>();
+
+  $("a[href*='/manga/']").each((_, el) => {
+    const a = $(el);
+    const img = a.find("img").first();
+    if (img.length === 0) return;
+    const mangaId = mangaIdFromHref(a.attr("href") ?? "");
+    if (!mangaId || seen.has(mangaId)) return;
+
+    const title = (a.attr("title") || a.attr("aria-label") || img.attr("alt") || a.text())
+      .replace(/\s*(?:manga\s*)?cover\s*$/i, "")
+      .trim();
+    const imageUrl = resolveImageUrl(img);
+    if (!title || !imageUrl) return;
+
+    const isAdult = hasAdultMarker(a);
+    if (isAdult && !showNsfw) return;
+
+    seen.add(mangaId);
+    cards.push({
+      mangaId,
+      title,
+      imageUrl,
+      contentRating: isAdult ? ContentRating.ADULT : ContentRating.EVERYONE,
+    });
+  });
+
+  return cards;
+}
+
 // ============================= Top-manga ranking =============================
 // /top-manga rows carry both the read count and ★ rating that /browse lacks.
 export interface TopMangaItem {
@@ -154,22 +189,30 @@ export function parseTopManga($: CheerioAPI, showNsfw: boolean): TopMangaItem[] 
   };
 
   // Podium (ranks 1-3): poster anchors; title from the image alt, reads from a
-  // "N reads" line. No rating/genre.
+  // "N reads" line. The rank-4+ rows live in an <ol> inside the same section,
+  // so skip those here, and order by the displayed rank — the page renders the
+  // podium visually as 2-1-3 with the winner centred.
+  const podium: { rank: number; item: TopMangaItem }[] = [];
   $("section a[href*='/manga/']").each((_, el) => {
     const a = $(el);
+    if (a.closest("ol").length > 0) return;
     const img = a.find("img").first();
     if (img.length === 0) return;
     const readsMatch = a.text().match(/([\d,]+)\s*reads/i);
     if (!readsMatch) return;
 
-    add({
-      mangaId: mangaIdFromHref(a.attr("href") ?? ""),
-      title: (img.attr("alt") ?? "").replace(/\s*cover\s*$/i, "").trim(),
-      imageUrl: resolveImageUrl(img),
-      contentRating: hasAdultMarker(a) ? ContentRating.ADULT : ContentRating.EVERYONE,
-      reads: readsMatch[1],
+    podium.push({
+      rank: parseInt(a.text().match(/\b0?(\d)\b/)?.[1] ?? "9", 10),
+      item: {
+        mangaId: mangaIdFromHref(a.attr("href") ?? ""),
+        title: (img.attr("alt") ?? "").replace(/\s*cover\s*$/i, "").trim(),
+        imageUrl: resolveImageUrl(img),
+        contentRating: hasAdultMarker(a) ? ContentRating.ADULT : ContentRating.EVERYONE,
+        reads: readsMatch[1],
+      },
     });
   });
+  podium.sort((a, b) => a.rank - b.rank).forEach((entry) => add(entry.item));
 
   // Ranked list (rank 4+): each <li> anchor has title, genres, and a stat block
   // (reads then ★ rating).
@@ -295,8 +338,10 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string): SourceManga {
   });
 
   // Normalize by the displayed denominator ("8.6/10", "4.3/5"); default /10.
+  // Scoped to the details header: an unrated title must not inherit a score
+  // from a rated card in the Recommended rail further down the page.
   let rating = 0;
-  $("span.text-xs").each((_, el) => {
+  infoSection.find("span.text-xs").each((_, el) => {
     if (rating) return;
     const match = $(el)
       .text()
