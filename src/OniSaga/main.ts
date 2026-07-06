@@ -143,6 +143,13 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   private homeHtmlCache?: { html: string; at: number };
   private static readonly HOME_TTL = 60_000;
 
+  // Cached /top-manga rankings by sort. The featured + highest-rated rails both
+  // pull from this slow (~3s) ranking page, and the discover screen re-requests
+  // rails as it refreshes/scrolls, so cache each sort briefly to collapse the
+  // repeated fetches into one.
+  private topMangaCache = new Map<string, { items: TopMangaItem[]; at: number }>();
+  private static readonly TOP_MANGA_TTL = 60_000;
+
   async initialise(): Promise<void> {
     this.cookieStorageInterceptor.registerInterceptor();
     this.requestManager.registerInterceptor();
@@ -321,9 +328,16 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   // and ★ rating that /browse cards lack.
   private async fetchTopManga(sort: "reads" | "rated"): Promise<TopMangaItem[]> {
     const showNsfw = getShowNsfw();
+    const key = `${sort}:${showNsfw}`;
+    const now = Date.now();
+    const cached = this.topMangaCache.get(key);
+    if (cached && now - cached.at < OniSagaExtension.TOP_MANGA_TTL) return cached.items;
+
     try {
       const $ = await this.fetchCheerio({ url: `${DOMAIN}/top-manga?sort=${sort}`, method: "GET" });
-      return parseTopManga($, showNsfw);
+      const items = parseTopManga($, showNsfw);
+      this.topMangaCache.set(key, { items, at: now });
+      return items;
     } catch (error) {
       // A Cloudflare wall must reach the user as the bypass prompt.
       if (error instanceof CloudflareError) throw error;

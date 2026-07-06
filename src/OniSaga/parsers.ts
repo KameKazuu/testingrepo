@@ -5,8 +5,8 @@ import { ContentRating, type Chapter, type SourceManga, type TagSection } from "
 import { type Cheerio, type CheerioAPI } from "cheerio";
 import { type Element } from "domhandler";
 
-import { DOMAIN, GENRES, LANGUAGES, type Option } from "./models";
-import { chapterIdFromHref, mangaIdFromHref } from "./utils/helpers";
+import { DOMAIN, LANGUAGES, type Option } from "./models";
+import { chapterIdFromHref, getGenres, mangaIdFromHref } from "./utils/helpers";
 
 const READER_TOKEN_REGEX = /readerToken["']?\s*:\s*["']([^"']+)["']/;
 const TOTAL_PAGES_REGEX = /totalPages["']?\s*:\s*(\d+)/;
@@ -15,8 +15,20 @@ const CHAPTER_NUMBER_REGEX = /(\d+(?:\.\d+)?)/;
 
 const TYPE_BADGES = new Set(["manga", "manhwa", "manhua", "shounen", "seinen", "shoujo", "josei"]);
 
-const GENRE_ID_BY_TITLE = new Map(GENRES.map((g) => [g.title.toLowerCase(), g.id]));
 const LANG_CODE_BY_BADGE = new Map(LANGUAGES.map((l) => [l.badge.toUpperCase(), l.langCode]));
+
+// Paperback rejects tag ids with characters outside its allowed set
+// (alphanumeric plus ._-@()[]%?#+=/&:). Genre titles can carry spaces
+// ("Inexperienced in Love"), so collapse any disallowed run to a single hyphen
+// — a valid, stable id — for genres missing from the numeric filter list.
+function slugifyTagId(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "unknown"
+  );
+}
 
 function resolveUrl(src: string): string {
   if (!src) return "";
@@ -360,10 +372,17 @@ export function parseMangaDetails($: CheerioAPI, mangaId: string): SourceManga {
 
   const tagGroups: TagSection[] = [];
   if (genres.length > 0) {
+    // Prefer the site's numeric filter id (so tapping the tag searches that
+    // genre); fall back to a slugified id for anything not in the list, so an
+    // unknown genre renders instead of crashing the details page.
+    const idByTitle = new Map(getGenres().map((g) => [g.title.toLowerCase(), g.id]));
     tagGroups.push({
       id: "genres",
       title: "Genres",
-      tags: genres.map((g) => ({ id: GENRE_ID_BY_TITLE.get(g.toLowerCase()) ?? g, title: g })),
+      tags: genres.map((g) => ({
+        id: idByTitle.get(g.toLowerCase()) ?? slugifyTagId(g),
+        title: g,
+      })),
     });
   }
 
