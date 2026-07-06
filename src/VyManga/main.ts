@@ -305,8 +305,12 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    // chapterId is the full external reader URL; ?view=0 renders every page at
-    // once instead of paging.
+    // chapterId is the full external reader URL. Chapters cached by an older
+    // version stored a relative id that can't be opened — ask for a refresh.
+    if (!/^https?:\/\//i.test(chapter.chapterId)) {
+      throw new Error("Refresh the chapter list to reload chapters.");
+    }
+    // ?view=0 renders every page at once instead of paging.
     const url = `${chapter.chapterId}${chapter.chapterId.includes("?") ? "&" : "?"}view=0`;
     const $ = await fetchCheerio({ url, method: "GET" });
     const pages = parseChapterPages($, this.baseUrl);
