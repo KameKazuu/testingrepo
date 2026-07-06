@@ -349,7 +349,10 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const url = new URL(this.baseUrl).addPathComponent(chapter.chapterId).toString();
+    // WordPress canonicalises to a trailing slash, so request it directly to
+    // avoid a 301 round-trip on every chapter open.
+    const base = new URL(this.baseUrl).addPathComponent(chapter.chapterId).toString();
+    const url = base.endsWith("/") ? base : `${base}/`;
     // Reader images are fetched with this page as their referer.
     this.lastChapterUrl = url;
     const $ = await fetchCheerio({ url, method: "GET" });
