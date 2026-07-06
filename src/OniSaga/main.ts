@@ -54,7 +54,7 @@ import {
   extractReaderToken,
   hasNextPage,
   parseChapters,
-  parseGenres,
+  parseGenresFromHtml,
   parseAnchorCards,
   parseMangaCards,
   parseMangaDetails,
@@ -199,8 +199,13 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     const now = Date.now();
     if (!genresAreStale(now)) return;
     try {
-      const $ = await this.fetchCheerio({ url: `${DOMAIN}/browse`, method: "GET" });
-      const genres = parseGenres($);
+      // Regex extraction on the raw text — the /browse document can exceed
+      // 10 MB, so never cheerio-parse it just to read the genre checkboxes.
+      const [, data] = await Application.scheduleRequest({
+        url: `${DOMAIN}/browse`,
+        method: "GET",
+      });
+      const genres = parseGenresFromHtml(Application.arrayBufferToUTF8String(data));
       if (genres.length > 0) cacheGenres(genres, now);
     } catch {
       // Keep the current cache / fallback.
@@ -256,17 +261,23 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       }
       case "fan_favorites":
         return this.fetchFanFavorites();
-      case "genres":
+      case "genres": {
+        // Drop blacklisted genres: including one here while searchUpdates also
+        // adds it to excludeGenre would send it as both included and excluded.
+        const excluded = new Set(getExcludedGenres());
         return {
-          items: getGenres().map((genre) => ({
-            type: "genresCarouselItem",
-            searchQuery: {
-              title: "",
-              metadata: { genres: { [genre.id]: "included" } } satisfies OniSagaSearchMetadata,
-            },
-            name: genre.title,
-          })),
+          items: getGenres()
+            .filter((genre) => !excluded.has(genre.id))
+            .map((genre) => ({
+              type: "genresCarouselItem",
+              searchQuery: {
+                title: "",
+                metadata: { genres: { [genre.id]: "included" } } satisfies OniSagaSearchMetadata,
+              },
+              name: genre.title,
+            })),
         };
+      }
       case "types":
         return {
           items: TYPE_OPTIONS.filter((t) => t.id).map((type) => ({
