@@ -210,6 +210,20 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
           });
           return imageBuffer;
         }
+        // A 200 with no url is a JSON error payload (e.g. an expired token
+        // reported with a `message`), which would otherwise render as broken
+        // image bytes. Mint a fresh session and retry, like the 401/403 path.
+        if (session && cid && dto.message) {
+          const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
+          if (attempt < PAGE_RETRY_LIMIT && (await this.refreshSession(cid))) {
+            const [, buffer] = await Application.scheduleRequest({
+              url: request.url,
+              method: "GET",
+              headers: { ...request.headers, [PAGE_RETRY_HEADER]: String(attempt + 1) },
+            });
+            return buffer;
+          }
+        }
       } catch {
         // Fall through and return the original body; the reader shows a broken
         // page rather than hanging the whole chapter.
