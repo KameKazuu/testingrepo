@@ -141,13 +141,15 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     if (cid) {
       const session = this.readerSessions.get(cid);
       if (session) {
+        // Mirror the site reader's fetch exactly (verified against a live
+        // devtools capture): Accept */* (fetch default — not application/json),
+        // the full sec-fetch trio, and NO Origin header (browsers omit it on
+        // same-origin GETs, cors mode notwithstanding).
         headers["x-reader-token"] = session.token;
-        headers.accept = "application/json";
+        headers.accept = "*/*";
+        headers["sec-fetch-dest"] = "empty";
         headers["sec-fetch-mode"] = "cors";
         headers["sec-fetch-site"] = "same-origin";
-        // A CORS fetch (which this is) carries Origin in a real browser; send it
-        // so the page-API request is indistinguishable from the site's reader.
-        headers.origin = DOMAIN;
         headers.referer = session.referer;
       }
     }
