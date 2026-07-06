@@ -64,6 +64,17 @@ function getRetryDelayMs(headers: Record<string, string> | undefined): number {
   return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : RATE_LIMIT_FALLBACK_MS;
 }
 
+// Lower-cased `error` string from a page-API JSON error body ({"error": "..."}),
+// used to tell the two 429 kinds apart. "" when the body isn't parseable.
+function parseErrorMessage(data: ArrayBuffer): string {
+  try {
+    const dto = JSON.parse(Application.arrayBufferToUTF8String(data)) as { error?: string };
+    return (dto.error ?? "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 export class OniSagaInterceptor extends PaperbackInterceptor {
   // Per-chapter reader sessions (chapterId -> token + reader-page referer) set
   // by getChapterDetails; the page API wants both, like the site's own reader.
@@ -181,17 +192,22 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       }
     }
 
-    // A page-API 429 is "Session page limit exceeded": the reader session's page
-    // budget is spent (the advertised 300/min counter is untouched — remaining
-    // stays high). Rotating the token keeps the same session key, so the only
-    // reset is a fresh session. On the first hit, mint one and retry straight
-    // away; if that still 429s (a genuine rate penalty, not the page cap), fall
-    // back to parking the whole pipeline for the Retry-After window. The tiny
-    // JSON error body would otherwise render as a broken page.
+    // The page API returns two different 429s, told apart by the error body:
+    //   "Session page limit exceeded" — a per-session page quota (retry-after ~30,
+    //       ratelimit-remaining untouched). Rotating the token keeps the same
+    //       session key, so only a fresh session resets it → re-mint and retry.
+    //   "Rate limit exceeded" — request-frequency penalty (retry-after ~60,
+    //       ratelimit-remaining decrementing). A fresh session does NOT help and
+    //       just burns a request, so park the whole pipeline for the Retry-After
+    //       window and hold the safe floor instead. Anything unrecognized is
+    //       treated as the rate case (the safer default). The tiny JSON error
+    //       body would otherwise render as a broken page.
     if (PAGE_API_REGEX.test(request.url) && response.status === 429) {
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
       if (attempt < PAGE_RETRY_LIMIT) {
-        const refreshed = session && cid && attempt === 0 ? await this.refreshSession(cid) : false;
+        const isPageLimit = parseErrorMessage(data).includes("page limit");
+        const refreshed =
+          isPageLimit && session && cid && attempt === 0 ? await this.refreshSession(cid) : false;
         if (!refreshed) {
           const backoffMs = Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS);
           const now = Date.now();
@@ -220,7 +236,14 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
           // limit" 429. The refresh is de-duped and fire-and-forget: the
           // current token is still valid, so it keeps serving until the fresh
           // one is ready. Reset first so it triggers once, not every page after.
-          if (session && cid && ++session.pagesServed >= SESSION_PAGE_BUDGET) {
+          // Skip it while a rate-limit strike is active — the reader page is an
+          // extra request the frequency limiter would count against us.
+          if (
+            session &&
+            cid &&
+            ++session.pagesServed >= SESSION_PAGE_BUDGET &&
+            Date.now() >= pageCooldown.strikeUntil
+          ) {
             session.pagesServed = 0;
             void this.refreshSession(cid);
           }
