@@ -145,6 +145,9 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
         headers.accept = "application/json";
         headers["sec-fetch-mode"] = "cors";
         headers["sec-fetch-site"] = "same-origin";
+        // A CORS fetch (which this is) carries Origin in a real browser; send it
+        // so the page-API request is indistinguishable from the site's reader.
+        headers.origin = DOMAIN;
         headers.referer = session.referer;
       }
     }
