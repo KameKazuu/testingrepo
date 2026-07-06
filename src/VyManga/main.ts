@@ -41,7 +41,7 @@ import {
   parseCards,
   parseChapterPages,
   parseChapters,
-  parseGenreFilter,
+  parseGenres,
   parseMangaDetails,
 } from "./parsers";
 import type VyMangaConfig from "./pbconfig";
@@ -59,7 +59,46 @@ const BROWSE_SORT: Record<string, string> = {
   newest: "created_at",
 };
 
-const GENRES_TTL = 60 * 60 * 1000;
+// Genres are scraped from the site nav rather than hardcoded, then persisted so
+// they survive an app restart. A stale cache is served immediately while a fresh
+// copy is fetched in the background.
+type GenreCache = { genres: OptionItem[]; fetchedAt: number };
+const GENRE_CACHE_KEY = "vymanga.genre_cache";
+const GENRE_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function getCachedGenres(): GenreCache | null {
+  const raw = Application.getState(GENRE_CACHE_KEY) as unknown;
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    Array.isArray(raw) ||
+    !Array.isArray((raw as GenreCache).genres) ||
+    typeof (raw as GenreCache).fetchedAt !== "number"
+  ) {
+    return null;
+  }
+  const cache = raw as GenreCache;
+  if (cache.genres.length === 0) return null;
+  for (const genre of cache.genres as unknown[]) {
+    const typed = genre as { id?: unknown; value?: unknown };
+    if (
+      !typed ||
+      typeof typed !== "object" ||
+      typeof typed.id !== "string" ||
+      typed.id === "" ||
+      typeof typed.value !== "string" ||
+      typed.value === ""
+    ) {
+      return null;
+    }
+  }
+  return cache;
+}
+
+function setCachedGenres(cache: GenreCache): void {
+  Application.setState(cache, GENRE_CACHE_KEY);
+}
+
 // The featured hero fetches per-title details (author/description), so cap the
 // count and cache the result to keep discover snappy.
 const FEATURED_LIMIT = 8;
@@ -74,7 +113,6 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
   mainInterceptor = new VyMangaInterceptor("main", () => this.baseUrl);
 
-  private genresCache: { options: OptionItem[]; timestamp: number } | null = null;
   private featuredCache: { items: DiscoverSectionItem[]; timestamp: number } | null = null;
 
   get baseUrl(): string {
@@ -353,18 +391,34 @@ export class VyMangaExtension implements ExtensionImpl<typeof VyMangaConfig> {
   }
 
   private async getGenres(): Promise<OptionItem[]> {
-    if (this.genresCache && Date.now() - this.genresCache.timestamp < GENRES_TTL) {
-      return this.genresCache.options;
+    const cache = getCachedGenres();
+    if (cache) {
+      // Stale: serve cached, refresh in background. Errors keep the stale copy.
+      if (Date.now() - cache.fetchedAt >= GENRE_CACHE_MAX_AGE_MS) {
+        void this.refreshGenres();
+      }
+      return cache.genres;
     }
     try {
-      const url = new URL(this.baseUrl).addPathComponent(SEARCH_PATH).toString();
-      const $ = await fetchCheerio({ url, method: "GET" });
-      const options = parseGenreFilter($);
-      if (options.length > 0) this.genresCache = { options, timestamp: Date.now() };
-      return options;
+      return await this.fetchGenres();
     } catch {
-      return this.genresCache?.options ?? [];
+      return [];
     }
+  }
+
+  private async refreshGenres(): Promise<void> {
+    try {
+      await this.fetchGenres();
+    } catch {
+      // Keep serving the stale cache until the next attempt.
+    }
+  }
+
+  private async fetchGenres(): Promise<OptionItem[]> {
+    const $ = await fetchCheerio({ url: this.baseUrl, method: "GET" });
+    const genres = parseGenres($);
+    if (genres.length > 0) setCachedGenres({ genres, fetchedAt: Date.now() });
+    return genres;
   }
 }
 
