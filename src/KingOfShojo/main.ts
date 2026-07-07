@@ -75,16 +75,10 @@ function buildInfoItems(rating?: string, status?: string): FeaturedCarouselItem[
 }
 
 export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoConfig> {
-  // Throttle images too (ignoreImages: false). cdn.kingofshojo.com resets the
-  // connection (iOS -1005) when a whole chapter is requested at once, and
-  // Paperback — unlike Mihon/OkHttp — doesn't retry dropped connections. The
-  // working Paperback KingOfShojo source throttles requests for the same reason,
-  // so cap the rate to keep image concurrency low enough that the CDN stops
-  // resetting.
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
-    numberOfRequests: 4,
-    bufferInterval: 1,
-    ignoreImages: false,
+    numberOfRequests: 5,
+    bufferInterval: 2,
+    ignoreImages: true,
   });
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
   mainInterceptor = new KingOfShojoInterceptor("main", () => this.baseUrl);
