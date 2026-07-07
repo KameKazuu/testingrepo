@@ -205,6 +205,27 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       });
     }
 
+    // Browse/search/details endpoints can also 429 — onisaga rate-limits deep
+    // search pagination (the heaviest, multi-MB responses). Unlike the reader
+    // page API (handled below with its own shared cooldown), these have no
+    // pacing beyond the global limiter, so a rate-limited page would otherwise
+    // surface as an empty list. Honour Retry-After and retry once, bounded by
+    // the same header guard, preserving the original method and body (a Livewire
+    // update is a POST). The reader page API keeps its dedicated path.
+    if (!PAGE_API_REGEX.test(request.url) && response.status === 429) {
+      const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
+      if (attempt < PAGE_RETRY_LIMIT) {
+        await Application.sleep(
+          Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS) / 1000,
+        );
+        const [, buffer] = await Application.scheduleRequest({
+          ...request,
+          headers: { ...request.headers, [PAGE_RETRY_HEADER]: String(attempt + 1) },
+        });
+        return buffer;
+      }
+    }
+
     const cid = PAGE_API_REGEX.exec(request.url)?.[1];
     const session = cid ? this.readerSessions.get(cid) : undefined;
 
