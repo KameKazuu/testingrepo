@@ -350,6 +350,18 @@ export function hasNextPage($: CheerioAPI): boolean {
   return found;
 }
 
+// The /home page server-renders a "Latest Mangas" grid inline — no Livewire,
+// no 10MB+ /browse document. It sits between the Most Popular and Fan Favorites
+// Livewire islands, so slice from its heading to the next wire:snapshot and
+// parse the cards out of that one cheap (already-fetched) document.
+export function parseLatestFromHome(html: string, showNsfw: boolean): MangaCard[] {
+  const start = html.indexOf("Latest Mangas");
+  if (start < 0) return [];
+  const after = html.slice(start);
+  const end = after.indexOf("wire:snapshot");
+  return parseMangaCardsFromHtml(end > 0 ? after.slice(0, end) : after, showNsfw);
+}
+
 // String twin of hasNextPage for the multi-MB browse response we never fully
 // cheerio-load: an enabled `wire:click="...nextPage..."` control means there's
 // another page.
