@@ -26,6 +26,7 @@ import {
 import * as cheerio from "cheerio";
 
 import {
+  getDedupeChapters,
   getDiscoverStatus,
   getDiscoverType,
   getExcludedGenres,
@@ -661,12 +662,38 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     const inLanguage = chapters.filter((chapter) => languages.includes(chapter.langCode));
     if (inLanguage.length > 0) chapters = inLanguage;
 
+    // onisaga often carries several uploads of one chapter in the same language;
+    // collapse them to the newest so the list isn't cluttered with duplicates.
+    if (getDedupeChapters()) chapters = this.dedupeChapters(chapters);
+
     // Newest first: the highest chapter number gets the highest sortingIndex.
     chapters.sort((a, b) => b.chapNum - a.chapNum);
     chapters.forEach((chapter, index) => {
       chapter.sortingIndex = chapters.length - index;
     });
     return chapters;
+  }
+
+  // Collapse repeat uploads of the same chapter+language to a single entry,
+  // keeping the newest by upload date (MangaDex's "Skip Same Chapter" / Aidoku's
+  // dedupe). A numbered chapter keys on number+language; an unparseable one keys
+  // on its title so genuinely distinct extras aren't merged into one.
+  private dedupeChapters(chapters: Chapter[]): Chapter[] {
+    const byNewest = [...chapters].sort(
+      (a, b) => (b.publishDate?.getTime() ?? 0) - (a.publishDate?.getTime() ?? 0),
+    );
+    const seen = new Set<string>();
+    const kept: Chapter[] = [];
+    for (const chapter of byNewest) {
+      const key =
+        chapter.chapNum > 0
+          ? `${chapter.chapNum}-${chapter.langCode}`
+          : `${chapter.title}-${chapter.langCode}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      kept.push(chapter);
+    }
+    return kept;
   }
 
   // Open in one request: return a page-API url per page without resolving any.
