@@ -82,8 +82,20 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
   // re-home it before the server's per-session page quota trips.
   private readerSessions = new Map<
     string,
-    { token: string; referer: string; pagesServed: number }
+    {
+      token: string;
+      referer: string;
+      pagesServed: number;
+      refreshedAt?: number;
+      refreshOk?: boolean;
+    }
   >();
+
+  // Coalesce rapid re-mints: a genuinely dead session 403s every prefetched
+  // page, and each page's sequential retries would otherwise each reload the
+  // reader page. Reusing a very recent refresh outcome bounds those reloads to
+  // one per window instead of a burst that itself looks abusive.
+  private static readonly REFRESH_MIN_INTERVAL_MS = 8000;
 
   // De-duped reader-session refreshes: a prefetch burst can 429 many pages at
   // once, so the first refresh re-fetches the reader page (minting a token with
@@ -105,9 +117,20 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     const session = this.readerSessions.get(cid);
     if (!session) return false;
 
+    // A reload moments ago won't yield a better token — reuse its outcome so a
+    // dead session can't trigger a reader-page reload per 403.
+    if (
+      session.refreshedAt !== undefined &&
+      Date.now() - session.refreshedAt < OniSagaInterceptor.REFRESH_MIN_INTERVAL_MS
+    ) {
+      return session.refreshOk ?? false;
+    }
+
     const task = (async () => {
       const [, page] = await Application.scheduleRequest({ url: session.referer, method: "GET" });
       const token = extractReaderToken(Application.arrayBufferToUTF8String(page));
+      session.refreshedAt = Date.now();
+      session.refreshOk = Boolean(token);
       if (!token) return false;
       session.token = token;
       session.pagesServed = 0;
@@ -116,6 +139,10 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       // A Cloudflare challenge on the reader-page reload must surface so the
       // app opens the bypass; any other failure just means "couldn't refresh".
       if (error instanceof CloudflareError) throw error;
+      // Stamp the failure too, so a transient error doesn't invite an immediate
+      // reload storm; the next window is free to try again.
+      session.refreshedAt = Date.now();
+      session.refreshOk = false;
       return false;
     });
 
