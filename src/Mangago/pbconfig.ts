@@ -6,10 +6,10 @@ import { ContentRating, SourceIntents, type ExtensionInfo } from "@paperback/typ
 export default {
   name: "Mangago",
   description: "Extension that pulls content from mangago.me.",
-  version: "1.0.0-alpha.65",
+  version: "1.0.0-alpha.1",
   icon: "icon.png",
   language: "en",
-  contentRating: ContentRating.MATURE,
+  contentRating: ContentRating.ADULT,
   capabilities: [
     SourceIntents.CHAPTER_PROVIDING,
     SourceIntents.CLOUDFLARE_BYPASS_PROVIDING,
@@ -17,22 +17,11 @@ export default {
     SourceIntents.SEARCH_RESULT_PROVIDING,
     SourceIntents.SETTINGS_FORM_PROVIDING,
   ],
-  badges: [
-    {
-      label: "Aggregator",
-      textColor: "#FFFFFF",
-      backgroundColor: "#800080",
-    },
-    {
-      label: "Mature",
-      textColor: "#FFFFFF",
-      backgroundColor: "#800080",
-    },
-  ],
+  badges: [],
   developers: [
     {
-      name: "PoppingMango",
-      github: "https://github.com/PoppingMango",
+      name: "Popmango",
+      github: "https://github.com/PoppingMangoSources",
     },
   ],
 } satisfies ExtensionInfo;
