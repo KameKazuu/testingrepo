@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Inkdex */
+
 import {
   CloudflareError,
   PaperbackInterceptor,
@@ -6,12 +9,12 @@ import {
 } from "@paperback/types";
 
 import { DOMAIN, READER_USER_AGENT, USER_AGENT, type MangagoImageContext } from "./models";
-import { descrambleMangagoImage, readerHostOf, readerPathOf } from "./utils";
+import { descrambleMangagoImage } from "./utils/descramble";
+import { readerHostOf, readerPathOf } from "./utils/urls";
 
-// Remember each image's descramble context (desckey + cols) keyed by its
-// clean, fragment-less URL. On a retry the reader sometimes drops the
-// "#desckey=...&cols=..." fragment; without this the retried image would come
-// back still scrambled. The saved context lets us descramble it anyway.
+// Remember each image's descramble context (desckey + cols) keyed by its clean,
+// fragment-less URL, so a retry that drops the "#desckey=...&cols=..." fragment
+// can still be descrambled.
 const IMAGE_CONTEXT_STATE_PREFIX = "mangago-image-context:";
 
 function cleanUrl(url: string): string {
@@ -53,10 +56,9 @@ function parseImageContext(url: string): MangagoImageContext | null {
 
   const fragment = url.slice(hashIndex + 1);
 
-  // Parse the "desckey=...&cols=..." fragment by hand instead of via
-  // URLSearchParams: URL is polyfilled on-device but URLSearchParams is not
-  // guaranteed, and this fragment is written by annotateImageUrl() with
-  // encodeURIComponent, so a split + decodeURIComponent round-trips exactly.
+  // Parse the "desckey=...&cols=..." fragment by hand: URLSearchParams isn't
+  // guaranteed on-device, and the fragment is written with encodeURIComponent so
+  // a split + decodeURIComponent round-trips exactly.
   const fragmentParams = new Map<string, string>();
   for (const pair of fragment.split("&")) {
     const eq = pair.indexOf("=");
@@ -83,10 +85,9 @@ function parseImageContext(url: string): MangagoImageContext | null {
   return context;
 }
 
-// Host detection by PLAIN STRING (readerHostOf), not new URL(url, DOMAIN): the
-// on-device polyfill can fold an absolute mirror host onto the base, which would
-// misclassify mirror reader requests. A relative URL (no host) defaults to the
-// canonical www.mangago.me.
+// Host detection by plain string (readerHostOf), not new URL(url, DOMAIN), which
+// the on-device polyfill can fold a mirror host onto the base. A relative URL
+// (no host) defaults to www.mangago.me.
 function isMangagoHost(url: string): boolean {
   const host = readerHostOf(url) ?? (url.startsWith("/") ? "www.mangago.me" : undefined);
   if (!host) return false;
@@ -103,11 +104,10 @@ function isMangagoHost(url: string): boolean {
   );
 }
 
-// A chapter reader page lives at /read-manga/<slug>/<chapter…> (something after
-// the slug) or the legacy numeric /chapter/<mid>/<cid>/. The bare
-// /read-manga/<slug>/ is the manga-details page, NOT a reader page. Reader pages
-// take the desktop UA; everything else (details, listing, search, discover) takes
-// the mobile browsing UA so chapter links come back as read-manga URLs.
+// A reader page lives at /read-manga/<slug>/<chapter…> or the numeric
+// /chapter/<mid>/<cid>/. The bare /read-manga/<slug>/ is the manga-details page,
+// not a reader. Reader pages take the desktop UA; everything else takes the mobile
+// browsing UA so chapter links come back as read-manga URLs.
 function isReaderPageUrl(url: string): boolean {
   const pathname = readerPathOf(url);
   const readManga = /^\/read-manga\/[^/]+\/(.+)/.exec(pathname);
@@ -120,11 +120,10 @@ function readerHeadersForUrl(url: string): {
   origin: string;
   "user-agent": string;
 } {
-  // read-manga readers are on www.mangago.me; numeric readers may be on a mirror
-  // host. Match referer/origin to the request's own reader host so a same-origin
-  // navigation looks right; non-reader (browse/search/details) traffic stays on
-  // the canonical domain. The UA is per request type (USER_AGENT /
-  // READER_USER_AGENT): reader pages desktop, everything else mobile browsing.
+  // Match referer/origin to the request's own reader host so a same-origin
+  // navigation looks right (numeric readers may be on a mirror); non-reader
+  // traffic stays on the canonical domain. UA is per request type: reader pages
+  // desktop, everything else mobile browsing.
   const reader = isReaderPageUrl(url);
   const host = reader ? readerHostOf(url) : undefined;
   const origin = host ? `https://${host}` : DOMAIN;
@@ -135,37 +134,28 @@ function readerHeadersForUrl(url: string): {
   };
 }
 
-// Apply our headers (page-type UA via readerHeadersForUrl, referer/origin) and
-// the _m_superu=1 cookie to a www.mangago.me request. Shared by interceptRequest
-// AND the redirect handler so a request keeps these headers even after a
-// redirect (the app only runs interceptRequest on the initial request).
+// Apply our headers (page-type UA, referer/origin) and the _m_superu=1 cookie to
+// a www.mangago.me request. Shared by interceptRequest and the redirect handler
+// so headers survive a redirect (the app only runs interceptRequest on the
+// initial request).
 //
-// NOTE: We intentionally do NOT downgrade underscore image hosts
-// (e.g. iweb_4.mangapicgallery.com) from HTTPS to HTTP. That workaround is
-// Android-only (keiyoushi); on iOS, App Transport Security blocks plaintext
-// HTTP, so the image never returns and the reader spins forever. Keeping every
-// request on HTTPS is what makes scrambled images load reliably in the iOS app.
+// We deliberately keep image hosts on HTTPS (no HTTP downgrade): iOS App
+// Transport Security blocks plaintext HTTP, so a downgraded image never returns.
 //
-// The _m_superu=1 flag is merged into request.cookies (NOT overwritten) so it
-// sits alongside any Cloudflare-bypass cookies the CookieStorageInterceptor
-// injected — the map spread is purely additive. Only the mangago.me host gets it;
-// image CDN hosts (cspiclink, mangapicgallery) are excluded because they don't
-// need it and must not receive Mangago cookies (that leak previously broke
-// hotlinked images).
+// _m_superu=1 is merged into request.cookies (additive, not overwritten) so it
+// sits alongside any Cloudflare-bypass cookies. Only the mangago.me host gets it;
+// image CDN hosts are excluded — they don't need it and must not receive Mangago
+// cookies.
 export async function applyMangagoHeaders(request: Request): Promise<Request> {
   return {
     ...request,
     headers: {
-      // URL-based defaults (referer/origin + the per-page-type UA) are the
-      // BASELINE; any header explicitly set on the request wins via the spread
-      // below. This is deliberate: a reader fetch forces the desktop UA, and we
-      // must never let URL-classification downgrade it back to the mobile
-      // browsing UA. A stale/prefix-less reader path (e.g. "/uu/<chapter>/pg-N/"
-      // left over from an older build) would otherwise miss isReaderPageUrl and
-      // get the mobile UA — which makes mangago serve the WINDOWED reader, the
-      // very thing that triggers the slow multi-page walk. Honouring the
-      // explicit UA keeps every reader fetch on the desktop (full) reader, so
-      // page 1 carries the whole chapter in one request (the Aidoku model).
+      // URL-based defaults (referer/origin + per-page-type UA) are the baseline;
+      // any header explicitly set on the request wins via the spread below. This
+      // is deliberate: a reader fetch forces the desktop UA, and we must never let
+      // URL-classification downgrade it. A stale/prefix-less reader path would
+      // otherwise miss isReaderPageUrl, get the mobile UA, and make mangago serve
+      // the windowed reader (the slow multi-page walk).
       ...readerHeadersForUrl(request.url),
       ...request.headers,
     },
@@ -194,11 +184,8 @@ export class MangagoInterceptor extends PaperbackInterceptor {
       });
     }
 
-    // Only scrambled reader images live on the cspiclink host and need
-    // descrambling. Cover thumbnails (mangapicgallery) and every other plain
-    // image skip the descramble path — and, importantly, the per-image
-    // Application.getState lookup parseImageContext would otherwise do — so they
-    // return as fast as the network delivers them.
+    // Only cspiclink images are scrambled. Other images skip the descramble path
+    // (and the per-image Application.getState lookup) so they return immediately.
     if (!request.url.includes("cspiclink")) return data;
 
     const context = parseImageContext(request.url);
@@ -212,12 +199,8 @@ export class MangagoInterceptor extends PaperbackInterceptor {
         context.cols,
         response.mimeType ?? "image/jpeg",
       );
-    } catch (error) {
-      console.log(
-        `[Mangago] image descramble failed for ${request.url}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+    } catch {
+      // Descramble failed; return the raw bytes rather than blocking the image.
       return data;
     }
   }
@@ -230,11 +213,10 @@ export async function fetchText(
   return (await fetchTextWithUrl(url, headers)).text;
 }
 
-// Like fetchText, but also returns the FINAL response URL after redirects.
-// mangago.me canonicalizes numeric /chapter/ reader URLs by redirecting to the
-// /read-manga/ reader; callers that then walk reader pages must key off this
-// final URL, not the original request URL, or same-chapter next_page links on
-// the redirected (read-manga) page won't match and the walk stops early.
+// Like fetchText, but also returns the final response URL after redirects.
+// mangago.me redirects numeric /chapter/ reader URLs to the /read-manga/ reader;
+// a walking caller must key off this final URL or same-chapter next_page links
+// won't match and the walk stops early.
 export async function fetchTextWithUrl(
   url: string,
   headers: { [key: string]: string } = {},

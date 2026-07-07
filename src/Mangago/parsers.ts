@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Inkdex */
+
 import {
   ContentRating,
   type Chapter,
@@ -9,7 +12,7 @@ import {
 import * as cheerio from "cheerio";
 
 import { DOMAIN } from "./models";
-import { absoluteUrl, canonicalReaderUrl, extractMangaId } from "./utils";
+import { absoluteUrl, canonicalReaderUrl, extractMangaId } from "./utils/urls";
 
 const KNOWN_GROUPS = [
   {
@@ -270,16 +273,24 @@ function originalChapterUrlFromHref(href: string, chapterId: string): string {
   return chapterUrlFromId(chapterId);
 }
 
-// Pin any reader URL/path to www.mangago.me, the single host that serves the
-// read-manga reader. An old library entry may be stored against another host, so
-// we normalise rather than trusting the stored URL. (See canonicalReaderUrl.)
+// Pin any reader URL/path to www.mangago.me rather than trusting a stored host.
+// (See canonicalReaderUrl.)
 function normalizeReaderUrl(url: string): string {
   return canonicalReaderUrl(url);
 }
 
-export function parseListings(html: string): SearchResultItem[] {
+export interface MangagoListing extends SearchResultItem {
+  // Reader path of the tile's latest chapter, when present — lets the New
+  // Chapters section render as a tappable chapter-updates list.
+  chapterId?: string;
+  // Update time and genres, only available on the /list/latest/ update page.
+  publishDate?: Date;
+  genres?: string[];
+}
+
+export function parseListings(html: string): MangagoListing[] {
   const $ = cheerio.load(html);
-  const items: SearchResultItem[] = [];
+  const items: MangagoListing[] = [];
   const seen = new Set<string>();
 
   function cleanText(value: string): string {
@@ -326,9 +337,15 @@ export function parseListings(html: string): SearchResultItem[] {
         "",
     );
 
-    const subtitle = cleanText(
-      $item.find("p.chapter a, .chapter a, a[href*='/read-manga/'][href*='/c']").first().text(),
-    );
+    const $chapterLink = $item
+      .find("p.chapter a, .chapter a, a[href*='/read-manga/'][href*='/c']")
+      .first();
+    // The loose href fallback can match the title link itself for slugs that
+    // contain "/c"; treat it as a chapter only when it isn't the manga's path.
+    const chapterPath = $chapterLink.attr("href") ? toPathname($chapterLink.attr("href")!) : "";
+    const isChapter = chapterPath !== "" && chapterPath !== mangaId;
+    const subtitle = isChapter ? cleanText($chapterLink.text()) : "";
+    const chapterId = isChapter ? chapterPath : undefined;
 
     seen.add(mangaId);
     items.push({
@@ -336,6 +353,7 @@ export function parseListings(html: string): SearchResultItem[] {
       title,
       imageUrl,
       subtitle: subtitle || undefined,
+      chapterId: chapterId || undefined,
     });
   }
 
@@ -373,6 +391,133 @@ export function hasNextPage(html: string): boolean {
 export function mangaUrlFromId(mangaId: string): string {
   if (mangaId.startsWith("http")) return mangaId;
   return `${DOMAIN}${mangaId}`;
+}
+
+// The update list shows relative times ("5 minutes", "2 hours", "3 days").
+const RELATIVE_UNIT_MS: Record<string, number> = {
+  second: 1_000,
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+  week: 604_800_000,
+  month: 2_592_000_000,
+  year: 31_536_000_000,
+};
+
+function parseRelativeTime(text: string): Date | undefined {
+  const match = text.toLowerCase().match(/(\d+)\s*(second|minute|hour|day|week|month|year)/);
+  if (match) {
+    const amount = Number(match[1]);
+    const unitMs = RELATIVE_UNIT_MS[match[2]!];
+    if (unitMs) return new Date(Date.now() - amount * unitMs);
+  }
+  const parsed = Date.parse(text);
+  return Number.isNaN(parsed) ? undefined : new Date(parsed);
+}
+
+// The /list/latest/ "Last Updates" page uses a detailed `.box` row per title,
+// carrying the update time, genres, and latest-chapter links — richer than the
+// /genre/ grid, so the New Chapters section uses it for a real updates list.
+export function parseLatestUpdates(html: string): MangagoListing[] {
+  const $ = cheerio.load(html);
+  const items: MangagoListing[] = [];
+  const seen = new Set<string>();
+  const clean = (value: string): string => value.replace(/\s+/g, " ").trim();
+
+  // Mobile/desktop layouts differ; both wrap the title in .row-1 with the other
+  // rows as siblings and the cover preceding. Anchor on the title for a stable scope.
+  $(".row-1 .tit a").each((_, element) => {
+    const $titleLink = $(element);
+    const href = $titleLink.attr("href") ?? "";
+    if (!href.includes("/read-manga/")) return;
+
+    const mangaId = toPathname(href);
+    if (!mangaId || seen.has(mangaId)) return;
+
+    const title = clean($titleLink.attr("title") ?? $titleLink.text());
+    if (!title) return;
+
+    const $content = $titleLink.closest(".row-1").parent();
+
+    const $img = $content.prev().find("img").first();
+    const imageUrl = absoluteUrl($img.attr("data-src") ?? $img.attr("src") ?? "");
+
+    const $chapter = $content.find("a.chico").first();
+    const subtitle = clean($chapter.text());
+    const chapterId = $chapter.attr("href") ? toPathname($chapter.attr("href")!) : undefined;
+
+    // "Update Date: <relative time>" — in .row-1 (desktop) or a sibling .row-3 (mobile).
+    let publishDate: Date | undefined;
+    $content.find(".blue").each((_, label) => {
+      const $label = $(label);
+      if ($label.text().trim().toLowerCase().startsWith("update date")) {
+        publishDate = parseRelativeTime(
+          clean($label.parent().text()).replace(/^update date:\s*/i, ""),
+        );
+      }
+    });
+
+    const genres = $content
+      .find(".row-4 .gray")
+      .text()
+      .split(/[/,]/)
+      .map((genre) => clean(genre))
+      .filter(Boolean);
+
+    seen.add(mangaId);
+    items.push({
+      mangaId,
+      title,
+      imageUrl,
+      subtitle: subtitle || undefined,
+      chapterId: chapterId || undefined,
+      publishDate,
+      genres: genres.length ? genres : undefined,
+    });
+  });
+
+  return items;
+}
+
+// Detail-page rating (span.rating_num, 0–10) + status, for the hero pills.
+export interface FeaturedDetail {
+  rating?: string;
+  status?: string;
+  author?: string;
+  summary?: string;
+}
+
+// Detail-page fields used to enrich the Featured hero: rating (span.rating_num,
+// 0–10), status, author, and summary.
+export function parseFeaturedDetail(html: string): FeaturedDetail {
+  const $ = cheerio.load(html);
+
+  const ratingText = $(".rating_num").first().text().replace(/\s+/g, "");
+  const rating = /^\d+(?:\.\d+)?$/.test(ratingText) ? ratingText : undefined;
+
+  let status: string | undefined;
+  let author: string | undefined;
+  $(".manga_right tr, .manga_info li").each((_, element) => {
+    const $el = $(element);
+    const label = $el.find("label, b").first().text().trim().toLowerCase();
+    if (label.startsWith("status")) {
+      const value = $el.find("span").first().text().trim();
+      if (value) status = value;
+    } else if (label.startsWith("author")) {
+      const names = $el
+        .find("a")
+        .map((_index, anchor) => $(anchor).text().trim())
+        .get()
+        .filter(Boolean);
+      if (names.length > 0) author = names.join(", ");
+    }
+  });
+
+  const summaryEl = $(".manga_summary").first();
+  summaryEl.find("font").remove();
+  const summary = summaryEl.text().trim() || undefined;
+
+  return { rating, status, author, summary };
 }
 
 export function chapterUrlFromId(chapterId: string): string {
@@ -467,6 +612,15 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
   const isAdult = tagTitles.some((x) => ["Adult", "Smut", "Yaoi"].includes(x));
   const isMature = tagTitles.some((x) => x === "Ecchi");
 
+  // rating_num is 0–10; MangaInfo.rating is 0–1 (rendered as a percentage star).
+  const ratingNum = parseFloat(
+    $(".rating_num")
+      .first()
+      .text()
+      .replace(/[^\d.]/g, ""),
+  );
+  const rating = Number.isFinite(ratingNum) ? Math.min(1, Math.max(0, ratingNum / 10)) : 0;
+
   return {
     mangaId: normalizedMangaId,
     mangaInfo: {
@@ -477,6 +631,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
       author,
       artist,
       status,
+      rating,
       contentRating: isAdult
         ? ContentRating.ADULT
         : isMature
@@ -528,10 +683,9 @@ function parseChapterTitle(input: string): {
 }
 
 function parseChapterNumber(name: string): number {
-  // NOTE: no chapterId/slug fallback. The slug's number is usually an internal
-  // upload id (e.g. br_chapter-347561), not the chapter number, and a slug like
-  // "abc123" would match a bare "c<digits>" and assign a bogus number. When the
-  // visible name carries no number we leave it 0 (handled specially by the sort).
+  // No chapterId/slug fallback: the slug's number is usually an internal upload
+  // id, not the chapter number. When the visible name carries no number we leave
+  // it 0 (handled specially by the sort).
   const rawNumber =
     name.match(/chapter\s*(\d+(?:\.\d+)?)/i)?.[1] ??
     name.match(/ch\.\s*(\d+(?:\.\d+)?)/i)?.[1] ??
