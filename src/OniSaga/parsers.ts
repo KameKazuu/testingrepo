@@ -135,7 +135,7 @@ export function parseMangaCards($: CheerioAPI, showNsfw: boolean): MangaCard[] {
 
 // One browse/search page of cards; a filtered browse Livewire response can be
 // 15 MB (the whole catalog), so we never parse more than this many.
-const CARD_PARSE_CAP = 100;
+export const CARD_PARSE_CAP = 100;
 
 // Parse browse/search cards straight off the Livewire HTML string. A filtered
 // browse response can render the entire catalog (tens of MB); `cheerio.load`-ing
