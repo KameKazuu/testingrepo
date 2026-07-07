@@ -239,7 +239,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       case "latest":
         return this.fetchLatest(metadata);
       case "highest_rated": {
-        const items = await this.fetchTopManga("rated");
+        const items = this.dropBlacklisted(await this.fetchTopManga("rated"));
         return {
           items: items.map((item) => ({
             type: "prominentCarouselItem",
@@ -312,7 +312,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
 
   // Featured hero from the /top-manga ranking (one request, no per-item lookups).
   private async getTopMangaFeatured(): Promise<PagedResults<DiscoverSectionItem>> {
-    const items = (await this.fetchTopManga("reads")).slice(0, FEATURED_LIMIT);
+    const items = this.dropBlacklisted(await this.fetchTopManga("reads")).slice(0, FEATURED_LIMIT);
 
     return {
       items: items.map((item) => ({
@@ -425,11 +425,20 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       contentRating: card.contentRating,
     });
 
-    if ((metadata?.page ?? 1) === 1) {
+    // Only the very first load (page 1, nothing collected yet) takes the /home
+    // shortcut; once it seeds collectedIds the follow-ups fall to browse.
+    if ((metadata?.page ?? 1) === 1 && (metadata?.collectedIds?.length ?? 0) === 0) {
       try {
         const cards = parseHomeRail(await this.getHomeDoc(), "Latest Mangas", getShowNsfw());
         if (cards.length > 0) {
-          return { items: cards.map(map), metadata: { page: 2, collectedIds: [] } };
+          // The /home grid is ~15 cards, short of a full browse page (24), so
+          // hand the next scroll to browse page 1 (not page 2) and seed the home
+          // ids to de-dupe the overlap — otherwise the tail of browse page 1
+          // (items 16-24) would be skipped entirely.
+          return {
+            items: cards.map(map),
+            metadata: { page: 1, collectedIds: cards.map((card) => card.mangaId) },
+          };
         }
       } catch (error) {
         if (error instanceof CloudflareError) throw error;
@@ -481,17 +490,19 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   // Client-side genre blacklist for home rails the site renders without a filter
   // (Fan Favorites). Its cards carry genre titles, not the ids browseDiscover
   // sends server-side, so match the excluded ids' titles against the card's.
-  private dropBlacklisted(cards: MangaCard[]): MangaCard[] {
+  private dropBlacklisted<T extends { genres?: string }>(items: T[]): T[] {
     const excludedIds = new Set(getExcludedGenres());
-    if (excludedIds.size === 0) return cards;
+    if (excludedIds.size === 0) return items;
     const excludedTitles = new Set(
       getGenres()
         .filter((genre) => excludedIds.has(genre.id))
         .map((genre) => genre.title.toLowerCase()),
     );
-    if (excludedTitles.size === 0) return cards;
-    return cards.filter((card) => {
-      const titles = (card.genres ?? "").split("·").map((t) => t.trim().toLowerCase());
+    if (excludedTitles.size === 0) return items;
+    // Card/ranking genre lines use assorted separators ("Action / Adventure",
+    // "Drama · Romance"), so split on any of them before matching.
+    return items.filter((item) => {
+      const titles = (item.genres ?? "").split(/[·/,]/).map((t) => t.trim().toLowerCase());
       return !titles.some((title) => excludedTitles.has(title));
     });
   }
@@ -729,7 +740,10 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
         if (typeof page.order === "number") orders.add(page.order);
       }
       return [...orders].sort((a, b) => a - b);
-    } catch {
+    } catch (error) {
+      // A Cloudflare wall on the backfill must surface as the bypass prompt, not
+      // be swallowed into a silently truncated page list.
+      if (error instanceof CloudflareError) throw error;
       return [];
     }
   }
