@@ -30,11 +30,22 @@ jobs:
         run: npm ci
       - name: Bundle Extensions
         run: npm run bundle
-      - name: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages (branch-specific path)
+        if: ${{ github.ref_name != '0.9/test' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: bundles
           destination_dir: ${{ github.ref_name }}
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy to GitHub Pages (root for test branch)
+        if: ${{ github.ref_name == '0.9/test' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: bundles
+          destination_dir: .
           user_name: "github-actions[bot]"
           user_email: "github-actions[bot]@users.noreply.github.com"
