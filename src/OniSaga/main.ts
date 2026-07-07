@@ -58,7 +58,7 @@ import {
   parseChapters,
   parseGenresFromHtml,
   parseAnchorCards,
-  parseLatestFromHome,
+  parseHomeRail,
   parseMangaCards,
   parseMangaCardsFromHtml,
   parseMangaDetails,
@@ -444,7 +444,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
 
     if ((metadata?.page ?? 1) === 1) {
       try {
-        const cards = parseLatestFromHome(await this.getHomeDoc(), getShowNsfw());
+        const cards = parseHomeRail(await this.getHomeDoc(), "Latest Mangas", getShowNsfw());
         if (cards.length > 0) {
           return { items: cards.map(map), metadata: { page: 2, collectedIds: [] } };
         }
