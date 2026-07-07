@@ -53,11 +53,12 @@ import {
   countPages,
   extractPageOrders,
   extractReaderToken,
-  hasNextPage,
+  hasNextPageFromHtml,
   parseChapters,
   parseGenresFromHtml,
   parseAnchorCards,
   parseMangaCards,
+  parseMangaCardsFromHtml,
   parseMangaDetails,
   parseTopManga,
   topMangaSubtitle,
@@ -722,8 +723,12 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       this.storeBrowseState(baseUrl, { token: state.token, snapshot });
     }
 
-    const $ = cheerio.load(html);
-    return { cards: parseMangaCards($, showNsfw), hasNext: hasNextPage($) };
+    // Never cheerio-load the whole response: a filtered browse render can be
+    // 15 MB, which freezes the device. Slice cards off the raw string instead.
+    return {
+      cards: parseMangaCardsFromHtml(html, showNsfw),
+      hasNext: hasNextPageFromHtml(html),
+    };
   }
 
   private storeBrowseState(baseUrl: string, state: LivewireState): void {
