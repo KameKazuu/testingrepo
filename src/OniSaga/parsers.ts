@@ -361,10 +361,7 @@ export function parseHomeRail(html: string, heading: string, showNsfw: boolean):
 export function hasNextPageFromHtml(html: string): boolean {
   const regex = /<[^>]*\bwire:click="[^"]*nextPage[^"]*"[^>]*>/g;
   for (const match of html.matchAll(regex)) {
-    // A real `disabled` attribute is a bare token bounded by whitespace/`>`/`=`.
-    // Ignore look-alikes that don't disable the control: Tailwind `disabled:*`
-    // variants and `wire:loading.attr="disabled"` (the "disabled" value there).
-    if (!/\sdisabled(?=[\s>=])/.test(match[0])) return true;
+    if (!/\bdisabled\b/.test(match[0])) return true;
   }
   return false;
 }
