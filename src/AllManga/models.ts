@@ -7,6 +7,12 @@ export const DOMAIN = "https://allmanga.to";
 export const MIRROR_HOSTS = ["allmanga.to", "mkissa.to"];
 export const API_URL = "https://api.allanime.day/api";
 
+// allmanga.to now 302-redirects its reader pages to the mkissa.to mirror, and
+// the redirect stub carries no chapterPages payload — so the WebView capture
+// must load the reader straight from the mirror that serves it. Try mkissa
+// first, fall back to allmanga if the mirror is ever the one that's down.
+export const PAGE_HOSTS = ["https://mkissa.to", "https://allmanga.to"];
+
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
 export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";
