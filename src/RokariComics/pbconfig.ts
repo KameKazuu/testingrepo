@@ -7,6 +7,6 @@ let pbConfig = basePbConfig;
 
 pbConfig.name = "RokariComics";
 pbConfig.description = "Extension that pulls content from rokaricomics.com.";
-pbConfig.version = customVersion({ increasePrerelease: 1 });
+pbConfig.version = customVersion({ increasePrerelease: 2 });
 
 export default pbConfig;
