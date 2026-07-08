@@ -48,15 +48,25 @@ export class KingOfShojoInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
     const baseUrl = this.getBaseUrl();
 
+    // Force HTTPS on every outgoing request. A stray http:// URL (parsed from
+    // the page or handed back as a redirect target) triggers an insecure
+    // redirect hop — extra latency, and some networks/CDNs block it outright.
+    // The reference MangaThemesia template rewrites redirect Location headers to
+    // fix this, but the 0.9 interceptor never sees intermediate redirects
+    // (URLSession follows them before interceptResponse runs), so we upgrade the
+    // request URL up front, which avoids the hop entirely.
+    const url = request.url.replace(/^http:\/\//i, "https://");
+
     // Reader images mirror a real <img> load: browser image accept + referer +
     // UA, NO origin, and the Sec-Fetch metadata a browser attaches to image
     // sub-resource requests. The image CDN's Cloudflare holds/resets requests
     // that lack these browser signals, so send them to look like a real image
     // fetch. (The reference MangaThemesia implementations rely on their HTTP
     // clients to add these automatically; Paperback does not, so we set them.)
-    if (IMAGE_EXTENSION_REGEX.test(request.url)) {
+    if (IMAGE_EXTENSION_REGEX.test(url)) {
       return {
         ...request,
+        url,
         headers: withHeaders(request.headers, {
           origin: undefined,
           referer: `${baseUrl}/`,
@@ -75,6 +85,7 @@ export class KingOfShojoInterceptor extends PaperbackInterceptor {
     // on plain navigations, and the reference implementations don't either.
     return {
       ...request,
+      url,
       headers: withHeaders(request.headers, {
         origin: undefined,
         referer: `${baseUrl}/`,
