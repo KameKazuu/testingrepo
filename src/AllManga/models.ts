@@ -1,15 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-// AllManga (allmanga.to) is backed by the allanime.day GraphQL API. Listings,
-// details and chapters are fetched with full query strings (persisted-query
-// hashes go stale); pages come from the direct `chapterPages` query so the
-// source works on iOS without an Android WebView.
+import { type SortingOption } from "@paperback/types";
 
 export const DOMAIN = "https://allmanga.to";
+export const MIRROR_HOSTS = ["allmanga.to", "mkissa.to"];
 export const API_URL = "https://api.allanime.day/api";
 
-// CDN bases for thumbnails and quality-scaled images.
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
 export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";
@@ -19,6 +16,13 @@ export const LIMIT = 20;
 export const IMAGE_QUALITY_KEY = "allmanga-image-quality";
 export const SHOW_ADULT_KEY = "allmanga-show-adult";
 export const IMAGE_QUALITY_DEFAULT = "original";
+
+export const SECTION_POPULAR = "popular";
+export const SECTION_POPULAR_WEEK = "popular_week";
+export const SECTION_POPULAR_MONTH = "popular_month";
+export const SECTION_LATEST = "latest";
+export const SECTION_RECOMMENDED = "recommended";
+export const SECTION_GENRES = "genres";
 
 export type PageMetadata = {
   page?: number;
@@ -34,17 +38,30 @@ export type OptionItem = {
   value: string;
 };
 
-// --- GraphQL query strings ---
-
 export const POPULAR_QUERY = `query($type: VaildPopularTypeEnumType!, $size: Int!, $page: Int, $dateRange: Int, $allowAdult: Boolean, $allowUnknown: Boolean) {
   queryPopular(type: $type, size: $size, dateRange: $dateRange, page: $page, allowAdult: $allowAdult, allowUnknown: $allowUnknown) {
-    recommendations { anyCard { _id name thumbnail englishName } }
+    recommendations {
+      anyCard { _id name thumbnail englishName nativeName score availableChapters }
+      pageStatus { views }
+    }
+  }
+}`;
+
+export const RANDOM_QUERY = `query($format: String!, $allowAdult: Boolean) {
+  queryRandomRecommendation(format: $format, allowAdult: $allowAdult) {
+    _id name thumbnail englishName
   }
 }`;
 
 export const SEARCH_QUERY = `query($search: SearchInput, $size: Int, $page: Int, $translationType: VaildTranslationTypeMangaEnumType, $countryOrigin: VaildCountryOriginEnumType) {
   mangas(search: $search, limit: $size, page: $page, translationType: $translationType, countryOrigin: $countryOrigin) {
     edges { _id name thumbnail englishName }
+  }
+}`;
+
+export const LATEST_QUERY = `query($search: SearchInput, $size: Int, $page: Int, $translationType: VaildTranslationTypeMangaEnumType, $countryOrigin: VaildCountryOriginEnumType) {
+  mangas(search: $search, limit: $size, page: $page, translationType: $translationType, countryOrigin: $countryOrigin) {
+    edges { _id name thumbnail englishName availableChapters availableChaptersDetail lastChapterDate }
   }
 }`;
 
@@ -57,19 +74,18 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
 }`;
 
-// `pictureUrls` is an opaque scalar array (the API rejects a subfield
-// selection on it), and this query expects the manga translation-type enum.
-export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!) {
-  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString) {
-    edges { pictureUrlHead pictureUrls }
-  }
-}`;
-
-// --- API response DTOs (subset of the fields this extension uses) ---
-
 export interface GraphQLResponse<T> {
   data?: T;
   errors?: { message: string }[];
+}
+
+export interface DateParts {
+  year?: number | null;
+  month?: number | null;
+  date?: number | null;
+  hour?: number | null;
+  minute?: number | null;
+  second?: number | null;
 }
 
 export interface MangaCard {
@@ -77,16 +93,28 @@ export interface MangaCard {
   name: string;
   thumbnail?: string | null;
   englishName?: string | null;
+  nativeName?: string | null;
+  score?: number | null;
+  availableChapters?: { sub?: number | null } | null;
+  availableChaptersDetail?: AvailableChaptersDetail | null;
+  lastChapterDate?: { sub?: DateParts | null } | null;
 }
 
 export interface PopularData {
   queryPopular: {
-    recommendations: { anyCard?: MangaCard | null }[];
+    recommendations: {
+      anyCard?: MangaCard | null;
+      pageStatus?: { views?: string | null } | null;
+    }[];
   };
 }
 
 export interface SearchData {
   mangas: { edges: MangaCard[] };
+}
+
+export interface RandomData {
+  queryRandomRecommendation?: MangaCard[] | null;
 }
 
 export interface MangaDetail {
@@ -125,8 +153,6 @@ export interface ChaptersData {
   episodeInfos?: EpisodeInfo[] | null;
 }
 
-// `pictureUrls` elements come back either as a bare URL string or as an object
-// with a `url` field, depending on the entry.
 export type PictureUrl = string | { url?: string | null };
 
 export interface ChapterPageEdge {
@@ -138,12 +164,10 @@ export interface PagesData {
   chapterPages?: { edges: ChapterPageEdge[] } | null;
 }
 
-// --- Static filter option sets ---
-
-export const SORT_OPTIONS: OptionItem[] = [
-  { id: "", value: "Update" },
-  { id: "Name_ASC", value: "Name Ascending" },
-  { id: "Name_DESC", value: "Name Descending" },
+export const SORTING_OPTIONS: SortingOption[] = [
+  { id: "", label: "Update" },
+  { id: "Name_ASC", label: "Name Ascending" },
+  { id: "Name_DESC", label: "Name Descending" },
 ];
 
 export const COUNTRY_OPTIONS: OptionItem[] = [
@@ -224,8 +248,6 @@ export const GENRE_OPTIONS: string[] = [
   "Zombies",
 ];
 
-// Paperback tag IDs may not contain spaces, but the API filters on the genre's
-// display name (e.g. "4 Koma"). Map a safe id back to the API name.
 export function genreId(name: string): string {
   return name.replace(/[^A-Za-z0-9]+/g, "_");
 }
