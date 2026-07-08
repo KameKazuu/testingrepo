@@ -4,6 +4,7 @@
 import {
   URL,
   type ContentRating,
+  type Form,
   type PagedResults,
   type SearchQuery,
   type SearchResultItem,
@@ -18,13 +19,22 @@ import { MangaStreamGeneric } from "../generic/main";
 import { type MangaStreamSearchMetadata } from "../generic/models";
 import { getFilterTagsBySection, getIncludedTagBySection } from "../generic/utils";
 import pbconfig from "./pbconfig";
+import { getBaseUrlOverride, RokariComicsSettings } from "./settings";
 
 const DOMAIN_NAME = "https://rokaricomics.com";
 
 class RokariComicsExtension extends MangaStreamGeneric {
-  domain = DOMAIN_NAME;
   name = pbconfig.name;
   contentRating: ContentRating = pbconfig.contentRating;
+
+  // Read the domain live so the "Base URL" override takes effect immediately.
+  get domain(): string {
+    return getBaseUrlOverride() ?? DOMAIN_NAME;
+  }
+
+  override async getSettingsForm(): Promise<Form> {
+    return new RokariComicsSettings(this.name, DOMAIN_NAME);
+  }
 
   override configureSections() {
     // Popular Today hero — the first homepage grid.
