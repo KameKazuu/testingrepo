@@ -4,7 +4,7 @@
 import { type CookieStorageInterceptor } from "@paperback/types";
 import * as cheerio from "cheerio";
 
-import { DOMAIN, type PagesData } from "../models";
+import { PAGE_HOSTS, type PagesData } from "../models";
 
 // Proxies JSON.parse to capture chapterPages once the reader page decodes it.
 const BOOTSTRAP = `
@@ -38,25 +38,48 @@ export async function pageListViaWebView(
   chapterNum: string,
   cookieInterceptor: CookieStorageInterceptor,
 ): Promise<PagesData | undefined> {
-  const readerUrl = `${DOMAIN}/manga/${mangaId}/chapter-${chapterNum}-sub`;
-  const cookies = cookieInterceptor.cookiesForUrl(`${DOMAIN}/`);
   const userAgent = await Application.getDefaultUserAgent();
 
-  const [, buffer] = await Application.scheduleRequest({ url: readerUrl, method: "GET" });
-  const $ = cheerio.load(Application.arrayBufferToUTF8String(buffer));
-  $("head").prepend(`<script>${BOOTSTRAP}</script>`);
-
-  const raw = await Application.executeInWebView({
-    source: { html: $.html(), baseUrl: readerUrl, loadCSS: false, loadImages: false, userAgent },
-    inject: `return window.__allMangaResult__`,
-    storage: { cookies },
-  });
-
-  if (typeof raw.result !== "string" || raw.result.length === 0) {
-    return undefined;
+  // Load the reader from each mirror in turn until one yields the payload, so a
+  // domain switch (allmanga -> mkissa) resolves without an update. Loading the
+  // wrong host returns a redirect stub with no chapterPages, so we just move on.
+  for (const host of PAGE_HOSTS) {
+    const pages = await captureFromHost(host, mangaId, chapterNum, cookieInterceptor, userAgent);
+    if (pages) return pages;
   }
 
-  return parseWebViewPayload(raw.result);
+  return undefined;
+}
+
+async function captureFromHost(
+  host: string,
+  mangaId: string,
+  chapterNum: string,
+  cookieInterceptor: CookieStorageInterceptor,
+  userAgent: string,
+): Promise<PagesData | undefined> {
+  const readerUrl = `${host}/manga/${mangaId}/chapter-${chapterNum}-sub`;
+  const cookies = cookieInterceptor.cookiesForUrl(`${host}/`);
+
+  try {
+    const [, buffer] = await Application.scheduleRequest({ url: readerUrl, method: "GET" });
+    const $ = cheerio.load(Application.arrayBufferToUTF8String(buffer));
+    $("head").prepend(`<script>${BOOTSTRAP}</script>`);
+
+    const raw = await Application.executeInWebView({
+      source: { html: $.html(), baseUrl: readerUrl, loadCSS: false, loadImages: false, userAgent },
+      inject: `return window.__allMangaResult__`,
+      storage: { cookies },
+    });
+
+    if (typeof raw.result !== "string" || raw.result.length === 0) {
+      return undefined;
+    }
+
+    return parseWebViewPayload(raw.result);
+  } catch {
+    return undefined;
+  }
 }
 
 // chapterPages may be top-level or nested under a GraphQL `data` envelope.
