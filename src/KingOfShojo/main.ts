@@ -19,7 +19,6 @@ import {
   type Form,
   type PagedResults,
   type Request,
-  type Response,
   type SearchQuery,
   type SearchResultItem,
   type SortingOption,
@@ -115,18 +114,6 @@ export class KingOfShojoExtension implements ExtensionImpl<typeof KingOfShojoCon
     this.globalRateLimiter.registerInterceptor();
     this.cookieStorageInterceptor.registerInterceptor();
     this.mainInterceptor.registerInterceptor();
-
-    // The app only runs interceptRequest on the initial request; a redirect
-    // follow-up would otherwise drop our headers (UA, referer, sec-fetch), and
-    // this origin's Cloudflare punishes header-less fetches. Re-apply them to
-    // every redirect target.
-    Application.setRedirectHandler(
-      Application.Selector(this as KingOfShojoExtension, "handleRedirect"),
-    );
-  }
-
-  async handleRedirect(request: Request, _response: Response): Promise<Request> {
-    return this.mainInterceptor.interceptRequest(request);
   }
 
   async getSettingsForm(): Promise<Form> {

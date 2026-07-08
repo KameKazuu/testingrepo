@@ -443,6 +443,8 @@ export function parseChapters($: CheerioAPI, sourceManga: SourceManga): Chapter[
       chapterId,
       sourceManga,
       title,
+      // Omitting volume renders as "Volume TBA" in the reader; 0 hides it.
+      volume: 0,
       chapNum,
       publishDate: dateText ? parseDate(dateText) : undefined,
       langCode: "en",
