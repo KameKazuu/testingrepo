@@ -7,11 +7,26 @@ export const DOMAIN = "https://allmanga.to";
 export const MIRROR_HOSTS = ["allmanga.to", "mkissa.to"];
 export const API_URL = "https://api.allanime.day/api";
 
-// allmanga.to now 302-redirects its reader pages to the mkissa.to mirror, and
-// the redirect stub carries no chapterPages payload — so the WebView capture
-// must load the reader straight from the mirror that serves it. Try mkissa
-// first, fall back to allmanga if the mirror is ever the one that's down.
+// allmanga.to and mkissa.to are the same site on two domains; allmanga.to
+// currently 302-redirects its reader pages to mkissa.to, and the redirect stub
+// carries no chapterPages payload. So the reader is loaded from a chosen mirror,
+// with the other as an automatic fallback if the preferred one is ever down.
 export const PAGE_HOSTS = ["https://mkissa.to", "https://allmanga.to"];
+export const MIRROR_KEY = "allmanga-mirror";
+export const MIRROR_DEFAULT = "https://mkissa.to";
+
+// The reader mirror the user picked in settings (defaults to the one that
+// currently works).
+export function getPreferredMirror(): string {
+  const value = Application.getState(MIRROR_KEY);
+  return typeof value === "string" && PAGE_HOSTS.includes(value) ? value : MIRROR_DEFAULT;
+}
+
+// Preferred mirror first, the remaining mirror(s) as fallback.
+export function pageHostOrder(): string[] {
+  const preferred = getPreferredMirror();
+  return [preferred, ...PAGE_HOSTS.filter((host) => host !== preferred)];
+}
 
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
 export const IMAGE_CDN = "https://wp.youtube-anime.com";

@@ -4,7 +4,7 @@
 import { type CookieStorageInterceptor } from "@paperback/types";
 import * as cheerio from "cheerio";
 
-import { PAGE_HOSTS, type PagesData } from "../models";
+import { pageHostOrder, type PagesData } from "../models";
 
 // Proxies JSON.parse to capture chapterPages once the reader page decodes it.
 const BOOTSTRAP = `
@@ -40,10 +40,11 @@ export async function pageListViaWebView(
 ): Promise<PagesData | undefined> {
   const userAgent = await Application.getDefaultUserAgent();
 
-  // Load the reader from each mirror in turn until one yields the payload, so a
-  // domain switch (allmanga -> mkissa) resolves without an update. Loading the
-  // wrong host returns a redirect stub with no chapterPages, so we just move on.
-  for (const host of PAGE_HOSTS) {
+  // Load the reader from each mirror in turn (preferred one first) until one
+  // yields the payload, so a domain switch (allmanga -> mkissa) resolves without
+  // an update. Loading the wrong host returns a redirect stub with no
+  // chapterPages, so we just move on.
+  for (const host of pageHostOrder()) {
     const pages = await captureFromHost(host, mangaId, chapterNum, cookieInterceptor, userAgent);
     if (pages) return pages;
   }

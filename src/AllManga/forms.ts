@@ -17,8 +17,11 @@ import {
   COUNTRY_OPTIONS,
   genreId,
   GENRE_OPTIONS,
+  getPreferredMirror,
   IMAGE_QUALITY_DEFAULT,
   IMAGE_QUALITY_KEY,
+  MIRROR_DEFAULT,
+  MIRROR_KEY,
   SHOW_ADULT_KEY,
   type SearchMetadata,
 } from "./models";
@@ -38,6 +41,29 @@ export function contentRatingForAdult(): ContentRating {
 export class AllMangaSettingsForm extends Form {
   override getSections() {
     return [
+      Section(
+        {
+          id: "mirror",
+          footer:
+            "allmanga.to and mkissa.to are the same site on different domains. " +
+            "If chapters won't load, switch mirrors. allmanga.to currently " +
+            "redirects its reader to mkissa.to. The other mirror is still tried " +
+            "automatically as a fallback.",
+        },
+        [
+          SelectRow("mirror", {
+            title: "Preferred Mirror",
+            value: [getPreferredMirror()],
+            minItemCount: 1,
+            maxItemCount: 1,
+            options: [
+              { id: "https://mkissa.to", title: "mkissa.to" },
+              { id: "https://allmanga.to", title: "allmanga.to" },
+            ],
+            onValueChange: Application.Selector(this as AllMangaSettingsForm, "handleMirrorChange"),
+          }),
+        ],
+      ),
       Section(
         { id: "images", footer: "Wp quality servers can be slower and may occasionally fail." },
         [
@@ -75,6 +101,10 @@ export class AllMangaSettingsForm extends Form {
         ],
       ),
     ];
+  }
+
+  async handleMirrorChange(value: string[]): Promise<void> {
+    Application.setState(value[0] ?? MIRROR_DEFAULT, MIRROR_KEY);
   }
 
   async handleImageQualityChange(value: string[]): Promise<void> {
