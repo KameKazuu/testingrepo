@@ -1,115 +1,227 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { URL, type Request } from "@paperback/types";
+import { URL } from "@paperback/types";
 
-import {
-  API_URL,
-  CHAPTER_PAGES_HASH,
-  PAGES_QUERY,
-  type PagesData,
-  TOBEPARSED_KEY_PREFIX,
-} from "../models";
+import { API_URL, CHAPTER_PAGES_HASH, pageHostOrder, type PagesData } from "../models";
 
-// Fetch chapter pages straight from the allanime API — no reader page, so no
-// Cloudflare and no WebView. The API serves a direct client that sends the
-// persisted-query hash; only the browser front-ends need the anti-bot
-// signature. Tries the persisted GET first (what the live site uses), then the
-// full query text in case the hash isn't registered for us. Returns undefined
-// on any failure so the caller can fall back to the WebView capture.
+// The API gates chapterPages behind a rotating request signature (aaReq); a
+// missing/invalid one returns AA_CRYPTO_MISSING. The site computes it in JS
+// from a build-constant "part A" XOR a rotating "part B" (served by the site's
+// client-crypto bootstrap), so we reproduce it here and query the API directly
+// — no reader page, no Cloudflare, no WebView.
+//
+// Reversed from the site bundle (buildId 12):
+//   key      = partA(32 bytes) XOR partB(32 bytes from bootstrap)
+//   ts       = floor(now / 5min) * 5min
+//   payload  = {v:1, ts, epoch, buildId, qh}
+//   iv       = SHA-256(`${epoch}:${buildId}:${qh}:${ts}`)[0:12]
+//   aaReq    = base64( 0x01 | iv | AES-GCM(key, iv, payload) )
+const PART_A_HEX = "78ebe40583e4f360cd9f56926b775a780054367c826123dcd0577a231eee4e73";
+const BUILD_ID = "12";
+// Legacy key prefix, used as a fallback when decrypting a `tobeparsed` response.
+const SECRET_PREFIX = "Xot36i3lK3";
+const TS_BUCKET_MS = 5 * 60 * 1000;
+
+interface Bootstrap {
+  epoch: number;
+  partB: string;
+  switchAt: number;
+}
+
+let cachedBootstrap: Bootstrap | undefined;
+
 export async function pageListViaApi(
   mangaId: string,
   chapterString: string,
   translationType: string,
 ): Promise<PagesData | undefined> {
-  const variables = { mangaId, translationType, chapterString };
+  try {
+    const bootstrap = await getBootstrap();
+    if (!bootstrap) return undefined;
 
-  const attempts: Request[] = [
-    {
-      url: new URL(API_URL)
-        .setQueryItem("variables", JSON.stringify(variables))
-        .setQueryItem(
-          "extensions",
-          JSON.stringify({ persistedQuery: { version: 1, sha256Hash: CHAPTER_PAGES_HASH } }),
-        )
-        .toString(),
-      method: "GET",
-    },
-    {
-      url: API_URL,
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query: PAGES_QUERY, variables }),
-    },
-  ];
+    const key = await deriveSigningKey(bootstrap.partB);
+    const aaReq = await buildAaReq(key, bootstrap.epoch, CHAPTER_PAGES_HASH);
 
-  for (const request of attempts) {
+    const url = new URL(API_URL)
+      .setQueryItem("variables", JSON.stringify({ mangaId, translationType, chapterString }))
+      .setQueryItem(
+        "extensions",
+        JSON.stringify({ persistedQuery: { version: 1, sha256Hash: CHAPTER_PAGES_HASH } }),
+      )
+      .setQueryItem("aaReq", aaReq)
+      .toString();
+
+    const [response, buffer] = await Application.scheduleRequest({ url, method: "GET" });
+    if (response.status !== 200) {
+      console.log(`[AM] api pages HTTP ${response.status}`);
+      return undefined;
+    }
+
+    const parsed = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as {
+      data?: { chapterPages?: PagesData["chapterPages"]; tobeparsed?: string } | null;
+      errors?: { message?: string }[];
+    };
+    if (parsed.errors?.length) {
+      console.log(`[AM] api pages error: ${parsed.errors[0]?.message ?? "unknown"}`);
+      return undefined;
+    }
+
+    let data: { chapterPages?: PagesData["chapterPages"] } | undefined = parsed.data ?? undefined;
+    if (parsed.data?.tobeparsed) {
+      data = (await decryptTobeParsed(parsed.data.tobeparsed, key)) as typeof data;
+    }
+
+    if (!data?.chapterPages?.edges?.length) return undefined;
+    return { chapterPages: data.chapterPages };
+  } catch (error) {
+    console.log(`[AM] api page fetch failed: ${String(error)}`);
+    return undefined;
+  }
+}
+
+// The site's client-crypto bootstrap: a small JSON with the current epoch and
+// the rotating part-B key that pairs with our build's part A. Whichever mirror
+// serves build 12 returns it; try each until one does. Cached until its
+// switchAt so we don't refetch each chapter.
+async function getBootstrap(): Promise<Bootstrap | undefined> {
+  const now = Date.now();
+  if (cachedBootstrap && cachedBootstrap.switchAt > now) return cachedBootstrap;
+
+  for (const host of pageHostOrder()) {
     try {
-      const pages = await requestPages(request);
-      if (pages?.chapterPages?.edges?.length) return pages;
+      const [response, buffer] = await Application.scheduleRequest({
+        url: `${host}/client-crypto/v1/bootstrap?buildId=${BUILD_ID}`,
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+      if (response.status !== 200) {
+        console.log(`[AM] bootstrap ${host} HTTP ${response.status}`);
+        continue;
+      }
+      const json = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as {
+        epoch?: number;
+        partB?: string;
+        switchAt?: number;
+      };
+      if (typeof json.epoch !== "number" || typeof json.partB !== "string") {
+        console.log(`[AM] bootstrap ${host} missing epoch/partB`);
+        continue;
+      }
+      cachedBootstrap = {
+        epoch: json.epoch,
+        partB: json.partB,
+        switchAt: typeof json.switchAt === "number" ? json.switchAt : now + TS_BUCKET_MS,
+      };
+      return cachedBootstrap;
     } catch (error) {
-      console.log(`[AM] api page attempt failed: ${String(error)}`);
+      console.log(`[AM] bootstrap ${host} failed: ${String(error)}`);
     }
   }
-
   return undefined;
 }
 
-async function requestPages(request: Request): Promise<PagesData | undefined> {
-  const [response, buffer] = await Application.scheduleRequest(request);
-  if (response.status !== 200) {
-    console.log(`[AM] api pages HTTP ${response.status}`);
-    return undefined;
-  }
+// key = partA XOR partB (both 32 bytes), imported for AES-GCM.
+async function deriveSigningKey(partB: string): Promise<CryptoKey> {
+  const a = hexToBytes(PART_A_HEX);
+  const b = base64ToBytes(partB);
+  if (b.length < 32) throw new Error("part B too short");
 
-  const parsed = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as {
-    data?: { chapterPages?: PagesData["chapterPages"]; tobeparsed?: string } | null;
-    errors?: { message?: string }[];
-  };
+  const raw = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) raw[i] = (b[i] ?? 0) ^ (a[i % a.length] ?? 0);
 
-  if (parsed.errors?.length) {
-    console.log(`[AM] api pages error: ${parsed.errors[0]?.message ?? "unknown"}`);
-    return undefined;
-  }
-
-  let data: { chapterPages?: PagesData["chapterPages"] } | undefined = parsed.data ?? undefined;
-
-  // Newer responses ship the payload AES-GCM-encrypted under `tobeparsed`.
-  if (parsed.data?.tobeparsed) {
-    data = (await decryptTobeParsed(parsed.data.tobeparsed)) as typeof data;
-  }
-
-  if (!data?.chapterPages) return undefined;
-  return { chapterPages: data.chapterPages };
-}
-
-// Mirrors the site's own decode: base64 -> [versionByte | 12-byte IV | GCM
-// ciphertext+tag], key = SHA-256("Xot36i3lK3:v" + versionByte), AES-GCM.
-async function decryptTobeParsed(value: string): Promise<unknown> {
-  const decoded = Application.base64Decode(value);
-  const bytes: Uint8Array =
-    typeof decoded === "string" ? stringToBytes(decoded) : new Uint8Array(decoded);
-
-  const version = bytes[0] ?? 0;
-  const iv = toBuffer(bytes, 1, 13);
-  const cipherText = toBuffer(bytes, 13, bytes.length);
-
-  const keyBytes = await crypto.subtle.digest(
-    "SHA-256",
-    toBuffer(stringToBytes(`${TOBEPARSED_KEY_PREFIX}${version}`)),
-  );
-  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", toBuffer(raw), { name: "AES-GCM" }, false, [
+    "encrypt",
     "decrypt",
   ]);
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherText);
+}
 
-  return JSON.parse(Application.arrayBufferToUTF8String(plain));
+async function buildAaReq(key: CryptoKey, epoch: number, queryHash: string): Promise<string> {
+  const ts = Math.floor(Date.now() / TS_BUCKET_MS) * TS_BUCKET_MS;
+  const payload = JSON.stringify({ v: 1, ts, epoch, buildId: BUILD_ID, qh: queryHash });
+
+  const ivDigest = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      stringToBuffer(`${epoch}:${BUILD_ID}:${queryHash}:${ts}`),
+    ),
+  );
+  const iv = ivDigest.slice(0, 12);
+  const cipher = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: toBuffer(iv) },
+      key,
+      stringToBuffer(payload),
+    ),
+  );
+
+  const out = new Uint8Array(13 + cipher.length);
+  out[0] = 1;
+  out.set(iv, 1);
+  out.set(cipher, 13);
+  return bytesToBase64(out);
+}
+
+// A `tobeparsed` response is 0x01 | 12-byte IV | AES-GCM ciphertext, decrypted
+// with the same signing key. Older payloads use a legacy per-version key, so
+// fall back to that if the primary key fails.
+async function decryptTobeParsed(value: string, signingKey: CryptoKey): Promise<unknown> {
+  const bytes = base64ToBytes(value);
+  const version = bytes[0] ?? 1;
+  const iv = toBuffer(bytes, 1, 13);
+  const cipher = toBuffer(bytes, 13, bytes.length);
+
+  try {
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, signingKey, cipher);
+    return JSON.parse(Application.arrayBufferToUTF8String(plain));
+  } catch {
+    const legacyRaw = await crypto.subtle.digest(
+      "SHA-256",
+      stringToBuffer(`${SECRET_PREFIX}:v${version}`),
+    );
+    const legacyKey = await crypto.subtle.importKey("raw", legacyRaw, { name: "AES-GCM" }, false, [
+      "decrypt",
+    ]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, legacyKey, cipher);
+    return JSON.parse(Application.arrayBufferToUTF8String(plain));
+  }
+}
+
+const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i]!;
+    const b1 = bytes[i + 1];
+    const b2 = bytes[i + 2];
+    out += BASE64[b0 >> 2];
+    out += BASE64[((b0 & 3) << 4) | ((b1 ?? 0) >> 4)];
+    out += b1 === undefined ? "=" : BASE64[((b1 & 15) << 2) | ((b2 ?? 0) >> 6)];
+    out += b2 === undefined ? "=" : BASE64[b2 & 63];
+  }
+  return out;
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const decoded = Application.base64Decode(value);
+  return typeof decoded === "string" ? stringToBytes(decoded) : new Uint8Array(decoded);
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }
 
 function stringToBytes(value: string): Uint8Array {
   const bytes = new Uint8Array(value.length);
   for (let i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i);
   return bytes;
+}
+
+function stringToBuffer(value: string): ArrayBuffer {
+  return toBuffer(stringToBytes(value));
 }
 
 // A standalone ArrayBuffer of bytes[start, end) — WebCrypto wants a concrete
