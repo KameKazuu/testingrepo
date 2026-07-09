@@ -110,9 +110,15 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
 // chapterPages requires a non-null $limit (it paginates over page *sources*, not
 // individual pages); omitting it makes the server resolver return null. The site
 // sends limit 10, offset 0.
+//
+// The nested `manga { countryOfOrigin }` is required too: the server resolver
+// unconditionally assigns manga.countryOfOrigin but only creates that container
+// when the field is selected — omit it and the resolver throws
+// "Cannot set properties of undefined (setting 'countryOfOrigin')" → null pages.
 export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!, $limit: Int!, $offset: Int) {
   chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString, limit: $limit, offset: $offset) {
     edges { pictureUrlHead pictureUrls }
+    manga { _id countryOfOrigin }
   }
 }`;
 
