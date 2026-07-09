@@ -7,6 +7,7 @@ import {
   API_URL,
   type ChapterPageEdge,
   cryptoHostOrder,
+  PAGE_SOURCE_LIMIT,
   PAGES_QUERY,
   type PagesData,
 } from "../models";
@@ -60,7 +61,16 @@ export async function pageListViaApi(
     // AA_CRYPTO_MISSING otherwise.
     const url = new URL(API_URL)
       .setQueryItem("query", PAGES_QUERY)
-      .setQueryItem("variables", JSON.stringify({ mangaId, translationType, chapterString }))
+      .setQueryItem(
+        "variables",
+        JSON.stringify({
+          mangaId,
+          translationType,
+          chapterString,
+          limit: PAGE_SOURCE_LIMIT,
+          offset: 0,
+        }),
+      )
       .setQueryItem(
         "extensions",
         JSON.stringify({ persistedQuery: { version: 1, sha256Hash: queryHash }, aaReq }),

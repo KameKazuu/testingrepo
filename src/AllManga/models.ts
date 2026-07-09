@@ -107,11 +107,16 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
 }`;
 
-export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!) {
-  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString) {
+// chapterPages requires a non-null $limit (it paginates over page *sources*, not
+// individual pages); omitting it makes the server resolver return null. The site
+// sends limit 10, offset 0.
+export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!, $limit: Int!, $offset: Int) {
+  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString, limit: $limit, offset: $offset) {
     edges { pictureUrlHead pictureUrls }
   }
 }`;
+
+export const PAGE_SOURCE_LIMIT = 10;
 
 // Apollo persisted-query id for the chapterPages query above, observed on live
 // api.allanime.day requests. The API serves pages to a direct client that sends
