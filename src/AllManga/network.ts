@@ -8,29 +8,17 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { API_URL, DOMAIN, PAGE_HOSTS, type GraphQLResponse } from "./models";
+import { API_URL, DOMAIN, type GraphQLResponse } from "./models";
 
 export class AllMangaInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
     const isApi = request.url.startsWith(API_URL);
-    const readerHost = isApi ? undefined : PAGE_HOSTS.find((host) => request.url.startsWith(host));
-    const userAgent = await Application.getDefaultUserAgent();
-
-    // Reader documents get same-origin browsing headers for whichever mirror is
-    // being loaded: browsers send no Origin on a plain navigation, and a
-    // cross-site allmanga.to Origin on a mkissa.to document is exactly the kind
-    // of mismatch Cloudflare's bot heuristics challenge.
-    if (readerHost) {
-      const headers: Record<string, string> = {
-        ...request.headers,
-        referer: `${readerHost}/`,
-        "user-agent": userAgent,
-        accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      };
-      delete headers.origin;
-      return { ...request, headers };
-    }
+    const isDocument = !isApi && request.url.startsWith(DOMAIN);
+    const accept = isApi
+      ? "application/json, text/plain, */*"
+      : isDocument
+        ? "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+        : "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8";
 
     return {
       ...request,
@@ -38,10 +26,8 @@ export class AllMangaInterceptor extends PaperbackInterceptor {
         ...request.headers,
         referer: `${DOMAIN}/`,
         origin: DOMAIN,
-        "user-agent": userAgent,
-        accept: isApi
-          ? "application/json, text/plain, */*"
-          : "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8",
+        "user-agent": await Application.getDefaultUserAgent(),
+        accept,
       },
     };
   }

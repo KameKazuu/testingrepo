@@ -7,29 +7,6 @@ export const DOMAIN = "https://allmanga.to";
 export const MIRROR_HOSTS = ["allmanga.to", "mkissa.to"];
 export const API_URL = "https://api.allanime.day/api";
 
-// allmanga.to and mkissa.to are the same site on two domains. The reader is
-// loaded from a chosen mirror, with the other as an automatic fallback. Default
-// to allmanga.to: it is served 200 with no Cloudflare and boots via classic
-// <script> tags, whereas mkissa.to sits behind an interactive Cloudflare
-// challenge and is a SvelteKit app whose dynamic imports may not run inside the
-// injected-HTML WebView.
-export const PAGE_HOSTS = ["https://allmanga.to", "https://mkissa.to"];
-export const MIRROR_KEY = "allmanga-mirror";
-export const MIRROR_DEFAULT = "https://allmanga.to";
-
-// The reader mirror the user picked in settings (defaults to the one that
-// currently works without a Cloudflare prompt).
-export function getPreferredMirror(): string {
-  const value = Application.getState(MIRROR_KEY);
-  return typeof value === "string" && PAGE_HOSTS.includes(value) ? value : MIRROR_DEFAULT;
-}
-
-// Preferred mirror first, the remaining mirror(s) as fallback.
-export function pageHostOrder(): string[] {
-  const preferred = getPreferredMirror();
-  return [preferred, ...PAGE_HOSTS.filter((host) => host !== preferred)];
-}
-
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
 export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";

@@ -392,15 +392,8 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     // path is unavailable.
     let data = await pageListViaApi(mangaId, chapter.chapterId, "sub");
     if (!data?.chapterPages?.edges?.length) {
-      const title = chapter.sourceManga.mangaInfo?.primaryTitle ?? "";
-      data = await pageListViaWebView(
-        mangaId,
-        chapter.chapterId,
-        title,
-        this.cookieStorageInterceptor,
-      );
+      data = await pageListViaWebView(mangaId, chapter.chapterId, this.cookieStorageInterceptor);
     }
-
     const pages = data ? parsePageUrls(data, quality) : [];
 
     if (pages.length === 0) {
