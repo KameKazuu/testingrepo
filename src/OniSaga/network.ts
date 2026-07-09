@@ -184,6 +184,13 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
         headers["sec-fetch-site"] = "same-origin";
         headers.referer = session.referer;
       }
+    } else if (headers.accept === undefined && headers.Accept === undefined) {
+      // Plain HTML fetches (reader page, /home, /manga, /browse) get a browser
+      // document Accept, matching the site's own reader. A request with no
+      // Accept looks bot-shaped and is likelier to draw a Cloudflare challenge —
+      // the transient cause of a reader page arriving without its token. Livewire
+      // calls set their own Accept: application/json, so they're left untouched.
+      headers.accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
     }
 
     return { ...request, headers };
