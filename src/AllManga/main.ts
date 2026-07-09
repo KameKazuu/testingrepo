@@ -6,7 +6,6 @@ import {
   CloudflareError,
   CookieStorageInterceptor,
   DiscoverSectionType,
-  URL,
   type AdvancedSearchForm,
   type Chapter,
   type ChapterDetails,
@@ -31,7 +30,6 @@ import {
   getShowAdult,
 } from "./forms";
 import {
-  API_URL,
   CHAPTERS_QUERY,
   DETAILS_QUERY,
   genreId,
@@ -50,18 +48,16 @@ import {
   SECTION_POPULAR_WEEK,
   SECTION_RECOMMENDED,
   SORTING_OPTIONS,
-  type ChapterPageEdge,
   type ChaptersData,
   type DetailsData,
   type MangaCard,
   type PageMetadata,
-  type PagesData,
   type PopularData,
   type RandomData,
   type SearchData,
   type SearchMetadata,
 } from "./models";
-import makeRequest, { AllMangaInterceptor } from "./network";
+import makeRequest, { AllMangaInterceptor, pageListViaApi } from "./network";
 import {
   dateFromParts,
   formatCount,
@@ -72,124 +68,7 @@ import {
   toSearchResultItem,
 } from "./parsers";
 import type AllMangaConfig from "./pbconfig";
-import {
-  buildAaReq,
-  BUILD_ID,
-  decryptTobeParsed,
-  deriveSigningKey,
-  sha256Hex,
-  TS_BUCKET_MS,
-} from "./utils/crypto";
 import { pageListViaWebView } from "./utils/webView";
-
-// $limit is required and `manga` must be selected: the resolver assigns
-// manga.countryOfOrigin but only builds that container when the field is asked
-// for, and returns null pages otherwise.
-const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!, $limit: Int!, $offset: Int) {
-  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString, limit: $limit, offset: $offset) {
-    edges { pictureUrlHead pictureUrls }
-    manga { _id countryOfOrigin }
-  }
-}`;
-
-const PAGE_SOURCE_LIMIT = 10;
-
-interface Bootstrap {
-  epoch: number;
-  partB: string;
-  switchAt: number;
-}
-
-let cachedBootstrap: Bootstrap | undefined;
-
-// Sign the chapterPages request and decrypt the AES-GCM `tobeparsed` response.
-async function pageListViaApi(
-  mangaId: string,
-  chapterString: string,
-  translationType: string,
-): Promise<PagesData | undefined> {
-  try {
-    const bootstrap = await getBootstrap();
-    if (!bootstrap) return undefined;
-
-    const key = await deriveSigningKey(bootstrap.partB);
-    const queryHash = await sha256Hex(PAGES_QUERY);
-    const aaReq = await buildAaReq(key, bootstrap.epoch, queryHash);
-
-    const url = new URL(API_URL)
-      .setQueryItem("query", PAGES_QUERY)
-      .setQueryItem(
-        "variables",
-        JSON.stringify({
-          mangaId,
-          translationType,
-          chapterString,
-          limit: PAGE_SOURCE_LIMIT,
-          offset: 0,
-        }),
-      )
-      .setQueryItem(
-        "extensions",
-        JSON.stringify({ persistedQuery: { version: 1, sha256Hash: queryHash }, aaReq }),
-      )
-      .toString();
-
-    const [response, buffer] = await Application.scheduleRequest({ url, method: "GET" });
-    if (response.status !== 200) return undefined;
-
-    const parsed = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as {
-      data?: { chapterPages?: PagesData["chapterPages"]; tobeparsed?: string } | null;
-    };
-
-    let chapterPages = parsed.data?.chapterPages ?? undefined;
-    if (!chapterPages?.edges?.length && parsed.data?.tobeparsed) {
-      const decrypted = (await decryptTobeParsed(parsed.data.tobeparsed, key)) as
-        | { chapterPages?: PagesData["chapterPages"]; edges?: ChapterPageEdge[] }
-        | undefined;
-      chapterPages =
-        decrypted?.chapterPages ?? (decrypted?.edges ? { edges: decrypted.edges } : undefined);
-    }
-
-    return chapterPages?.edges?.length ? { chapterPages } : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-// partB and epoch are inlined in the current build's reader shell as
-// window.__aaCrypto; only that mirror ships it, so scan the mirrors for it.
-async function getBootstrap(): Promise<Bootstrap | undefined> {
-  const now = Date.now();
-  if (cachedBootstrap && cachedBootstrap.switchAt > now) return cachedBootstrap;
-
-  for (const host of MIRROR_HOSTS) {
-    try {
-      const [response, buffer] = await Application.scheduleRequest({
-        url: `https://${host}/client-crypto/v1/bootstrap?buildId=${BUILD_ID}`,
-        method: "GET",
-      });
-      if (response.status !== 200) continue;
-
-      const match = Application.arrayBufferToUTF8String(buffer).match(
-        /window\.__aaCrypto\s*=\s*(\{.*?\})\s*;/,
-      );
-      if (!match?.[1]) continue;
-
-      const json = JSON.parse(match[1]) as { epoch?: number; partB?: string; switchAt?: number };
-      if (typeof json.epoch !== "number" || typeof json.partB !== "string") continue;
-
-      cachedBootstrap = {
-        epoch: json.epoch,
-        partB: json.partB,
-        switchAt: typeof json.switchAt === "number" ? json.switchAt : now + TS_BUCKET_MS,
-      };
-      return cachedBootstrap;
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
-}
 
 export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
