@@ -3,7 +3,13 @@
 
 import { URL } from "@paperback/types";
 
-import { API_URL, cryptoHostOrder, PAGES_QUERY, type PagesData } from "../models";
+import {
+  API_URL,
+  type ChapterPageEdge,
+  cryptoHostOrder,
+  PAGES_QUERY,
+  type PagesData,
+} from "../models";
 
 // The API gates chapterPages behind a rotating request signature (aaReq); a
 // missing/invalid one returns AA_CRYPTO_MISSING. The site computes it in JS
@@ -71,18 +77,30 @@ export async function pageListViaApi(
       data?: { chapterPages?: PagesData["chapterPages"]; tobeparsed?: string } | null;
       errors?: { message?: string }[];
     };
-    if (parsed.errors?.length) {
-      console.log(`[AM] api pages error: ${parsed.errors[0]?.message ?? "unknown"}`);
+
+    // The API returns the real payload AES-GCM-encrypted in `tobeparsed`,
+    // accompanied by a benign `chapterPages` resolver error (the field throws
+    // because its value was diverted into `tobeparsed`). Decrypt that before
+    // treating `errors` as fatal.
+    let chapterPages = parsed.data?.chapterPages ?? undefined;
+    if (!chapterPages?.edges?.length && parsed.data?.tobeparsed) {
+      const decrypted = (await decryptTobeParsed(parsed.data.tobeparsed, key)) as
+        | { chapterPages?: PagesData["chapterPages"]; edges?: ChapterPageEdge[] }
+        | undefined;
+      chapterPages =
+        decrypted?.chapterPages ?? (decrypted?.edges ? { edges: decrypted.edges } : undefined);
+      if (decrypted && !chapterPages) {
+        console.log(`[AM] tobeparsed keys: ${Object.keys(decrypted).join(",")}`);
+      }
+    }
+
+    if (!chapterPages?.edges?.length) {
+      if (parsed.errors?.length) {
+        console.log(`[AM] api pages error: ${parsed.errors[0]?.message ?? "unknown"}`);
+      }
       return undefined;
     }
-
-    let data: { chapterPages?: PagesData["chapterPages"] } | undefined = parsed.data ?? undefined;
-    if (parsed.data?.tobeparsed) {
-      data = (await decryptTobeParsed(parsed.data.tobeparsed, key)) as typeof data;
-    }
-
-    if (!data?.chapterPages?.edges?.length) return undefined;
-    return { chapterPages: data.chapterPages };
+    return { chapterPages };
   } catch (error) {
     console.log(`[AM] api page fetch failed: ${String(error)}`);
     return undefined;
