@@ -388,15 +388,10 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     const mangaId = chapter.sourceManga.mangaId;
     const quality = getImageQuality();
 
-    // Primary: fetch pages straight from the API. It serves a direct client the
-    // persisted query without the browser anti-bot signature, so this avoids
-    // the reader page's Cloudflare challenge and the WebView entirely.
+    // Sign and query the API directly; fall back to the WebView reader if that
+    // path is unavailable.
     let data = await pageListViaApi(mangaId, chapter.chapterId, "sub");
-
-    // Fallback: let the site's own JS fetch pages inside a WebView (needed if
-    // the API path is ever gated). Any Cloudflare challenge surfaces from there.
     if (!data?.chapterPages?.edges?.length) {
-      console.log("[AM] api page fetch empty; falling back to WebView");
       const title = chapter.sourceManga.mangaInfo?.primaryTitle ?? "";
       data = await pageListViaWebView(
         mangaId,
