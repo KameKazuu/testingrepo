@@ -3,7 +3,7 @@
 
 import { URL } from "@paperback/types";
 
-import { API_URL, CHAPTER_PAGES_HASH, pageHostOrder, type PagesData } from "../models";
+import { API_URL, CHAPTER_PAGES_HASH, cryptoHostOrder, type PagesData } from "../models";
 
 // The API gates chapterPages behind a rotating request signature (aaReq); a
 // missing/invalid one returns AA_CRYPTO_MISSING. The site computes it in JS
@@ -90,7 +90,7 @@ async function getBootstrap(): Promise<Bootstrap | undefined> {
   const now = Date.now();
   if (cachedBootstrap && cachedBootstrap.switchAt > now) return cachedBootstrap;
 
-  for (const host of pageHostOrder()) {
+  for (const host of cryptoHostOrder()) {
     try {
       const [response, buffer] = await Application.scheduleRequest({
         url: `${host}/client-crypto/v1/bootstrap?buildId=${BUILD_ID}`,
