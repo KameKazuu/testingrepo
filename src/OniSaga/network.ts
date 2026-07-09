@@ -371,18 +371,15 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 const BURST_CAPACITY = 6;
 const BURST_SPACING_SECONDS = 0.3;
 
-// Sustainable floor between page requests, evenly enforced (see pace). onisaga's
-// hidden frequency limiter trips a "Rate limit exceeded" 429 near ~60/min — but
-// as a *short-window* limiter, not a 60s average: front-loading ~50 requests in
-// ~35s (a big burst plus a sub-second per-page delay) trips it even though the
-// minute average is under 60. So the fix is even spacing, not a rolling average.
-// ~1.1s/request (~55/min) keeps a margin under the threshold while reading a
-// touch faster than the old 1.2s: the 6-page opener plus the first minute of
-// steady requests lands near ~57, still under 60. (Concurrency isn't the lever
-// here — round-trips already overlap; this sustained rate is what bounds
-// throughput.) The user's Image Requests Limit can only make reading *slower*
-// than this; it can't undercut the floor and re-trip the limiter.
-const SUSTAINED_FLOOR_SECONDS = 1.1;
+// Minimum spacing the user's Image Requests Limit can reach. Rather than a hard
+// slow floor that throttles every chapter to dodge the rare long-chapter 429,
+// let the user's setting govern (fastest option 0.75s ≈ 80/min) and lean on the
+// reactive cooldown: onisaga's limiter only trips around page ~55-62 at that
+// rate, so any chapter shorter than that loads fast with no 429, and a long one
+// takes a single Retry-After cooldown mid-read, after which the strike floor
+// (STRIKE_FLOOR_SECONDS) auto-slows briefly and recovers. This floor just keeps
+// a setting from dropping below the fastest offered option.
+const SUSTAINED_FLOOR_SECONDS = 0.75;
 
 export class OniSagaPageRateLimiter extends PaperbackInterceptor {
   private burst = BURST_CAPACITY;
