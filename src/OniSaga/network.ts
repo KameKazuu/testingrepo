@@ -363,12 +363,12 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 // keeps the first screen snappy while staying well under the penalty
 // threshold. Everything except the page API passes through untouched
 // (Webtoon-style per-endpoint scoping).
-// The opener, sized to the site's own reader — on open it preloads the current
-// page plus ~6 ahead (its `preloadAhead`), drained two-at-a-time. Six quick
-// pages here open the first screen fast without front-loading the frequency
-// limiter: burst 6 then the 1.2s floor still clears only ~54 requests in the
-// first minute, under the ~60/min threshold.
-const BURST_CAPACITY = 6;
+// A generous opener — the fast first pages the reader used to have before the
+// even-spacing rewrite over-paced it. Ten quick pages front-load the first
+// screen, then the user's Image Requests Limit governs. A normal chapter loads
+// fast and never reaches the limiter; only a long one (60+ pages) hits a single
+// cooldown, which self-heals via the strike floor.
+const BURST_CAPACITY = 10;
 const BURST_SPACING_SECONDS = 0.3;
 
 // Minimum spacing the user's Image Requests Limit can reach. Rather than a hard
