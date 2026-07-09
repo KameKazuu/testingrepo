@@ -97,6 +97,24 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
 }`;
 
+export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!) {
+  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString) {
+    edges { pictureUrlHead pictureUrls }
+  }
+}`;
+
+// Apollo persisted-query id for the chapterPages query above, observed on live
+// api.allanime.day requests. The API serves pages to a direct client that sends
+// this hash (no browser anti-bot signature required), so we try it before the
+// WebView. Only changes if the site changes the query text.
+export const CHAPTER_PAGES_HASH =
+  "fe1f609dfea8a85618039516b01aa5c7979e9b13d5f3a2a7aaa31d09e5af0d51";
+
+// The API sometimes returns the payload AES-GCM-encrypted in a `tobeparsed`
+// field instead of plaintext; this is the key-derivation prefix the site uses
+// (key = SHA-256("Xot36i3lK3:v" + versionByte)).
+export const TOBEPARSED_KEY_PREFIX = "Xot36i3lK3:v";
+
 export interface GraphQLResponse<T> {
   data?: T;
   errors?: { message: string }[];

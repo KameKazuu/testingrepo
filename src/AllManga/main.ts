@@ -68,6 +68,7 @@ import {
   toSearchResultItem,
 } from "./parsers";
 import type AllMangaConfig from "./pbconfig";
+import { pageListViaApi } from "./utils/api";
 import { pageListViaWebView } from "./utils/webView";
 
 export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
@@ -387,12 +388,18 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     const mangaId = chapter.sourceManga.mangaId;
     const quality = getImageQuality();
 
-    // chapterPages has no working direct-query path; only WebView can serve real pages.
-    const data = await pageListViaWebView(
-      mangaId,
-      chapter.chapterId,
-      this.cookieStorageInterceptor,
-    );
+    // Primary: fetch pages straight from the API. It serves a direct client the
+    // persisted query without the browser anti-bot signature, so this avoids
+    // the reader page's Cloudflare challenge and the WebView entirely.
+    let data = await pageListViaApi(mangaId, chapter.chapterId, "sub");
+
+    // Fallback: let the site's own JS fetch pages inside a WebView (needed if
+    // the API path is ever gated). Any Cloudflare challenge surfaces from there.
+    if (!data?.chapterPages?.edges?.length) {
+      console.log("[AM] api page fetch empty; falling back to WebView");
+      data = await pageListViaWebView(mangaId, chapter.chapterId, this.cookieStorageInterceptor);
+    }
+
     const pages = data ? parsePageUrls(data, quality) : [];
 
     if (pages.length === 0) {
