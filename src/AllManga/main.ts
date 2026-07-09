@@ -397,7 +397,13 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     // the API path is ever gated). Any Cloudflare challenge surfaces from there.
     if (!data?.chapterPages?.edges?.length) {
       console.log("[AM] api page fetch empty; falling back to WebView");
-      data = await pageListViaWebView(mangaId, chapter.chapterId, this.cookieStorageInterceptor);
+      const title = chapter.sourceManga.mangaInfo?.primaryTitle ?? "";
+      data = await pageListViaWebView(
+        mangaId,
+        chapter.chapterId,
+        title,
+        this.cookieStorageInterceptor,
+      );
     }
 
     const pages = data ? parsePageUrls(data, quality) : [];
