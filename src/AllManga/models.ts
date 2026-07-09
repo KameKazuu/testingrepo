@@ -30,16 +30,6 @@ export function pageHostOrder(): string[] {
   return [preferred, ...PAGE_HOSTS.filter((host) => host !== preferred)];
 }
 
-// The current build (mkissa.to) is the one that inlines window.__aaCrypto; the
-// legacy allmanga.to shell doesn't ship it. Scrape the signing key from mkissa
-// first regardless of the user's reader mirror, falling back to the other host
-// only if the site ever moves it.
-export const CRYPTO_HOST = "https://mkissa.to";
-
-export function cryptoHostOrder(): string[] {
-  return [CRYPTO_HOST, ...PAGE_HOSTS.filter((host) => host !== CRYPTO_HOST)];
-}
-
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
 export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";
@@ -106,35 +96,6 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   manga(_id: $id) { _id name availableChaptersDetail }
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
 }`;
-
-// chapterPages requires a non-null $limit (it paginates over page *sources*, not
-// individual pages); omitting it makes the server resolver return null. The site
-// sends limit 10, offset 0.
-//
-// The nested `manga { countryOfOrigin }` is required too: the server resolver
-// unconditionally assigns manga.countryOfOrigin but only creates that container
-// when the field is selected — omit it and the resolver throws
-// "Cannot set properties of undefined (setting 'countryOfOrigin')" → null pages.
-export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!, $limit: Int!, $offset: Int) {
-  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString, limit: $limit, offset: $offset) {
-    edges { pictureUrlHead pictureUrls }
-    manga { _id countryOfOrigin }
-  }
-}`;
-
-export const PAGE_SOURCE_LIMIT = 10;
-
-// Apollo persisted-query id for the chapterPages query above, observed on live
-// api.allanime.day requests. The API serves pages to a direct client that sends
-// this hash (no browser anti-bot signature required), so we try it before the
-// WebView. Only changes if the site changes the query text.
-export const CHAPTER_PAGES_HASH =
-  "fe1f609dfea8a85618039516b01aa5c7979e9b13d5f3a2a7aaa31d09e5af0d51";
-
-// The API sometimes returns the payload AES-GCM-encrypted in a `tobeparsed`
-// field instead of plaintext; this is the key-derivation prefix the site uses
-// (key = SHA-256("Xot36i3lK3:v" + versionByte)).
-export const TOBEPARSED_KEY_PREFIX = "Xot36i3lK3:v";
 
 export interface GraphQLResponse<T> {
   data?: T;

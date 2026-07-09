@@ -6,31 +6,19 @@ import { CloudflareError, type CookieStorageInterceptor } from "@paperback/types
 import { pageHostOrder, type PagesData } from "../models";
 
 // Captures the chapterPages payload the reader page fetches from the allanime
-// API. The site signs that request with a rotating key we can't reproduce, so
-// we let its own JS make the call inside a WebView and grab the decoded JSON.
-//
-// Three nets, because we can't see the (obfuscated, lazily-loaded) response
-// handler and don't know whether it parses via the global JSON.parse or a
-// native Response.json(): (1) a JSON.parse proxy, (2) a fetch wrapper, (3) an
-// XHR wrapper. All funnel into consider(), gated on the "chapterPages" marker.
-// The console breadcrumbs are surfaced by captureConsoleLog so a device run
-// tells us *why* a capture fails (never booted vs. fetch CORS-rejected vs.
-// parsed-but-unmatched) instead of a bare timeout.
+// API by letting the site's own JS make the signed call inside a WebView. The
+// response handler is obfuscated and lazily loaded, so watch the three paths it
+// might decode through — a JSON.parse proxy, a fetch wrapper and an XHR wrapper
+// — and resolve on the first payload carrying the "chapterPages" marker.
 const BOOTSTRAP = `
   (function () {
     var doneResolve, settled = false;
     window.__allMangaResult__ = new Promise(function (r) { doneResolve = r; });
     function finish(value) { if (settled) return; settled = true; doneResolve(value); }
     function consider(text) {
-      try {
-        if (typeof text === "string" && text.indexOf("chapterPages") !== -1) {
-          console.log("[AM] captured chapterPages (" + text.length + " bytes)");
-          finish(text);
-        }
-      } catch (e) {}
+      if (typeof text === "string" && text.indexOf("chapterPages") !== -1) finish(text);
     }
     var isApi = function (u) { return typeof u === "string" && u.indexOf("allanime.day") !== -1; };
-    window.onerror = function (m) { try { console.log("[AM] window error: " + m); } catch (e) {} };
 
     var origParse = JSON.parse;
     JSON.parse = new Proxy(origParse, {
@@ -51,19 +39,9 @@ const BOOTSTRAP = `
         var url = "";
         try { url = (arguments[0] && arguments[0].url) || String(arguments[0] || ""); } catch (e) {}
         var api = isApi(url);
-        console.log("[AM] fetch " + url.slice(0, 140));
         return origFetch.apply(this, arguments).then(function (resp) {
-          if (api) {
-            try {
-              resp.clone().text().then(consider).catch(function (e) {
-                console.log("[AM] fetch body read failed: " + e);
-              });
-            } catch (e) { console.log("[AM] fetch clone failed: " + e); }
-          }
+          if (api) { try { resp.clone().text().then(consider).catch(function () {}); } catch (e) {} }
           return resp;
-        }, function (err) {
-          if (api) console.log("[AM] fetch REJECTED (CORS/network?): " + err);
-          throw err;
         });
       };
     }
@@ -74,25 +52,13 @@ const BOOTSTRAP = `
       XMLHttpRequest.prototype.send = function () {
         var self = this;
         if (isApi(String(self.__amUrl || ""))) {
-          console.log("[AM] xhr -> " + String(self.__amUrl).slice(0, 140));
           self.addEventListener("load", function () { try { consider(self.responseText); } catch (e) {} });
-          self.addEventListener("error", function () { console.log("[AM] xhr error: " + String(self.__amUrl).slice(0, 140)); });
         }
         return xSend.apply(this, arguments);
       };
     } catch (e) {}
 
-    function boot(tag) {
-      try {
-        var n = document.getElementById("__nuxt") || document.getElementById("app") || document.body;
-        console.log("[AM] " + tag + " path=" + location.pathname + " ready=" + document.readyState +
-          " kids=" + (n ? n.children.length : -1) + " title=" + (document.title || "").slice(0, 40));
-      } catch (e) {}
-    }
-    console.log("[AM] bootstrap installed; waiting for chapterPages");
-    setTimeout(function () { boot("t+4s"); }, 4000);
-    setTimeout(function () { boot("t+12s"); }, 12000);
-    setTimeout(function () { boot("t+24s"); console.log("[AM] timeout (25s), no chapterPages captured"); finish(""); }, 25000);
+    setTimeout(function () { finish(""); }, 25000);
   })();
 `;
 
@@ -167,7 +133,6 @@ async function captureFromHost(
     },
     inject: `return window.__allMangaResult__`,
     storage: { cookies },
-    captureConsoleLog: true,
   });
 
   if (typeof raw.result !== "string" || raw.result.length === 0) {
