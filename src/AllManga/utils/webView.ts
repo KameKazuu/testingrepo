@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { type CookieStorageInterceptor } from "@paperback/types";
+import { CloudflareError, type CookieStorageInterceptor } from "@paperback/types";
 import * as cheerio from "cheerio";
 
 import { pageHostOrder, type PagesData } from "../models";
@@ -44,11 +44,28 @@ export async function pageListViaWebView(
   // yields the payload, so a domain switch (allmanga -> mkissa) resolves without
   // an update. Loading the wrong host returns a redirect stub with no
   // chapterPages, so we just move on.
+  //
+  // A Cloudflare challenge must NOT be swallowed here: the reader pre-fetch
+  // goes through the interceptor, which throws CloudflareError on
+  // cf-mitigated. Rethrowing it after the other mirrors also fail lets the
+  // app open its bypass webview for the challenged host; once solved, the
+  // stored cf_clearance rides into both the pre-fetch and the WebView (same
+  // cookies, same default UA the clearance is bound to) and pages resolve.
+  let challenge: CloudflareError | undefined;
   for (const host of pageHostOrder()) {
-    const pages = await captureFromHost(host, mangaId, chapterNum, cookieInterceptor, userAgent);
-    if (pages) return pages;
+    try {
+      const pages = await captureFromHost(host, mangaId, chapterNum, cookieInterceptor, userAgent);
+      if (pages) return pages;
+    } catch (error) {
+      if (error instanceof CloudflareError) {
+        challenge = challenge ?? error;
+        continue;
+      }
+      // Network failures on one mirror shouldn't stop the fallback.
+    }
   }
 
+  if (challenge) throw challenge;
   return undefined;
 }
 
@@ -62,25 +79,21 @@ async function captureFromHost(
   const readerUrl = `${host}/manga/${mangaId}/chapter-${chapterNum}-sub`;
   const cookies = cookieInterceptor.cookiesForUrl(`${host}/`);
 
-  try {
-    const [, buffer] = await Application.scheduleRequest({ url: readerUrl, method: "GET" });
-    const $ = cheerio.load(Application.arrayBufferToUTF8String(buffer));
-    $("head").prepend(`<script>${BOOTSTRAP}</script>`);
+  const [, buffer] = await Application.scheduleRequest({ url: readerUrl, method: "GET" });
+  const $ = cheerio.load(Application.arrayBufferToUTF8String(buffer));
+  $("head").prepend(`<script>${BOOTSTRAP}</script>`);
 
-    const raw = await Application.executeInWebView({
-      source: { html: $.html(), baseUrl: readerUrl, loadCSS: false, loadImages: false, userAgent },
-      inject: `return window.__allMangaResult__`,
-      storage: { cookies },
-    });
+  const raw = await Application.executeInWebView({
+    source: { html: $.html(), baseUrl: readerUrl, loadCSS: false, loadImages: false, userAgent },
+    inject: `return window.__allMangaResult__`,
+    storage: { cookies },
+  });
 
-    if (typeof raw.result !== "string" || raw.result.length === 0) {
-      return undefined;
-    }
-
-    return parseWebViewPayload(raw.result);
-  } catch {
+  if (typeof raw.result !== "string" || raw.result.length === 0) {
     return undefined;
   }
+
+  return parseWebViewPayload(raw.result);
 }
 
 // chapterPages may be top-level or nested under a GraphQL `data` envelope.
