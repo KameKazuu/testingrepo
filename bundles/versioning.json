@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-07-09T09:50:17.063Z",
+  "buildTime": "2026-07-09T09:57:51.819Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -12,7 +12,7 @@
     {
       "name": "AllManga",
       "description": "Extension that pulls content from allmanga.to.",
-      "version": "1.0.0-alpha.20",
+      "version": "1.0.0-alpha.2",
       "icon": "icon.png",
       "language": "en",
       "contentRating": "MATURE",
@@ -26,7 +26,7 @@
       "badges": [],
       "developers": [
         {
-          "name": "PopMango",
+          "name": "Popmango",
           "github": "https://github.com/PoppingMangoSources"
         }
       ],
