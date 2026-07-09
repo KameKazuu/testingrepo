@@ -46,9 +46,9 @@ export class AllMangaSettingsForm extends Form {
           id: "mirror",
           footer:
             "allmanga.to and mkissa.to are the same site on different domains. " +
-            "If chapters won't load, switch mirrors. allmanga.to currently " +
-            "redirects its reader to mkissa.to. The other mirror is still tried " +
-            "automatically as a fallback.",
+            "Default is allmanga.to (no verification prompt). Switch to mkissa.to " +
+            "only if allmanga is down — mkissa may require a one-time Cloudflare " +
+            "check. The other mirror is always tried automatically as a fallback.",
         },
         [
           SelectRow("mirror", {
@@ -57,8 +57,8 @@ export class AllMangaSettingsForm extends Form {
             minItemCount: 1,
             maxItemCount: 1,
             options: [
-              { id: "https://mkissa.to", title: "mkissa.to" },
               { id: "https://allmanga.to", title: "allmanga.to" },
+              { id: "https://mkissa.to", title: "mkissa.to" },
             ],
             onValueChange: Application.Selector(this as AllMangaSettingsForm, "handleMirrorChange"),
           }),
