@@ -12,6 +12,7 @@ export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";
 
 export const LIMIT = 20;
+export const PAGE_SOURCE_LIMIT = 10;
 
 export const IMAGE_QUALITY_KEY = "allmanga-image-quality";
 export const SHOW_ADULT_KEY = "allmanga-show-adult";
@@ -72,6 +73,16 @@ export const DETAILS_QUERY = `query($id: String!) {
 export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   manga(_id: $id) { _id name availableChaptersDetail }
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
+}`;
+
+// $limit is required and `manga` must be selected: the resolver assigns
+// manga.countryOfOrigin but only builds that container when the field is asked
+// for, and returns null pages otherwise.
+export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!, $limit: Int!, $offset: Int) {
+  chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString, limit: $limit, offset: $offset) {
+    edges { pictureUrlHead pictureUrls }
+    manga { _id countryOfOrigin }
+  }
 }`;
 
 export interface GraphQLResponse<T> {
@@ -162,6 +173,12 @@ export interface ChapterPageEdge {
 
 export interface PagesData {
   chapterPages?: { edges: ChapterPageEdge[] } | null;
+}
+
+export interface Bootstrap {
+  epoch: number;
+  partB: string;
+  switchAt: number;
 }
 
 export const SORTING_OPTIONS: SortingOption[] = [
