@@ -7,9 +7,9 @@ import { API_URL, CHAPTER_PAGES_HASH, pageHostOrder, type PagesData } from "../m
 
 // The API gates chapterPages behind a rotating request signature (aaReq); a
 // missing/invalid one returns AA_CRYPTO_MISSING. The site computes it in JS
-// from a build-constant "part A" XOR a rotating "part B" (served by the site's
-// client-crypto bootstrap), so we reproduce it here and query the API directly
-// — no reader page, no Cloudflare, no WebView.
+// from a build-constant "part A" XOR a rotating "part B" (inlined in the reader
+// shell as window.__aaCrypto), so we reproduce it here and query the API
+// directly — no reader page, no Cloudflare, no WebView.
 //
 // Reversed from the site bundle (buildId 12):
 //   key      = partA(32 bytes) XOR partB(32 bytes from bootstrap)
@@ -80,10 +80,12 @@ export async function pageListViaApi(
   }
 }
 
-// The site's client-crypto bootstrap: a small JSON with the current epoch and
-// the rotating part-B key that pairs with our build's part A. Whichever mirror
-// serves build 12 returns it; try each until one does. Cached until its
-// switchAt so we don't refetch each chapter.
+// The site's client-crypto material is inlined in the reader shell's <head> as
+//   window.__aaCrypto={"epoch":…,"switchAt":…,"partB":"<32-byte b64 key>"}
+// — not a JSON endpoint. Only the current build (mkissa.to's SvelteKit app)
+// ships it; the legacy allmanga.to Nuxt shell doesn't, so we scan each host
+// until one yields it. These non-reader routes are served 200 with no
+// Cloudflare challenge. Cached until switchAt so we don't refetch each chapter.
 async function getBootstrap(): Promise<Bootstrap | undefined> {
   const now = Date.now();
   if (cachedBootstrap && cachedBootstrap.switchAt > now) return cachedBootstrap;
@@ -93,13 +95,18 @@ async function getBootstrap(): Promise<Bootstrap | undefined> {
       const [response, buffer] = await Application.scheduleRequest({
         url: `${host}/client-crypto/v1/bootstrap?buildId=${BUILD_ID}`,
         method: "GET",
-        headers: { Accept: "application/json" },
       });
       if (response.status !== 200) {
         console.log(`[AM] bootstrap ${host} HTTP ${response.status}`);
         continue;
       }
-      const json = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as {
+      const html = Application.arrayBufferToUTF8String(buffer);
+      const match = html.match(/window\.__aaCrypto\s*=\s*(\{.*?\})\s*;/);
+      if (!match?.[1]) {
+        console.log(`[AM] bootstrap ${host} no __aaCrypto`);
+        continue;
+      }
+      const json = JSON.parse(match[1]) as {
         epoch?: number;
         partB?: string;
         switchAt?: number;
@@ -113,6 +120,7 @@ async function getBootstrap(): Promise<Bootstrap | undefined> {
         partB: json.partB,
         switchAt: typeof json.switchAt === "number" ? json.switchAt : now + TS_BUCKET_MS,
       };
+      console.log(`[AM] bootstrap ${host} ok epoch=${json.epoch}`);
       return cachedBootstrap;
     } catch (error) {
       console.log(`[AM] bootstrap ${host} failed: ${String(error)}`);
