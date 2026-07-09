@@ -3,7 +3,7 @@
 
 import { URL } from "@paperback/types";
 
-import { API_URL, CHAPTER_PAGES_HASH, cryptoHostOrder, type PagesData } from "../models";
+import { API_URL, cryptoHostOrder, PAGES_QUERY, type PagesData } from "../models";
 
 // The API gates chapterPages behind a rotating request signature (aaReq); a
 // missing/invalid one returns AA_CRYPTO_MISSING. The site computes it in JS
@@ -41,13 +41,20 @@ export async function pageListViaApi(
     if (!bootstrap) return undefined;
 
     const key = await deriveSigningKey(bootstrap.partB);
-    const aaReq = await buildAaReq(key, bootstrap.epoch, CHAPTER_PAGES_HASH);
+
+    // Send our own chapterPages query text (Apollo APQ) and sign for its hash,
+    // rather than a site-side persisted-query id. A stale/foreign id resolves to
+    // a server query whose variables (e.g. $limit) we don't control; hashing our
+    // own query guarantees the server runs exactly these three variables.
+    const queryHash = await sha256Hex(PAGES_QUERY);
+    const aaReq = await buildAaReq(key, bootstrap.epoch, queryHash);
 
     const url = new URL(API_URL)
+      .setQueryItem("query", PAGES_QUERY)
       .setQueryItem("variables", JSON.stringify({ mangaId, translationType, chapterString }))
       .setQueryItem(
         "extensions",
-        JSON.stringify({ persistedQuery: { version: 1, sha256Hash: CHAPTER_PAGES_HASH } }),
+        JSON.stringify({ persistedQuery: { version: 1, sha256Hash: queryHash } }),
       )
       .setQueryItem("aaReq", aaReq)
       .toString();
@@ -230,6 +237,13 @@ function stringToBytes(value: string): Uint8Array {
 
 function stringToBuffer(value: string): ArrayBuffer {
   return toBuffer(stringToBytes(value));
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", stringToBuffer(value)));
+  let hex = "";
+  for (const byte of digest) hex += byte.toString(16).padStart(2, "0");
+  return hex;
 }
 
 // A standalone ArrayBuffer of bytes[start, end) — WebCrypto wants a concrete
