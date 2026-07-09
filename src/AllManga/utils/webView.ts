@@ -30,6 +30,7 @@ const BOOTSTRAP = `
       } catch (e) {}
     }
     var isApi = function (u) { return typeof u === "string" && u.indexOf("allanime.day") !== -1; };
+    window.onerror = function (m) { try { console.log("[AM] window error: " + m); } catch (e) {} };
 
     var origParse = JSON.parse;
     JSON.parse = new Proxy(origParse, {
@@ -50,7 +51,7 @@ const BOOTSTRAP = `
         var url = "";
         try { url = (arguments[0] && arguments[0].url) || String(arguments[0] || ""); } catch (e) {}
         var api = isApi(url);
-        if (api) console.log("[AM] fetch -> " + url.slice(0, 140));
+        console.log("[AM] fetch " + url.slice(0, 140));
         return origFetch.apply(this, arguments).then(function (resp) {
           if (api) {
             try {
@@ -81,17 +82,32 @@ const BOOTSTRAP = `
       };
     } catch (e) {}
 
+    function boot(tag) {
+      try {
+        var n = document.getElementById("__nuxt") || document.getElementById("app") || document.body;
+        console.log("[AM] " + tag + " path=" + location.pathname + " ready=" + document.readyState +
+          " kids=" + (n ? n.children.length : -1) + " title=" + (document.title || "").slice(0, 40));
+      } catch (e) {}
+    }
     console.log("[AM] bootstrap installed; waiting for chapterPages");
-    setTimeout(function () { console.log("[AM] timeout (25s), no chapterPages captured"); finish(""); }, 25000);
+    setTimeout(function () { boot("t+4s"); }, 4000);
+    setTimeout(function () { boot("t+12s"); }, 12000);
+    setTimeout(function () { boot("t+24s"); console.log("[AM] timeout (25s), no chapterPages captured"); finish(""); }, 25000);
   })();
 `;
 
 export async function pageListViaWebView(
   mangaId: string,
   chapterNum: string,
+  title: string,
   cookieInterceptor: CookieStorageInterceptor,
 ): Promise<PagesData | undefined> {
   const userAgent = await Application.getDefaultUserAgent();
+  // The reader is a client-rendered SPA whose router needs the {slug} segment
+  // (…/manga/{id}/{slug}/chapter-…) to resolve the chapter and fetch pages; a
+  // slug-less URL lands on a non-chapter route and never fetches. Any non-empty
+  // slug works — the app keys its data off the id.
+  const slug = toSlug(title) || mangaId;
 
   // Try the preferred mirror first, then the fallback. allmanga.to is served
   // 200 with no Cloudflare and boots via classic <script> tags, so it's the
@@ -109,6 +125,7 @@ export async function pageListViaWebView(
         order[i]!,
         mangaId,
         chapterNum,
+        slug,
         cookieInterceptor,
         userAgent,
       );
@@ -130,10 +147,11 @@ async function captureFromHost(
   host: string,
   mangaId: string,
   chapterNum: string,
+  slug: string,
   cookieInterceptor: CookieStorageInterceptor,
   userAgent: string,
 ): Promise<PagesData | undefined> {
-  const readerUrl = `${host}/manga/${mangaId}/chapter-${chapterNum}-sub`;
+  const readerUrl = `${host}/manga/${mangaId}/${slug}/chapter-${chapterNum}-sub`;
   const cookies = cookieInterceptor.cookiesForUrl(`${host}/`);
 
   const [, buffer] = await Application.scheduleRequest({ url: readerUrl, method: "GET" });
@@ -157,6 +175,14 @@ async function captureFromHost(
   }
 
   return parseWebViewPayload(raw.result);
+}
+
+// A URL-safe slug from the manga title for the reader route's {slug} segment.
+function toSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 // Insert the capture bootstrap right after <head> as a raw string. cheerio's
