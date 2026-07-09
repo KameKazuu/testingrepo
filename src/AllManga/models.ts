@@ -30,6 +30,16 @@ export function pageHostOrder(): string[] {
   return [preferred, ...PAGE_HOSTS.filter((host) => host !== preferred)];
 }
 
+// The current build (mkissa.to) is the one that inlines window.__aaCrypto; the
+// legacy allmanga.to shell doesn't ship it. Scrape the signing key from mkissa
+// first regardless of the user's reader mirror, falling back to the other host
+// only if the site ever moves it.
+export const CRYPTO_HOST = "https://mkissa.to";
+
+export function cryptoHostOrder(): string[] {
+  return [CRYPTO_HOST, ...PAGE_HOSTS.filter((host) => host !== CRYPTO_HOST)];
+}
+
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
 export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";
