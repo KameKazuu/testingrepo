@@ -49,14 +49,16 @@ export async function pageListViaApi(
     const queryHash = await sha256Hex(PAGES_QUERY);
     const aaReq = await buildAaReq(key, bootstrap.epoch, queryHash);
 
+    // aaReq travels *inside* the extensions object (extensions.aaReq), not as a
+    // separate query parameter — the API reads it from there and returns
+    // AA_CRYPTO_MISSING otherwise.
     const url = new URL(API_URL)
       .setQueryItem("query", PAGES_QUERY)
       .setQueryItem("variables", JSON.stringify({ mangaId, translationType, chapterString }))
       .setQueryItem(
         "extensions",
-        JSON.stringify({ persistedQuery: { version: 1, sha256Hash: queryHash } }),
+        JSON.stringify({ persistedQuery: { version: 1, sha256Hash: queryHash }, aaReq }),
       )
-      .setQueryItem("aaReq", aaReq)
       .toString();
 
     const [response, buffer] = await Application.scheduleRequest({ url, method: "GET" });
