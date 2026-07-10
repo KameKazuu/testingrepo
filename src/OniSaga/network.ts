@@ -363,23 +363,21 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 // keeps the first screen snappy while staying well under the penalty
 // threshold. Everything except the page API passes through untouched
 // (Webtoon-style per-endpoint scoping).
-// A generous opener — the fast first pages the reader used to have before the
-// even-spacing rewrite over-paced it. Ten quick pages front-load the first
-// screen, then the user's Image Requests Limit governs. A normal chapter loads
-// fast and never reaches the limiter; only a long one (60+ pages) hits a single
-// cooldown, which self-heals via the strike floor.
-const BURST_CAPACITY = 10;
-const BURST_SPACING_SECONDS = 0.3;
+// A small, gentle opener for a snappy first screen. Kept modest (4 pages, 0.5s
+// apart) on purpose: onisaga's frequency limiter is a rolling ~60-req/min window
+// across the whole session, so a big fast burst (10 @ 0.3s ≈ 200/min) spikes a
+// window already loaded from earlier chapters and trips a 429 mid-read. Four
+// half-second pages front-load the first screen without spiking the window.
+const BURST_CAPACITY = 4;
+const BURST_SPACING_SECONDS = 0.5;
 
-// Minimum spacing the user's Image Requests Limit can reach. Rather than a hard
-// slow floor that throttles every chapter to dodge the rare long-chapter 429,
-// let the user's setting govern (fastest option 0.75s ≈ 80/min) and lean on the
-// reactive cooldown: onisaga's limiter only trips around page ~55-62 at that
-// rate, so any chapter shorter than that loads fast with no 429, and a long one
-// takes a single Retry-After cooldown mid-read, after which the strike floor
-// (STRIKE_FLOOR_SECONDS) auto-slows briefly and recovers. This floor just keeps
-// a setting from dropping below the fastest offered option.
-const SUSTAINED_FLOOR_SECONDS = 0.75;
+// Sustained floor, evenly enforced. onisaga's limiter is a rolling ~60/min
+// window across the session (not per-chapter): sustained faster than that trips
+// a "Rate limit exceeded" 429 with a 60s Retry-After stall. ~1.1s (~55/min)
+// keeps a margin under it so continuous reading stays stall-free — the fastest
+// rate that doesn't periodically freeze for 60s. The user's Image Requests Limit
+// can only make it slower; it can't undercut this and re-trip the limiter.
+const SUSTAINED_FLOOR_SECONDS = 1.1;
 
 export class OniSagaPageRateLimiter extends PaperbackInterceptor {
   private burst = BURST_CAPACITY;
