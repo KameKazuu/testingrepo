@@ -3,8 +3,8 @@
 
 import { type SortingOption } from "@paperback/types";
 
-export const DOMAIN = "https://allmanga.to";
-export const MIRROR_HOSTS = ["allmanga.to", "mkissa.to"];
+export const DOMAIN = "https://mkissa.to";
+export const MIRROR_HOSTS = ["mkissa.to", "allmanga.to"];
 export const API_URL = "https://api.allanime.day/api";
 
 export const THUMBNAIL_CDN = "https://wp.youtube-anime.com/aln.youtube-anime.com/";
