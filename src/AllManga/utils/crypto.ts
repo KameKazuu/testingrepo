@@ -13,7 +13,6 @@
 export const BUILD_ID = "13";
 export const TS_BUCKET_MS = 5 * 60 * 1000;
 const PART_A_HEX = "f5dc46e6f42968c5ed0eab602d6ae8f2107991006f02876947e64fcb75d53da6";
-const SECRET_PREFIX = "Xot36i3lK3";
 
 // key = partA XOR partB (both 32 bytes), imported for AES-GCM.
 export async function deriveSigningKey(partB: string): Promise<CryptoKey> {
@@ -61,24 +60,11 @@ export async function buildAaReq(
 
 export async function decryptTobeParsed(value: string, signingKey: CryptoKey): Promise<unknown> {
   const bytes = base64ToBytes(value);
-  const version = bytes[0] ?? 1;
   const iv = toBuffer(bytes, 1, 13);
   const cipher = toBuffer(bytes, 13, bytes.length);
 
-  try {
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, signingKey, cipher);
-    return JSON.parse(Application.arrayBufferToUTF8String(plain));
-  } catch {
-    const legacyRaw = await crypto.subtle.digest(
-      "SHA-256",
-      stringToBuffer(`${SECRET_PREFIX}:v${version}`),
-    );
-    const legacyKey = await crypto.subtle.importKey("raw", legacyRaw, { name: "AES-GCM" }, false, [
-      "decrypt",
-    ]);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, legacyKey, cipher);
-    return JSON.parse(Application.arrayBufferToUTF8String(plain));
-  }
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, signingKey, cipher);
+  return JSON.parse(Application.arrayBufferToUTF8String(plain));
 }
 
 export async function sha256Hex(value: string): Promise<string> {
