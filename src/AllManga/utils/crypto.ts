@@ -2,16 +2,17 @@
 /* Copyright © 2026 Inkdex */
 
 // The API gates chapterPages behind a rotating request signature (aaReq),
-// reversed from the site bundle (buildId 12):
+// reversed from the site bundle (buildId 13):
 //   key     = partA XOR partB   (partB is inlined in the reader shell as window.__aaCrypto)
 //   iv      = SHA-256(`${epoch}:${buildId}:${queryHash}:${ts}`)[0:12]
 //   payload = { v: 1, ts, epoch, buildId, qh: queryHash }
 //   aaReq   = base64(0x01 | iv | AES-GCM(key, iv, payload))
 // aaReq travels inside the extensions object, and the response payload comes
 // back AES-GCM-encrypted in a `tobeparsed` field, decrypted with the same key.
-export const BUILD_ID = "12";
+// partA and buildId are baked into the site build, so both change on a rebuild.
+export const BUILD_ID = "13";
 export const TS_BUCKET_MS = 5 * 60 * 1000;
-const PART_A_HEX = "78ebe40583e4f360cd9f56926b775a780054367c826123dcd0577a231eee4e73";
+const PART_A_HEX = "f5dc46e6f42968c5ed0eab602d6ae8f2107991006f02876947e64fcb75d53da6";
 const SECRET_PREFIX = "Xot36i3lK3";
 
 // key = partA XOR partB (both 32 bytes), imported for AES-GCM.
