@@ -64,17 +64,6 @@ function getRetryDelayMs(headers: Record<string, string> | undefined): number {
   return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : RATE_LIMIT_FALLBACK_MS;
 }
 
-// Lower-cased `error` string from a page-API JSON error body ({"error": "..."}),
-// used to tell the two 429 kinds apart. "" when the body isn't parseable.
-function parseErrorMessage(data: ArrayBuffer): string {
-  try {
-    const dto = JSON.parse(Application.arrayBufferToUTF8String(data)) as { error?: string };
-    return (dto.error ?? "").toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
 export class OniSagaInterceptor extends PaperbackInterceptor {
   // Per-chapter reader sessions (chapterId -> token + reader-page referer) set
   // by getChapterDetails; the page API wants both, like the site's own reader.
@@ -257,22 +246,19 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       }
     }
 
-    // The page API returns two different 429s, told apart by the error body:
-    //   "Session page limit exceeded" — a per-session page quota (retry-after ~30,
-    //       ratelimit-remaining untouched). Rotating the token keeps the same
-    //       session key, so only a fresh session resets it → re-mint and retry.
-    //   "Rate limit exceeded" — request-frequency penalty (retry-after ~60,
-    //       ratelimit-remaining decrementing). A fresh session does NOT help and
-    //       just burns a request, so park the whole pipeline for the Retry-After
-    //       window and hold the safe floor instead. Anything unrecognized is
-    //       treated as the rate case (the safer default). The tiny JSON error
-    //       body would otherwise render as a broken page.
+    // Both page-API 429s — the per-session page quota ("Session page limit
+    // exceeded") and the frequency penalty ("Rate limit exceeded") — are keyed
+    // on the reader session key, so minting a fresh session (a reader-page reload
+    // → new key) clears either one and the retry succeeds in the few seconds that
+    // reload takes, rather than a 60s cooldown stall. Try that first on the
+    // initial hit; only if the *fresh* session still 429s (the limiter wasn't
+    // session-bound after all) do we park the pipeline for the Retry-After window
+    // and hold the safe floor. The tiny JSON error body would otherwise render as
+    // a broken page.
     if (PAGE_API_REGEX.test(request.url) && response.status === 429) {
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
       if (attempt < PAGE_RETRY_LIMIT) {
-        const isPageLimit = parseErrorMessage(data).includes("page limit");
-        const refreshed =
-          isPageLimit && session && cid && attempt === 0 ? await this.refreshSession(cid) : false;
+        const refreshed = session && cid && attempt === 0 ? await this.refreshSession(cid) : false;
         if (!refreshed) {
           const backoffMs = Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS);
           const now = Date.now();
