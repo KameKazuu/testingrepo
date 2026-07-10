@@ -387,11 +387,12 @@ export class AllMangaExtension implements ExtensionImpl<typeof AllMangaConfig> {
     const mangaId = chapter.sourceManga.mangaId;
     const quality = getImageQuality();
 
-    // Sign and query the API directly; fall back to the WebView reader if that
-    // path is unavailable.
-    let data = await pageListViaApi(mangaId, chapter.chapterId, "sub");
+    // Load pages through the WebView reader, which uses the site's own signing
+    // and so survives build rotations; fall back to the signed API request if
+    // the reader is unavailable.
+    let data = await pageListViaWebView(mangaId, chapter.chapterId, this.cookieStorageInterceptor);
     if (!data?.chapterPages?.edges?.length) {
-      data = await pageListViaWebView(mangaId, chapter.chapterId, this.cookieStorageInterceptor);
+      data = await pageListViaApi(mangaId, chapter.chapterId, "sub");
     }
     const pages = data ? parsePageUrls(data, quality) : [];
 
