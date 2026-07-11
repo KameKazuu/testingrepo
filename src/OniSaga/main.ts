@@ -91,10 +91,16 @@ const BROWSE_PAGE_SIZE = 24;
 
 // A freshly-opened chapter onisaga hasn't imported yet serves a
 // `manga.chapter-page-loader` page (no reader token) that polls every 3s until
-// the import finishes. Mirror that poll: re-fetch the reader page up to this
-// many times, spaced this far apart, until the real reader with its token loads.
-const IMPORT_POLL_SECONDS = 3;
-const READER_MAX_ATTEMPTS = 12;
+// the import finishes. Mirror that poll: re-fetch the reader page until the real
+// reader with its token loads — quickly at first so a fast import opens
+// snappily, then more slowly, since a long chapter's first import can take well
+// over a minute (a 36s budget was observed timing out on real chapters).
+// Worst case ≈ 6×3s + 11×6s ≈ 84s of waiting before giving up with a clear
+// "come back shortly" error; the import keeps running server-side regardless.
+const IMPORT_POLL_FAST_SECONDS = 3;
+const IMPORT_POLL_SLOW_SECONDS = 6;
+const IMPORT_POLL_FAST_COUNT = 6;
+const READER_MAX_ATTEMPTS = 18;
 
 // Carousel style per rail; toggle rails render as chip rows.
 function discoverSectionType(id: string): DiscoverSectionType {
@@ -736,7 +742,9 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
       token = extractReaderToken(body);
       if (token) break;
       if (body.includes("manga.chapter-page-loader")) {
-        await Application.sleep(IMPORT_POLL_SECONDS);
+        await Application.sleep(
+          attempt < IMPORT_POLL_FAST_COUNT ? IMPORT_POLL_FAST_SECONDS : IMPORT_POLL_SLOW_SECONDS,
+        );
         continue;
       }
       if (attempt >= 1) break; // transient miss: one quick retry, then give up
@@ -744,7 +752,7 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     if (!token) {
       throw new Error(
         body.includes("manga.chapter-page-loader")
-          ? "Chapter is still importing on onisaga; try again in a moment"
+          ? "onisaga is importing this chapter for the first time and it's taking a while — the import keeps running, so reopen the chapter in a minute"
           : "Could not find reader token on chapter page",
       );
     }
