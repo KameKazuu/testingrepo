@@ -16,36 +16,16 @@ import { getPageDelaySeconds } from "./utils/helpers";
 // e.g. https://onisaga.com/api/chapter/3718181/page/0 -> ["3718181", "0"].
 const PAGE_API_REGEX = /\/api\/chapter\/([^/]+)\/page\/(\d+)/;
 
-// Bounds re-entrant page retries (the retry re-runs both interceptors).
+// Bounds re-entrant page retries (the retry re-runs both interceptors); matches
+// keiyoushi's `attempt < 3` retry cap.
 const PAGE_RETRY_HEADER = "x-pb-page-retry";
 const PAGE_RETRY_LIMIT = 3;
-// Backoff when a request 429s without a Retry-After.
-const RATE_LIMIT_FALLBACK_MS = 2500;
-// Ceiling on how long any 429 can park a retry — the reader's final escalated
-// attempt and the browse/search retry both honor Retry-After up to this — so a
-// pathological Retry-After can't freeze the pipeline indefinitely.
+// Fallback wait when a 429 carries no Retry-After — the even-spacing delay, like
+// keiyoushi's `rateLimitDelay` fallback.
+const RATE_LIMIT_FALLBACK_MS = 2000;
+// Ceiling so a pathological Retry-After can't freeze the pipeline indefinitely;
+// onisaga's real penalty is ~60s.
 const MAX_COOLDOWN_MS = 90_000;
-
-// Cap on the wait before an EARLY page-API 429 retry. The site's own reader
-// ignores the advertised ~60s Retry-After and retries after at most ~6s (its
-// resolvePageUrl waits Math.min(6000, …)): the frequency window usually refills
-// in a few seconds, so a short wait clears it — and a fresh token would not.
-// Only the final retry escalates to the full Retry-After, for a window that's
-// genuinely saturated. Matching this turns the common 60s reader stall into ~6s.
-const RATE_LIMIT_MAX_WAIT_MS = 6000;
-
-// After a 429, hold at least this spacing (the proven-safe rate) until the
-// strike decays, so an aggressive Image Requests Limit setting can't keep
-// re-tripping the penalty. Self-tuning, adapted from the mangabox/kakarot
-// adaptive-pacing pattern to onisaga's fixed-penalty model.
-const STRIKE_FLOOR_SECONDS = 2;
-const STRIKE_DECAY_MS = 120_000;
-
-// Proactively re-home the reader session after this many pages. The "Session
-// page limit" 429 was observed at ~page 84, so refreshing well before it (like
-// MangaDex refreshes its token before `exp`) keeps a long chapter from hitting
-// the wall at all. Normal-length chapters never reach it, so they pay nothing.
-const SESSION_PAGE_BUDGET = 50;
 
 // A signed CDN URL is valid ~10 min; reuse a cached one for up to 9 (matching
 // the site reader's _cdnUrls window) so scroll-back and re-opens spend no
@@ -55,13 +35,11 @@ const SIGNED_URL_TTL_MS = 9 * 60 * 1000;
 // without bound; the oldest entry is evicted first (Map keeps insertion order).
 const SIGNED_URL_CACHE_MAX = 512;
 
-// Shared page-API cooldown/strike state. On a frequency 429 the whole pipeline
-// parks until `until` (a short ~6s window at first, escalating to the full
-// Retry-After only if the quick retries keep failing) so the queued prefetch
-// can't hammer the limiter open and hold it saturated; `strikeUntil` then holds
-// a raised pacing floor for a while so a heavy binge doesn't immediately
-// re-trip it right after recovering. Epoch ms.
-const pageCooldown = { until: 0, strikeUntil: 0 };
+// Shared page-API cooldown. On a 429 the whole pipeline parks until `until` (the
+// honored Retry-After) so the retry and every queued prefetch page wait the
+// penalty out together instead of hammering the still-saturated window — the
+// effect keiyoushi gets for free by sleeping inside its one synchronized lock.
+const pageCooldown = { until: 0 };
 
 // Response headers can arrive in any casing; read them case-insensitively.
 function getHeaderValue(
@@ -84,14 +62,11 @@ function getRetryDelayMs(headers: Record<string, string> | undefined): number {
 export class OniSagaInterceptor extends PaperbackInterceptor {
   // Per-chapter reader sessions (chapterId -> token + reader-page referer) set
   // by getChapterDetails; the page API wants both, like the site's own reader.
-  // `pagesServed` counts pages resolved on the current session key, so we can
-  // re-home it before the server's per-session page quota trips.
   private readerSessions = new Map<
     string,
     {
       token: string;
       referer: string;
-      pagesServed: number;
       refreshedAt?: number;
       refreshOk?: boolean;
     }
@@ -113,7 +88,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
   private signedUrls = new Map<string, { url: string; at: number }>();
 
   setReaderToken(chapterId: string, token: string, referer: string): void {
-    this.readerSessions.set(chapterId, { token, referer, pagesServed: 0 });
+    this.readerSessions.set(chapterId, { token, referer });
   }
 
   // Run at most one token refresh (light or full) per chapter per window: a
@@ -172,18 +147,15 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       session.refreshOk = Boolean(dto.token);
       if (!dto.token) return false;
       session.token = dto.token;
-      // Do NOT reset pagesServed here: /reader-token rotates the token within the
-      // SAME server session (its page budget already spent), unlike refreshSession
-      // below. Resetting would delay the proactive re-home by another budget and
-      // let a long chapter blow past the server's per-session page cap.
       return true;
     });
   }
 
-  // Full session re-home by reloading the reader page. A fresh reader-page load
-  // mints a token with a fresh session key (and page budget), which the light
-  // token endpoint doesn't — so this is what proactively carries a long chapter
-  // past the "Session page limit" quota.
+  // Full session re-home by reloading the reader page — a fresh load mints a
+  // token with a fresh session key, which the light token endpoint doesn't. Used
+  // as the last-resort recovery for a persistent 429 (like keiyoushi reloading
+  // the chapter page on a failed page request), which clears a "Session page
+  // limit" quota that simply waiting cannot.
   private refreshSession(cid: string): Promise<boolean> {
     return this.coalesceRefresh(cid, async () => {
       const session = this.readerSessions.get(cid);
@@ -194,7 +166,6 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       session.refreshOk = Boolean(token);
       if (!token) return false;
       session.token = token;
-      session.pagesServed = 0;
       return true;
     });
   }
@@ -331,48 +302,23 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
       }
     }
 
-    // Two different page-API 429s share this status, and they need opposite
-    // recovery. The per-session page quota ("Session page limit exceeded") is
-    // keyed to the reader session, so only a full re-home (a new session key via
-    // refreshSession) clears it — waiting can't, and after the retry limit the
-    // JSON error would render as a broken image. This is the backstop for when
-    // the proactive re-home didn't fire in time (e.g. the local counter
-    // undercounted). The frequency limiter ("Rate limit exceeded") is the
-    // opposite: a rolling window a fresh session does NOT clear — only time does,
-    // and the site's own reader never re-mints on it. So the early strikes park
-    // the shared cooldown for a short, jittered slice (~6s, like the site's
-    // resolvePageUrl cap) and retry; if those keep failing the window is genuinely
-    // saturated, so the final attempt honors the full Retry-After — a longer wait,
-    // but the page then loads instead of breaking. Parking the whole pipeline
-    // (via pageCooldown.until, not a per-request sleep) stops the queued prefetch
-    // from hammering the window open; the raised floor (strikeUntil) then avoids
-    // an immediate re-trip.
+    // Page-API 429 recovery, mirroring keiyoushi's strictApiInterceptor: honor
+    // the full Retry-After and retry (up to the retry cap). onisaga's frequency
+    // penalty is the advertised ~60s and a fresh token does NOT clear it — only
+    // the wait does, so we don't re-mint. Parking the whole pipeline (via
+    // pageCooldown.until) makes the retry and every queued prefetch page wait the
+    // penalty out together, the effect keiyoushi gets from its one lock. On the
+    // final attempt we also re-home the session (a fresh reader-page load), the
+    // way keiyoushi reloads the chapter page on a persistent failure — a "Session
+    // page limit" quota is a 429 that waiting can't clear, only a new key can.
     if (PAGE_API_REGEX.test(request.url) && response.status === 429) {
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
       if (attempt < PAGE_RETRY_LIMIT) {
-        // The per-session page-cap 429 only clears with a fresh session key.
-        if (
-          session &&
-          cid &&
-          /session|page limit/i.test(Application.arrayBufferToUTF8String(data)) &&
-          (await this.refreshSession(cid))
-        ) {
-          const [, buffer] = await Application.scheduleRequest({
-            url: request.url,
-            method: "GET",
-            headers: { ...request.headers, [PAGE_RETRY_HEADER]: String(attempt + 1) },
-          });
-          return buffer;
+        const waitMs = Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS);
+        pageCooldown.until = Math.max(pageCooldown.until, Date.now() + waitMs);
+        if (session && cid && attempt === PAGE_RETRY_LIMIT - 1) {
+          await this.refreshSession(cid);
         }
-        const jitterMs = Date.now() % 500;
-        const retryAfterMs = getRetryDelayMs(response.headers) + jitterMs;
-        const waitMs =
-          attempt >= PAGE_RETRY_LIMIT - 1
-            ? Math.min(retryAfterMs, MAX_COOLDOWN_MS)
-            : Math.min(RATE_LIMIT_MAX_WAIT_MS, retryAfterMs);
-        const now = Date.now();
-        pageCooldown.until = Math.max(pageCooldown.until, now + waitMs);
-        pageCooldown.strikeUntil = now + STRIKE_DECAY_MS;
         const [, buffer] = await Application.scheduleRequest({
           url: request.url,
           method: "GET",
@@ -398,24 +344,6 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
               const oldest = this.signedUrls.keys().next().value;
               if (oldest !== undefined) this.signedUrls.delete(oldest);
             }
-          }
-          // Count this page against the session's budget and re-home it a few
-          // pages early, so a long chapter never reaches the "Session page
-          // limit" 429. The refresh is de-duped and fire-and-forget: the
-          // current token is still valid, so it keeps serving until the fresh
-          // one is ready. Reset first so it triggers once, not every page after.
-          // Skip it while a rate-limit strike is active — the reader page is an
-          // extra request the frequency limiter would count against us.
-          if (
-            session &&
-            cid &&
-            ++session.pagesServed >= SESSION_PAGE_BUDGET &&
-            Date.now() >= pageCooldown.strikeUntil
-          ) {
-            session.pagesServed = 0;
-            // Swallow rejections here: this refresh is opportunistic, and a
-            // Cloudflare challenge will surface on the next real page request.
-            void this.refreshSession(cid).catch(() => undefined);
           }
           const [, imageBuffer] = await Application.scheduleRequest({
             url: dto.url,
@@ -471,11 +399,11 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 // (Webtoon-style per-endpoint scoping); everything else passes through untouched.
 //
 // The floor is a rolling window across the session (not per-chapter): sustained
-// faster than ~1 req/s trips the 60s penalty, and a brief two-at-once spike trips
-// it too. ~1.1s (~55/min) with strict even spacing keeps a margin under it. The
-// user's Image Requests Limit can only make it slower; it can't undercut this and
-// re-trip the limiter.
-const SUSTAINED_FLOOR_SECONDS = 1.1;
+// faster trips the 60s penalty, and a brief two-at-once spike trips it too. 2s
+// (~30/min) is keiyoushi's proven default (its PREF_RATE_LIMIT_KEY) — a wide
+// margin that trades a little opener speed for far fewer stalls. The user's Image
+// Requests Limit can only make it slower; it can't undercut this and re-trip it.
+const SUSTAINED_FLOOR_SECONDS = 2;
 
 export class OniSagaPageRateLimiter extends PaperbackInterceptor {
   private chain: Promise<unknown> = Promise.resolve();
@@ -510,14 +438,11 @@ export class OniSagaPageRateLimiter extends PaperbackInterceptor {
     if (cooldownMs > 0) await Application.sleep(cooldownMs / 1000);
 
     // Even spacing since the previous page request — never a burst, never two
-    // concurrent, which is exactly what trips onisaga's burst-sensitive limiter.
-    // Floored to the sustainable rate, raised further while a strike is cooling.
-    // The very first page fires immediately (lastRequestAt is 0, nothing precedes
-    // it); every one after is one-at-a-time at the floor.
-    let intervalSeconds = Math.max(getPageDelaySeconds(), SUSTAINED_FLOOR_SECONDS);
-    if (Date.now() < pageCooldown.strikeUntil) {
-      intervalSeconds = Math.max(intervalSeconds, STRIKE_FLOOR_SECONDS);
-    }
+    // concurrent, which is exactly what trips onisaga's burst-sensitive limiter
+    // (keiyoushi serializes on one lock for the same reason). Floored to the
+    // sustainable ~2s rate. The very first page fires immediately (lastRequestAt
+    // is 0, nothing precedes it); every one after is one-at-a-time at the floor.
+    const intervalSeconds = Math.max(getPageDelaySeconds(), SUSTAINED_FLOOR_SECONDS);
 
     const waitMs = this.lastRequestAt + intervalSeconds * 1000 - Date.now();
     if (waitMs > 0) await Application.sleep(waitMs / 1000);
