@@ -23,6 +23,18 @@
       "version": "1.0.0-alpha.1",
       "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/Mangago",
       "repository": "https://github.com/PoppingMango/PoppingMango-Source"
+    },
+    {
+      "id": "ScansGG",
+      "name": "Scans.GG",
+      "description": "Extension that pulls content from scans.gg.",
+      "website": "https://scans.gg",
+      "author": "PoppingMango",
+      "contentRating": "MATURE",
+      "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/ScansGG/static/icon.png",
+      "version": "1.0.0-alpha.1",
+      "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/ScansGG",
+      "repository": "https://github.com/PoppingMango/PoppingMango-Source"
     }
   ]
 }
