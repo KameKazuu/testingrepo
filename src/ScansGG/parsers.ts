@@ -18,6 +18,7 @@ import {
   mapStatus,
   MATURE_TAG_IDS,
   TAGS_MAP,
+  TYPE_NAMES,
   type ChapterDto,
   type PageListDto,
   type SeriesDto,
@@ -67,16 +68,30 @@ function stripHtml(html?: string | null): string {
   );
 }
 
-// Push a title's rating up when its tags call for it. Adult tags win over
-// suggestive ones; everything else stays EVERYONE.
-export function deriveContentRating(tags?: number[] | null): ContentRating {
-  if (tags?.some((id) => ADULT_TAG_IDS.has(id))) return ContentRating.ADULT;
-  if (tags?.some((id) => MATURE_TAG_IDS.has(id))) return ContentRating.MATURE;
+// Rate a title from the site's own `content_rating` tier combined with its
+// tags, keeping whichever is stricter. Tier 3 is mature, 4+ is adult; tiers
+// 1–2 defer to the tag-derived rating.
+export function deriveContentRating(
+  series: Pick<SeriesDto, "tags" | "content_rating">,
+): ContentRating {
+  const tier = series.content_rating ?? 0;
+  const tags = series.tags;
+  if (tier >= 4 || tags?.some((id) => ADULT_TAG_IDS.has(id))) return ContentRating.ADULT;
+  if (tier === 3 || tags?.some((id) => MATURE_TAG_IDS.has(id))) return ContentRating.MATURE;
   return ContentRating.EVERYONE;
 }
 
 function tagNames(tags?: number[] | null): string[] {
   return (tags ?? []).map((id) => TAGS_MAP[id]).filter((name): name is string => Boolean(name));
+}
+
+// Prefer the series type (Manga/Manhwa/…) as the card subtitle; fall back to
+// the publication status when the type is missing.
+function cardSubtitle(series: SeriesDto): string | undefined {
+  const type = series.type != null ? TYPE_NAMES[series.type] : undefined;
+  if (type) return type;
+  const status = mapStatus(series.status);
+  return status !== "Unknown" ? status : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,8 +103,8 @@ export function toSearchResultItem(series: SeriesDto): SearchResultItem {
     mangaId: String(series.id),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
-    subtitle: mapStatus(series.status) !== "Unknown" ? mapStatus(series.status) : undefined,
-    contentRating: deriveContentRating(series.tags),
+    subtitle: cardSubtitle(series),
+    contentRating: deriveContentRating(series),
   };
 }
 
@@ -99,8 +114,8 @@ export function toFeaturedItem(series: SeriesDto): DiscoverSectionItem {
     mangaId: String(series.id),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
-    supertitle: tagNames(series.tags).slice(0, 3).join(" • ") || undefined,
-    contentRating: deriveContentRating(series.tags),
+    supertitle: tagNames(series.tags).slice(0, 3).join(" • ") || cardSubtitle(series),
+    contentRating: deriveContentRating(series),
   };
 }
 
@@ -110,8 +125,8 @@ export function toSimpleItem(series: SeriesDto): DiscoverSectionItem {
     mangaId: String(series.id),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
-    subtitle: mapStatus(series.status) !== "Unknown" ? mapStatus(series.status) : undefined,
-    contentRating: deriveContentRating(series.tags),
+    subtitle: cardSubtitle(series),
+    contentRating: deriveContentRating(series),
   };
 }
 
@@ -128,7 +143,7 @@ export function toLatestItem(series: SeriesDto): DiscoverSectionItem {
     imageUrl: buildCoverUrl(series.cover),
     subtitle: latest.number != null ? `Chapter ${formatChapterNumber(latest.number)}` : undefined,
     publishDate: parseDate(latest.created_at),
-    contentRating: deriveContentRating(series.tags),
+    contentRating: deriveContentRating(series),
   };
 }
 
@@ -137,11 +152,26 @@ export function toLatestItem(series: SeriesDto): DiscoverSectionItem {
 // ---------------------------------------------------------------------------
 
 export function parseMangaDetails(series: SeriesDto): SourceManga {
-  const names = tagNames(series.tags);
-  const tags: Tag[] = names.map((name) => ({
+  // Merge the type name, numeric tags and free-text themes into one tag set.
+  const typeName = series.type != null ? TYPE_NAMES[series.type] : undefined;
+  const names = [
+    ...(typeName ? [typeName] : []),
+    ...tagNames(series.tags),
+    ...(series.themes ?? []).map((theme) => theme.trim()).filter((theme) => theme.length > 0),
+  ];
+  const uniqueNames = [...new Set(names)];
+  const tags: Tag[] = uniqueNames.map((name) => ({
     id: name.toLowerCase().replace(/\s+/g, "-"),
     title: name,
   }));
+
+  const secondaryTitles = [
+    ...new Set(
+      (series.alternative_titles ?? [])
+        .map((alt) => (alt.title ?? "").trim())
+        .filter((title) => title.length > 0),
+    ),
+  ];
 
   const author = (series.author ?? []).filter(Boolean).join(", ");
   const artist = (series.artist ?? []).filter(Boolean).join(", ");
@@ -150,13 +180,13 @@ export function parseMangaDetails(series: SeriesDto): SourceManga {
     mangaId: String(series.id),
     mangaInfo: {
       primaryTitle: Application.decodeHTMLEntities(series.title),
-      secondaryTitles: [],
+      secondaryTitles,
       thumbnailUrl: buildCoverUrl(series.cover),
       synopsis: stripHtml(series.summary),
       author: author.length > 0 ? author : undefined,
       artist: artist.length > 0 ? artist : undefined,
       status: mapStatus(series.status),
-      contentRating: deriveContentRating(series.tags),
+      contentRating: deriveContentRating(series),
       tagGroups: tags.length > 0 ? [{ id: "tags", title: "Tags", tags }] : [],
       shareUrl: `${getDomain()}/series/${series.id}`,
     },

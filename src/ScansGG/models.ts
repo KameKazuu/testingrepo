@@ -44,14 +44,27 @@ export interface SeriesDto {
   id: number;
   title: string;
   summary?: string | null;
+  /** CDN cover filename; can be an empty string when no cover is set. */
   cover?: string | null;
   author?: string[] | null;
   artist?: string[] | null;
   /** Numeric tag ids; resolved to names through `TAGS_MAP`. */
   tags?: number[] | null;
   status?: number | null;
+  /** Numeric type id; resolved through `TYPE_NAMES`. */
+  type?: number | null;
+  /** Site's own rating tier: 1 safe, 2 suggestive, 3 mature, 4+ adult. */
+  content_rating?: number | null;
+  alternative_titles?: AlternativeTitleDto[] | null;
+  /** Free-text theme names (in addition to the numeric `tags`). */
+  themes?: string[] | null;
   /** Only present on the `series_details=true` latest feed. */
   chapters?: LatestChapterDto[] | null;
+}
+
+export interface AlternativeTitleDto {
+  language?: string | null;
+  title?: string | null;
 }
 
 /** Slim chapter attached to a series on the latest feed. */
@@ -117,6 +130,15 @@ export interface OptionItem {
 // ---------------------------------------------------------------------------
 // Filter option sets (ids are the values the API expects)
 // ---------------------------------------------------------------------------
+
+/** Numeric type id → display name (matches the search filter ids). */
+export const TYPE_NAMES: Record<number, string> = {
+  1: "Comic",
+  2: "Manga",
+  3: "Manhwa",
+  4: "Manhua",
+  5: "Webtoon",
+};
 
 export const TYPE_OPTIONS: OptionItem[] = [
   { id: "1", value: "Comic" },
