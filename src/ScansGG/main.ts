@@ -23,7 +23,7 @@ import {
 } from "@paperback/types";
 
 import { ScansGGAdvancedSearchForm } from "./forms/search";
-import { ScansGGSettingsForm } from "./forms/settings";
+import { getDomain, ScansGGSettingsForm } from "./forms/settings";
 import {
   CHAPTER_PAGE_SIZE,
   LATEST_PAGE_SIZE,
@@ -45,6 +45,7 @@ import {
   toSearchResultItem,
 } from "./parsers";
 import type ScansGGConfig from "./pbconfig";
+import { pageListViaWebView } from "./utils/webView";
 
 const SECTION_POPULAR = "popular";
 const SECTION_LATEST = "latest";
@@ -52,6 +53,12 @@ const SECTION_GENRES = "genres";
 
 // Guards the chapter-pagination loop against a misbehaving `has_more` flag.
 const MAX_CHAPTER_PAGES = 200;
+
+// Paperback rejects an empty image URL and fails the whole carousel, so drop
+// any card that ended up without a cover rather than break the section.
+function hasImage(item: DiscoverSectionItem): boolean {
+  return "imageUrl" in item && item.imageUrl.length > 0;
+}
 
 export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
@@ -128,7 +135,7 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
         group_details: true,
         sort: "date",
       });
-      const items = (response.data ?? []).map(toLatestItem);
+      const items = (response.data ?? []).map(toLatestItem).filter(hasImage);
       return { items, metadata: response.meta?.has_more ? { page: page + 1 } : undefined };
     }
 
@@ -137,7 +144,7 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
       limit: SERIES_PAGE_SIZE,
       offset: (page - 1) * SERIES_PAGE_SIZE,
     });
-    const items = (response.data ?? []).map(toFeaturedItem);
+    const items = (response.data ?? []).map(toFeaturedItem).filter(hasImage);
     const hasNext = (response.data ?? []).length === SERIES_PAGE_SIZE;
     return { items, metadata: hasNext ? { page: page + 1 } : undefined };
   }
@@ -172,7 +179,9 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
       q_tags: meta?.tags ?? [],
     });
 
-    const items = (response.data ?? []).map(toSearchResultItem);
+    const items = (response.data ?? [])
+      .map(toSearchResultItem)
+      .filter((item) => item.imageUrl.length > 0);
     const hasNext = (response.data ?? []).length === SERIES_PAGE_SIZE;
     return { items, metadata: hasNext ? { page: page + 1 } : undefined };
   }
@@ -248,6 +257,16 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
     const seriesId = chapter.additionalInfo?.seriesId ?? chapter.sourceManga.mangaId;
     const groupId = chapter.additionalInfo?.groupId ?? "0";
 
+    // Primary: scrape the reader page in a WebView. The reader lays out the
+    // pages client-side and the site handles its own signing/Cloudflare, so
+    // this is far more reliable than the `/chapter-navigation` API endpoint.
+    const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}`;
+    const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
+    if (pages.length > 0) {
+      return { id: chapter.chapterId, mangaId: chapter.sourceManga.mangaId, pages };
+    }
+
+    // Fallback: the JSON page endpoint, in case the reader markup changes.
     const response = await fetchApi<PageListDto>("chapter-navigation", {
       series_id: seriesId,
       chapter_id: chapter.chapterId,
