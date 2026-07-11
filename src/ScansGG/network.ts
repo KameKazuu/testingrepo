@@ -17,24 +17,31 @@ const IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|gif|avif|bmp|svg)(\?|#|$)/i;
 export class ScansGGInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
     const domain = getDomain();
-    // Image CDN requests want a browser-like image `accept`; API/JSON requests
-    // want the JSON one. Sending the wrong accept for the target is an
-    // anomalous, bot-like signal that can needlessly trip Cloudflare.
-    const accept = IMAGE_EXTENSION_REGEX.test(request.url)
-      ? "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8"
-      : "application/json, text/plain, */*";
+    const isApi = request.url.startsWith(getApiUrl());
+    const isImage = IMAGE_EXTENSION_REGEX.test(request.url);
 
-    return {
-      ...request,
-      headers: {
-        ...request.headers,
-        origin: domain,
-        referer: `${domain}/`,
-        "user-agent": await Application.getDefaultUserAgent(),
-        accept,
-        "accept-language": "en-US,en;q=0.5",
-      },
+    // Match what a real browser sends for each request class: XHR-style JSON
+    // headers for the API, a navigation accept for site documents, and an
+    // image accept for CDN images. A mismatched accept — or an Origin header
+    // on a plain document GET, which browsers never send — reads as bot
+    // traffic and gets the connection held open until it drops.
+    const accept = isApi
+      ? "application/json, text/plain, */*"
+      : isImage
+        ? "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8"
+        : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
+
+    const headers: Record<string, string> = {
+      ...request.headers,
+      referer: `${domain}/`,
+      "user-agent": await Application.getDefaultUserAgent(),
+      accept,
+      "accept-language": "en-US,en;q=0.5",
     };
+    // Browsers only attach Origin to cross-origin requests (the API).
+    if (isApi) headers.origin = domain;
+
+    return { ...request, headers };
   }
 
   override async interceptResponse(

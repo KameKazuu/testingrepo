@@ -260,10 +260,14 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
     // Primary: scrape the reader page in a WebView. The reader lays out the
     // pages client-side and the site handles its own signing/Cloudflare, so
     // this is far more reliable than the `/chapter-navigation` API endpoint.
-    const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}`;
-    const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
-    if (pages.length > 0) {
-      return { id: chapter.chapterId, mangaId: chapter.sourceManga.mangaId, pages };
+    try {
+      const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}`;
+      const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
+      if (pages.length > 0) {
+        return { id: chapter.chapterId, mangaId: chapter.sourceManga.mangaId, pages };
+      }
+    } catch {
+      // Fall through to the API endpoint below.
     }
 
     // Fallback: the JSON page endpoint, in case the reader markup changes.
