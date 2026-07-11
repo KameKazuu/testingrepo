@@ -289,35 +289,53 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
     // Reader tokens expire after ~10 minutes, and the app requests pages long
     // after the chapter was opened. On an auth failure, refresh the token via the
     // site's dedicated endpoint and retry; the retry re-enters this interceptor
-    // with the new token, bounded by a retry-count header.
-    if (session && cid && (response.status === 403 || response.status === 401)) {
+    // with the new token, bounded by a retry-count header. If the session map is
+    // empty for this chapter (app relaunch with a queued download still holding
+    // page-API urls), seed a bare session so the token endpoint can re-authorize
+    // without the slug-based reader-page url; drop the seed if it can't, so an
+    // empty token is never sent on later requests.
+    if (cid && (response.status === 403 || response.status === 401)) {
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
-      if (attempt < PAGE_RETRY_LIMIT && (await this.refreshReaderToken(cid))) {
-        const [, buffer] = await Application.scheduleRequest({
-          url: request.url,
-          method: "GET",
-          headers: { ...request.headers, [PAGE_RETRY_HEADER]: String(attempt + 1) },
-        });
-        return buffer;
+      if (attempt < PAGE_RETRY_LIMIT) {
+        const seeded = !this.readerSessions.has(cid);
+        if (seeded) this.readerSessions.set(cid, { token: "", referer: `${DOMAIN}/` });
+        const refreshed = await this.refreshReaderToken(cid);
+        if (!refreshed && seeded) this.readerSessions.delete(cid);
+        if (refreshed) {
+          const [, buffer] = await Application.scheduleRequest({
+            url: request.url,
+            method: "GET",
+            headers: { ...request.headers, [PAGE_RETRY_HEADER]: String(attempt + 1) },
+          });
+          return buffer;
+        }
       }
     }
 
     // Page-API 429 recovery, mirroring keiyoushi's strictApiInterceptor: honor
     // the full Retry-After and retry (up to the retry cap). onisaga's frequency
     // penalty is the advertised ~60s and a fresh token does NOT clear it — only
-    // the wait does, so we don't re-mint. Parking the whole pipeline (via
+    // the wait does, so we don't re-mint for it. Parking the whole pipeline (via
     // pageCooldown.until) makes the retry and every queued prefetch page wait the
     // penalty out together, the effect keiyoushi gets from its one lock. On the
     // final attempt we also re-home the session (a fresh reader-page load), the
-    // way keiyoushi reloads the chapter page on a persistent failure — a "Session
-    // page limit" quota is a 429 that waiting can't clear, only a new key can.
+    // way keiyoushi reloads the chapter page on a persistent failure. The one
+    // 429 that waiting can NEVER clear is the per-session "Session page limit"
+    // quota — detect it from the body and re-home immediately instead of burning
+    // a pointless 60s park on it. After the retry budget, throw a clear error:
+    // the JSON error body would otherwise render as a corrupt image.
     if (PAGE_API_REGEX.test(request.url) && response.status === 429) {
       const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
       if (attempt < PAGE_RETRY_LIMIT) {
-        const waitMs = Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS);
-        pageCooldown.until = Math.max(pageCooldown.until, Date.now() + waitMs);
-        if (session && cid && attempt === PAGE_RETRY_LIMIT - 1) {
+        const sessionCapped = /session page limit/i.test(Application.arrayBufferToUTF8String(data));
+        if (sessionCapped && session && cid) {
           await this.refreshSession(cid);
+        } else {
+          const waitMs = Math.min(getRetryDelayMs(response.headers), MAX_COOLDOWN_MS);
+          pageCooldown.until = Math.max(pageCooldown.until, Date.now() + waitMs);
+          if (session && cid && attempt === PAGE_RETRY_LIMIT - 1) {
+            await this.refreshSession(cid);
+          }
         }
         const [, buffer] = await Application.scheduleRequest({
           url: request.url,
@@ -326,11 +344,16 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
         });
         return buffer;
       }
+      throw new Error("onisaga is rate limiting page requests; wait a minute and retry");
     }
 
     // Lazy page resolution: a page-API url returns JSON pointing at the real
     // signed image; fetch that and return its bytes. The image path (/_img/...)
-    // differs, so this sub-request doesn't re-enter this branch.
+    // differs, so this sub-request doesn't re-enter this branch. An unrecoverable
+    // JSON error payload is surfaced as a thrown error AFTER the try/catch (the
+    // catch would swallow it), so the reader shows a retryable failure instead of
+    // rendering the JSON bytes as a corrupt image.
+    let pageError: string | undefined;
     if (PAGE_API_REGEX.test(request.url) && response.status === 200) {
       try {
         const dto = JSON.parse(Application.arrayBufferToUTF8String(data)) as PageApiResponse;
@@ -362,7 +385,8 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
         }
         // A 200 with no url is a JSON error payload (e.g. an expired token
         // reported with a `message`), which would otherwise render as broken
-        // image bytes. Refresh the token and retry, like the 401/403 path.
+        // image bytes. Refresh the token and retry, like the 401/403 path; if
+        // the refresh can't recover it, surface the API's message.
         if (session && cid && dto.message) {
           const attempt = Number(request.headers?.[PAGE_RETRY_HEADER] ?? "0");
           if (attempt < PAGE_RETRY_LIMIT && (await this.refreshReaderToken(cid))) {
@@ -373,6 +397,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
             });
             return buffer;
           }
+          pageError = `onisaga page error: ${dto.message}`;
         }
       } catch (error) {
         // A Cloudflare challenge on the signed-image fetch must reach the app so
@@ -382,6 +407,7 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
         // reader shows a broken page rather than hanging the whole chapter.
       }
     }
+    if (pageError !== undefined) throw new Error(pageError);
 
     return data;
   }
