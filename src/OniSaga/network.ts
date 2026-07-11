@@ -393,17 +393,12 @@ export class OniSagaInterceptor extends PaperbackInterceptor {
 // trip a "Rate limit exceeded" 429 with a 60s Retry-After — even with the
 // advertised per-minute counter barely touched (287/300 remaining, ~13 used). So
 // page requests are strictly serialized and EVEN-spaced — never two at once,
-// never a fast opener burst — at the user's Image Requests Limit, floored to a
-// sustainable rate. The first page still fires immediately (nothing precedes
-// it); everything after is one-at-a-time. Only the page API is paced
+// never a fast opener burst — at the user's Image Requests Limit (2s by default,
+// keiyoushi's pref_rate_limit). The first page still fires immediately (nothing
+// precedes it); everything after is one-at-a-time. Only the page API is paced
 // (Webtoon-style per-endpoint scoping); everything else passes through untouched.
-//
-// The floor is a rolling window across the session (not per-chapter): sustained
-// faster trips the 60s penalty, and a brief two-at-once spike trips it too. 2s
-// (~30/min) is keiyoushi's proven default (its PREF_RATE_LIMIT_KEY) — a wide
-// margin that trades a little opener speed for far fewer stalls. The user's Image
-// Requests Limit can only make it slower; it can't undercut this and re-trip it.
-const SUSTAINED_FLOOR_SECONDS = 2;
+// The delay is honored as chosen (like keiyoushi's interceptor) — lowering it
+// risks re-tripping the burst penalty, hence the settings warning.
 
 export class OniSagaPageRateLimiter extends PaperbackInterceptor {
   private chain: Promise<unknown> = Promise.resolve();
@@ -439,10 +434,10 @@ export class OniSagaPageRateLimiter extends PaperbackInterceptor {
 
     // Even spacing since the previous page request — never a burst, never two
     // concurrent, which is exactly what trips onisaga's burst-sensitive limiter
-    // (keiyoushi serializes on one lock for the same reason). Floored to the
-    // sustainable ~2s rate. The very first page fires immediately (lastRequestAt
-    // is 0, nothing precedes it); every one after is one-at-a-time at the floor.
-    const intervalSeconds = Math.max(getPageDelaySeconds(), SUSTAINED_FLOOR_SECONDS);
+    // (keiyoushi serializes on one lock for the same reason). The very first page
+    // fires immediately (lastRequestAt is 0, nothing precedes it); every one after
+    // is one-at-a-time at the user's chosen delay (2s default).
+    const intervalSeconds = getPageDelaySeconds();
 
     const waitMs = this.lastRequestAt + intervalSeconds * 1000 - Date.now();
     if (waitMs > 0) await Application.sleep(waitMs / 1000);

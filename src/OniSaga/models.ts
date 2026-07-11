@@ -92,18 +92,16 @@ export const MIN_CHAPTERS_OPTIONS: Option[] = [
   { id: "200", title: "200+" },
 ];
 
-// Seconds between reader page requests; faster cadences risk the site's per-IP
-// burst penalty (429). The id doubles as the numeric value. The default (2s)
-// matches keiyoushi's proven rate limit, and network.ts floors the effective
-// rate at 2s regardless, so a chapter shouldn't 429 — if one still does, pick a
-// slower option.
+// Seconds between reader page requests; the id doubles as the numeric value.
+// These are keiyoushi's exact options and 2s default (its pref_rate_limit) —
+// lowering the delay risks the site's per-IP burst penalty (429).
 export const PAGE_DELAY_DEFAULT = "2";
 export const PAGE_DELAY_OPTIONS: Option[] = [
+  { id: "1.5", title: "1 image per 1.50 seconds" },
+  { id: "1.75", title: "1 image per 1.75 seconds" },
   { id: "2", title: "1 image per 2.00 seconds" },
+  { id: "2.25", title: "1 image per 2.25 seconds" },
   { id: "2.5", title: "1 image per 2.50 seconds" },
-  { id: "3", title: "1 image per 3.00 seconds" },
-  { id: "4", title: "1 image per 4.00 seconds" },
-  { id: "5", title: "1 image per 5.00 seconds" },
 ];
 
 // Livewire `sort` field.

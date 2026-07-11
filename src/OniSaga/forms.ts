@@ -271,8 +271,7 @@ export class OniSagaSettingsForm extends Form {
       Section(
         {
           id: "reader",
-          footer:
-            "Spacing between page requests after the initial fast burst. Slower is safer: the site rejects faster cadences with 429 errors.",
+          footer: "Spacing between reader page requests. Lowering this might cause 429 errors.",
         },
         [
           SelectRow("pageDelay", {
