@@ -22,6 +22,7 @@ import {
   type SearchResultItem,
   type SortingOption,
   type SourceManga,
+  type UpdateManager,
 } from "@paperback/types";
 import * as cheerio from "cheerio";
 
@@ -158,6 +159,12 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
   private static readonly BROWSE_STATE_CACHE_MAX = 8;
 
   private static readonly HOME_TTL = 60_000;
+
+  // Library-update scan bounds (see processTitlesForUpdates): pages of the
+  // Latest feed scanned per refresh (~24 titles each), and the maximum age of
+  // the last refresh for which that window is trusted to cover the gap.
+  private static readonly UPDATE_SCAN_MAX_PAGES = 8;
+  private static readonly UPDATE_SCAN_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
   // Cached /home document. It server-renders the Latest, Fan Favorites and Top
   // Rated rails inline, so one fetch serves several rails instead of a separate
@@ -594,6 +601,55 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     return chapters;
   }
 
+  // Bulk library-update check. Without this, a refresh fetches every followed
+  // title individually (a /manga page + a Livewire chapter-list POST each —
+  // hundreds of requests for a large library, against the same site that rate
+  // limits the reader). Instead, scan the first pages of the Latest feed (the
+  // same created_at browse the Latest rail uses, ~24 titles/page): a followed
+  // title that appears there gets checked with high priority, everything else
+  // is skipped this round. Guard rails, since cards carry no timestamps:
+  // - Only trust the scan for a recent refresh gap (<= UPDATE_SCAN_MAX_AGE_MS);
+  //   an older gap falls through to the app's normal per-title refresh.
+  // - The scan ignores the user's NSFW/genre/type filters — a followed title
+  //   must never be skipped because a display filter hid it.
+  // - Any scan failure leaves priorities untouched (never skip on bad data).
+  async processTitlesForUpdates(
+    updateManager: UpdateManager,
+    lastUpdateDate?: Date,
+  ): Promise<void> {
+    if (!lastUpdateDate) return;
+    if (Date.now() - lastUpdateDate.getTime() > OniSagaExtension.UPDATE_SCAN_MAX_AGE_MS) return;
+
+    const queued = updateManager.getQueuedItems();
+    if (queued.length === 0) return;
+
+    // Pure defaults: created_at sort (newest updates first), no user filters.
+    const updates = defaultUpdates();
+
+    const recentIds = new Set<string>();
+    try {
+      for (let page = 1; page <= OniSagaExtension.UPDATE_SCAN_MAX_PAGES; page++) {
+        const { cards, hasNext } = await this.fetchBrowse(`${DOMAIN}/browse`, updates, page, true);
+        const before = recentIds.size;
+        for (const card of cards) recentIds.add(card.mangaId);
+        // An empty or repeated page means the feed ended (or the Livewire state
+        // went stale mid-scan) — the window is as big as it's going to get.
+        if (cards.length === 0 || recentIds.size === before || !hasNext) break;
+      }
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+      return; // failed scan: never mark titles skippable on bad data
+    }
+    if (recentIds.size === 0) return;
+
+    for (const manga of queued) {
+      await updateManager.setUpdatePriority(
+        manga.mangaId,
+        recentIds.has(manga.mangaId) ? "high" : "skip",
+      );
+    }
+  }
+
   // Collapse repeat uploads of the same chapter+language to a single entry,
   // keeping the newest by upload date (MangaDex's "Skip Same Chapter" / Aidoku's
   // dedupe). Key on the chapter title, which carries the original number *text*
@@ -729,9 +785,10 @@ export class OniSagaExtension implements ExtensionImpl<typeof OniSagaConfig> {
     baseUrl: string,
     updates: PostFilterUpdates,
     page: number,
+    // The library-update scan passes true: a hidden-NSFW followed title must
+    // still be seen in the Latest window, or it would be wrongly skipped.
+    showNsfw: boolean = getShowNsfw(),
   ): Promise<{ cards: MangaCard[]; hasNext: boolean }> {
-    const showNsfw = getShowNsfw();
-
     const state = await this.resolveBrowseState(baseUrl);
     if (!state) return { cards: [], hasNext: false };
 
