@@ -11,7 +11,6 @@ export const EXCLUDED_GENRES_KEY = "excluded_genres";
 export const LANGUAGES_KEY = "languages";
 export const DEDUPE_CHAPTERS_KEY = "dedupe_chapters";
 export const PAGE_DELAY_KEY = "page_delay";
-export const READER_TOKEN_KEY_PREFIX = "reader_token_";
 export const SECTIONS_ORDER_KEY = "sections_order";
 export const SECTIONS_DELETED_KEY = "sections_deleted";
 
@@ -116,26 +115,6 @@ export const SORT_OPTIONS: Option[] = [
 ];
 
 export const DEFAULT_SORT = "created_at";
-
-// Discover rails with an in-section toggle: each maps to its Livewire component
-// + the method that switches the view (the option ids are the method's param).
-export interface SectionToggle {
-  component: string;
-  method: string;
-  options: Option[];
-}
-
-export const SECTION_TOGGLES: Record<string, SectionToggle> = {
-  top_10_rising: {
-    component: "trending-top10",
-    method: "setPeriod",
-    options: [
-      { id: "day", title: "Day" },
-      { id: "week", title: "Week" },
-      { id: "month", title: "Month" },
-    ],
-  },
-};
 
 // onisaga's fixed genre taxonomy (see getGenres). id = the Livewire filter's
 // numeric genre id, so a selection maps straight onto the browse/search POST.
@@ -251,9 +230,6 @@ export type OniSagaSearchMetadata = {
   releaseStart?: string;
   releaseEnd?: string;
   genres?: Record<string, "included" | "excluded">;
-  // A discover chip tap: which toggle rail and which option were chosen.
-  toggleSection?: string;
-  toggleValue?: string;
 };
 
 // Livewire `post-filter` component public state. Field names (and the snake_case /
