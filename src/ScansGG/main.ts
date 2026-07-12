@@ -284,13 +284,16 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
     // The chapter backend can take close to a minute on chapters it hasn't
     // cached yet, and the transport cuts off at 60s. Run the JSON endpoint
     // and the reader page in parallel and take whichever yields pages first.
+    // A group-less request (the site's own primary form, letting the server
+    // pick the default release) joins the race in case the stored group's
+    // data is what the backend is choking on.
+    const attempts = [
+      this.pagesViaApi(seriesId, chapter, groupId),
+      this.pagesViaReaderHtml(seriesId, chapter, groupId),
+    ];
+    if (groupId !== "0") attempts.push(this.pagesViaApi(seriesId, chapter, "0"));
     try {
-      return toDetails(
-        await Promise.any([
-          this.pagesViaApi(seriesId, chapter, groupId),
-          this.pagesViaReaderHtml(seriesId, chapter, groupId),
-        ]),
-      );
+      return toDetails(await Promise.any(attempts));
     } catch {
       // A timed-out round still leaves the server cache warm, so one more
       // API attempt tends to answer quickly.
