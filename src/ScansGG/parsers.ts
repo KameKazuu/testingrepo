@@ -142,6 +142,17 @@ export function toFeaturedItem(series: SeriesDto): DiscoverSectionItem {
   };
 }
 
+export function toProminentItem(series: SeriesDto): DiscoverSectionItem {
+  return {
+    type: "prominentCarouselItem",
+    mangaId: buildSlugId(series.id, series.title),
+    title: Application.decodeHTMLEntities(series.title),
+    imageUrl: buildCoverUrl(series.cover),
+    subtitle: cardSubtitle(series),
+    contentRating: deriveContentRating(series),
+  };
+}
+
 export function toSimpleItem(series: SeriesDto): DiscoverSectionItem {
   return {
     type: "simpleCarouselItem",

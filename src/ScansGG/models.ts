@@ -18,7 +18,6 @@ export const CDN_URL = "https://cdn.scans.gg/uploads";
 // Page sizes. `/series` doesn't return a pagination envelope, so we infer
 // "has next page" by comparing the returned count against the limit.
 export const SERIES_PAGE_SIZE = 21;
-export const LATEST_PAGE_SIZE = 21;
 export const CHAPTER_PAGE_SIZE = 100;
 
 /** Persisted-settings keys. */
@@ -86,6 +85,20 @@ export interface ChapterDto {
 
 export interface GroupDto {
   title?: string | null;
+}
+
+/** Homepage payload from `/home` — the sections the site's front page shows. */
+export interface HomeResponseDto {
+  featured?: SeriesDto[] | null;
+  latest_updates?: SeriesDto[] | null;
+  series?: SeriesDto[] | null;
+  popular?: PopularHomeDto | null;
+}
+
+export interface PopularHomeDto {
+  daily?: SeriesDto[] | null;
+  weekly?: SeriesDto[] | null;
+  monthly?: SeriesDto[] | null;
 }
 
 /** Page-list payload from `/chapter-navigation` (pages nested under `chapter`). */
