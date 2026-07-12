@@ -37,6 +37,7 @@ import {
 } from "./models";
 import { fetchApi, ScansGGInterceptor } from "./network";
 import {
+  numericSeriesId,
   parseChapterDetails,
   parseChapterList,
   parseMangaDetails,
@@ -191,9 +192,9 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
     query: string,
   ): Promise<PagedResults<SearchResultItem> | undefined> {
     let id: string | undefined;
-    const urlMatch = query.match(/^https?:\/\/[^/]*scans\.gg\/series\/(\d+)/i);
+    const urlMatch = query.match(/^https?:\/\/[^/]*scans\.gg\/series\/(\d[^/?#]*)/i);
     if (urlMatch) {
-      id = urlMatch[1];
+      id = decodeURIComponent(urlMatch[1]);
     } else if (/^id:\d+$/i.test(query)) {
       id = query.slice(3).trim();
     }
@@ -229,7 +230,7 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
       sources: true,
     });
     if (!response.data) throw new Error(`No series data returned for id ${mangaId}.`);
-    return parseMangaDetails(response.data);
+    return parseMangaDetails(response.data, mangaId);
   }
 
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
@@ -238,8 +239,9 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
     let hasMore = true;
 
     while (hasMore && page <= MAX_CHAPTER_PAGES) {
+      // The chapters endpoint only accepts the bare numeric series id.
       const response = await fetchApi<ChapterDto[]>("chapters", {
-        series_id: sourceManga.mangaId,
+        series_id: numericSeriesId(sourceManga.mangaId),
         limit: CHAPTER_PAGE_SIZE,
         page,
         group_details: true,
@@ -250,34 +252,55 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
       page++;
     }
 
-    return parseChapterList(chapters, sourceManga);
+    return parseChapterList(chapters, sourceManga, await this.resolveSlugId(sourceManga));
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const seriesId = chapter.additionalInfo?.seriesId ?? chapter.sourceManga.mangaId;
+    const storedSeriesId = chapter.additionalInfo?.seriesId ?? chapter.sourceManga.mangaId;
     const groupId = chapter.additionalInfo?.groupId ?? "0";
+    // The reader endpoints hang on bare numeric ids; upgrade old stored ids
+    // to the slugged form before touching them.
+    const seriesId = storedSeriesId.includes("-")
+      ? storedSeriesId
+      : await this.resolveSlugId(chapter.sourceManga);
 
-    // Primary: scrape the reader page in a WebView. The reader lays out the
-    // pages client-side and the site handles its own signing/Cloudflare, so
-    // this is far more reliable than the `/chapter-navigation` API endpoint.
+    // Primary: the JSON page endpoint (fast once given a slugged series id).
     try {
-      const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}`;
-      const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
-      if (pages.length > 0) {
-        return { id: chapter.chapterId, mangaId: chapter.sourceManga.mangaId, pages };
-      }
+      const query: Record<string, string> = {
+        series_id: seriesId,
+        chapter_id: chapter.chapterId,
+      };
+      if (groupId !== "0") query.group_id = groupId;
+      const response = await fetchApi<PageListDto>("chapter-navigation", query);
+      if (response.data) return parseChapterDetails(response.data, chapter);
     } catch {
-      // Fall through to the API endpoint below.
+      // Fall through to the WebView scrape below.
     }
 
-    // Fallback: the JSON page endpoint, in case the reader markup changes.
-    const response = await fetchApi<PageListDto>("chapter-navigation", {
-      series_id: seriesId,
-      chapter_id: chapter.chapterId,
-      group_id: groupId,
-    });
-    if (!response.data) throw new Error(`No page data returned for chapter ${chapter.chapterId}.`);
-    return parseChapterDetails(response.data, chapter);
+    // Fallback: load the reader page in a WebView and scrape the rendered
+    // page images, the same way the site itself displays them.
+    const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}`;
+    const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
+    if (pages.length === 0) {
+      throw new Error(`No page data returned for chapter ${chapter.chapterId}.`);
+    }
+    return { id: chapter.chapterId, mangaId: chapter.sourceManga.mangaId, pages };
+  }
+
+  // Canonical `{id}-{slug}` series id: from the manga id itself, the stored
+  // details, or (for entries saved by older builds) a fresh details fetch.
+  private async resolveSlugId(sourceManga: SourceManga): Promise<string> {
+    if (sourceManga.mangaId.includes("-")) return sourceManga.mangaId;
+    const stored = sourceManga.mangaInfo?.additionalInfo?.slugId;
+    if (typeof stored === "string" && stored.includes("-")) return stored;
+    try {
+      const details = await this.getMangaDetails(sourceManga.mangaId);
+      const slugId = details.mangaInfo.additionalInfo?.slugId;
+      if (typeof slugId === "string" && slugId.length > 0) return slugId;
+    } catch {
+      // Fall back to whatever id we already have.
+    }
+    return sourceManga.mangaId;
   }
 }
 

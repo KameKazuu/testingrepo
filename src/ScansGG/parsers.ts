@@ -28,6 +28,29 @@ import {
 // field helpers
 // ---------------------------------------------------------------------------
 
+// The site addresses a series as `{id}-{slugified title}` (e.g.
+// "17630-flower-of-allure"). The reader endpoints hang on bare numeric ids,
+// so the slugged form must be used everywhere a series id is sent.
+export function slugify(text: string): string {
+  return Application.decodeHTMLEntities(text)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/['’‘"“”]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function buildSlugId(id: number, title: string): string {
+  const slug = slugify(title);
+  return slug.length > 0 ? `${id}-${slug}` : `${id}-series`;
+}
+
+/** Extract the numeric prefix from a (possibly slugged) manga id. */
+export function numericSeriesId(mangaId: string): string {
+  return mangaId.match(/^\d+/)?.[0] ?? mangaId;
+}
+
 /** Cover filenames are relative to the CDN `covers/` folder. */
 export function buildCoverUrl(cover?: string | null): string {
   if (!cover) return "";
@@ -100,7 +123,7 @@ function cardSubtitle(series: SeriesDto): string | undefined {
 
 export function toSearchResultItem(series: SeriesDto): SearchResultItem {
   return {
-    mangaId: String(series.id),
+    mangaId: buildSlugId(series.id, series.title),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
     subtitle: cardSubtitle(series),
@@ -111,7 +134,7 @@ export function toSearchResultItem(series: SeriesDto): SearchResultItem {
 export function toFeaturedItem(series: SeriesDto): DiscoverSectionItem {
   return {
     type: "featuredCarouselItem",
-    mangaId: String(series.id),
+    mangaId: buildSlugId(series.id, series.title),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
     supertitle: tagNames(series.tags).slice(0, 3).join(" • ") || cardSubtitle(series),
@@ -122,7 +145,7 @@ export function toFeaturedItem(series: SeriesDto): DiscoverSectionItem {
 export function toSimpleItem(series: SeriesDto): DiscoverSectionItem {
   return {
     type: "simpleCarouselItem",
-    mangaId: String(series.id),
+    mangaId: buildSlugId(series.id, series.title),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
     subtitle: cardSubtitle(series),
@@ -137,7 +160,7 @@ export function toLatestItem(series: SeriesDto): DiscoverSectionItem {
   if (!latest?.id) return toSimpleItem(series);
   return {
     type: "chapterUpdatesCarouselItem",
-    mangaId: String(series.id),
+    mangaId: buildSlugId(series.id, series.title),
     chapterId: String(latest.id),
     title: Application.decodeHTMLEntities(series.title),
     imageUrl: buildCoverUrl(series.cover),
@@ -151,7 +174,10 @@ export function toLatestItem(series: SeriesDto): DiscoverSectionItem {
 // manga details
 // ---------------------------------------------------------------------------
 
-export function parseMangaDetails(series: SeriesDto): SourceManga {
+// `requestedMangaId` keeps the returned id identical to what the app asked
+// for (library entries saved under an older id format must not be re-keyed);
+// the canonical slugged id is carried in additionalInfo for the reader path.
+export function parseMangaDetails(series: SeriesDto, requestedMangaId?: string): SourceManga {
   // Merge the type name, numeric tags and free-text themes into one tag set.
   const typeName = series.type != null ? TYPE_NAMES[series.type] : undefined;
   const names = [
@@ -175,9 +201,10 @@ export function parseMangaDetails(series: SeriesDto): SourceManga {
 
   const author = (series.author ?? []).filter(Boolean).join(", ");
   const artist = (series.artist ?? []).filter(Boolean).join(", ");
+  const slugId = buildSlugId(series.id, series.title);
 
   return {
-    mangaId: String(series.id),
+    mangaId: requestedMangaId ?? slugId,
     mangaInfo: {
       primaryTitle: Application.decodeHTMLEntities(series.title),
       secondaryTitles,
@@ -188,7 +215,8 @@ export function parseMangaDetails(series: SeriesDto): SourceManga {
       status: mapStatus(series.status),
       contentRating: deriveContentRating(series),
       tagGroups: tags.length > 0 ? [{ id: "tags", title: "Tags", tags }] : [],
-      shareUrl: `${getDomain()}/series/${series.id}`,
+      additionalInfo: { slugId },
+      shareUrl: `${getDomain()}/series/${slugId}`,
     },
   };
 }
@@ -210,7 +238,11 @@ function buildChapterTitle(chapter: ChapterDto): string | undefined {
   return bits.length > 0 ? bits.join(" • ") : undefined;
 }
 
-export function parseChapterList(chapters: ChapterDto[], sourceManga: SourceManga): Chapter[] {
+export function parseChapterList(
+  chapters: ChapterDto[],
+  sourceManga: SourceManga,
+  seriesSlugId: string,
+): Chapter[] {
   // Newest first from the API; index gives a stable, descending sort key.
   return chapters.map((chapter, index) => ({
     chapterId: String(chapter.id),
@@ -222,7 +254,7 @@ export function parseChapterList(chapters: ChapterDto[], sourceManga: SourceMang
     sortingIndex: chapters.length - index,
     publishDate: parseDate(chapter.created_at),
     additionalInfo: {
-      seriesId: sourceManga.mangaId,
+      seriesId: seriesSlugId,
       groupId: String(chapter.group_id ?? 0),
     },
   }));
