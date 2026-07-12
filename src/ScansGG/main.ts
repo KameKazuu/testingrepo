@@ -335,8 +335,10 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
     }
 
     // Fallback: load the reader page in a WebView and scrape the rendered
-    // page images, the same way the site itself displays them.
-    const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}`;
+    // page images, the same way the site itself displays them. The site's
+    // canonical reader URL carries the release group as `?group=`.
+    const groupSuffix = groupId !== "0" ? `?group=${groupId}` : "";
+    const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}${groupSuffix}`;
     const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
     if (pages.length === 0) {
       throw new Error(`No page data returned for chapter ${chapter.chapterId}.`);
