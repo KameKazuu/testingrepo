@@ -11,6 +11,7 @@ import {
   type PagedResults,
   type SearchQuery,
   type SearchResultItem,
+  type SourceManga,
 } from "@paperback/types";
 import { type SearchFilterValue } from "@paperback/types/lib/compat/0.8";
 import * as cheerio from "cheerio";
@@ -34,12 +35,11 @@ const RANKING_RANGES = [
   { id: "alltime", title: "All-Time" },
 ] as const;
 
-// "4 hours ago" → a Date, handling the article form ("an hour ago"). Returns
-// undefined for anything unrecognized so callers can fall back gracefully.
+// "4 hours ago" — or this skin's bare "4 hours" / "33 minutes" (no "ago") — to
+// a Date, handling the article form ("an hour"). Returns undefined for anything
+// unrecognized so callers can fall back gracefully.
 function parseRelativeDate(text: string): Date | undefined {
-  const match = text
-    .toLowerCase()
-    .match(/(\d+|an?)\s*(min(?:ute)?|hour|day|week|month|year)s?\s*ago/);
+  const match = text.toLowerCase().match(/(\d+|an?)\s*(min(?:ute)?|hour|day|week|month|year)s?\b/);
   if (!match) return undefined;
   const amount = /^\d/.test(match[1]) ? parseInt(match[1], 10) : 1;
   const date = new Date();
@@ -67,19 +67,6 @@ function parseRelativeDate(text: string): Date | undefined {
   return date;
 }
 
-// A chapter label ("Chapter 42", "Chapter 10.5") → the chapter id this theme's
-// chapter list uses (the data-num value: the number itself, spaces dashed).
-// Paperback rejects ids containing spaces — passing the raw label as an id is
-// what crashed the Recommendation section — and only [\w.-] survive here so a
-// decorated label can never produce an invalid id.
-function chapterIdFromLabel(label: string): string {
-  return label
-    .trim()
-    .replace(/^chapter\s*/i, "")
-    .replace(/\s+/g, "-")
-    .replace(/[^\w.-]/g, "");
-}
-
 class RokariComicsExtension extends MangaStreamGeneric {
   name = pbconfig.name;
   contentRating: ContentRating = pbconfig.contentRating;
@@ -91,6 +78,17 @@ class RokariComicsExtension extends MangaStreamGeneric {
 
   override async getSettingsForm(): Promise<Form> {
     return new RokariComicsSettings(this.name, DOMAIN_NAME);
+  }
+
+  // The generic parser fills unparsed credits with the literal string
+  // "Unknown", which the app renders as an "Unknown, Unknown" byline over the
+  // details banner. This site's pages don't expose author/artist in the markup
+  // the generic reads, so drop the placeholders and show nothing instead.
+  override async getMangaDetails(mangaId: string): Promise<SourceManga> {
+    const details = await super.getMangaDetails(mangaId);
+    if (details.mangaInfo.author === "Unknown") details.mangaInfo.author = undefined;
+    if (details.mangaInfo.artist === "Unknown") details.mangaInfo.artist = undefined;
+    return details;
   }
 
   override configureSections() {
@@ -250,14 +248,13 @@ class RokariComicsExtension extends MangaStreamGeneric {
         .trim()
         .slice(0, 280);
 
-      // The slide's latest-chapter label, wherever this skin puts it.
+      // The slide's latest-chapter label, wherever this skin puts it — the site
+      // renders both "Chapter 48" and the short "Ch. 48" form.
       const chapterLabel = (
-        $("span.chapter, div.chapter, span.epxs, div.epxs, a[href*='chapter']", slide)
-          .first()
-          .text() ||
+        $("span.chapter, div.chapter, span.fivchap, span.epxs, div.epxs", slide).first().text() ||
         ($(slide)
           .text()
-          .match(/Chapter\s*[\d.]+/i)?.[0] ??
+          .match(/(?:Chapter|Ch\.?)\s*[\d.]+/i)?.[0] ??
           "")
       )
         .replace(/\s+/g, " ")
@@ -275,54 +272,61 @@ class RokariComicsExtension extends MangaStreamGeneric {
     return items;
   }
 
-  // Latest Update grid → chapter-update rows. The chapter id is the numeric
-  // part of the label (this theme's chapter list uses the number as the id, so
-  // taps deep-link correctly), never the raw display text — Paperback rejects
-  // ids with spaces. The subtitle prefers the upload time ("4 hours ago") when
-  // the grid carries one, falling back to the chapter label; the parsed time
-  // also fills publishDate.
+  // Latest Update grid → chapter-update rows, parsed against this skin's real
+  // markup (verified from the live page): each .bsx carries the series link
+  // (`a[href*='/manga/']`) and a `ul.chfiv` chapter list whose rows hold the
+  // label in `span.fivchap` ("Ch. 48") and the upload age in `span.fivtime`
+  // ("1 hour", or a "NEW" badge for a fresh drop). The chapter id is the
+  // numeric part of the label — the chapter list's data-num ids, so taps
+  // deep-link. Entries without a usable number are SKIPPED: this section's type
+  // is chapterUpdates and the app requires a chapterId on every item ("Expected
+  // AlphanumericID, found nil" when one is missing).
   private async parseLatest($: CheerioAPI): Promise<DiscoverSectionItem[]> {
     const items: DiscoverSectionItem[] = [];
     for (const element of $(".bixbox:has(h2:contains(Latest)) .bs .bsx").toArray()) {
-      const anchor = $("a", element).first();
-      const href = anchor.attr("href") ?? "";
-      const title = anchor.attr("title") ?? $("div.tt", element).first().text().trim();
+      const seriesAnchor = $("a[href*='/manga/']", element).first();
+      const href = seriesAnchor.attr("href") ?? "";
+      const title =
+        seriesAnchor.attr("title") ?? $("div.tt a, div.tt", element).first().text().trim();
       if (!href || !title) continue;
 
-      const mangaId = await this.resolveMangaId(href, anchor.attr("rel"));
+      const mangaId = await this.resolveMangaId(href, seriesAnchor.attr("rel"));
       if (!mangaId) continue;
 
       const imageUrl = this.parser.getImageSrc($("img", element)) ?? "";
-      const chapterLabel = $("div.epxs", element).first().text().replace(/\s+/g, " ").trim();
-      const chapterId = chapterIdFromLabel(chapterLabel);
 
-      const timeText = $("div.epxdate, span.datech, div.datech, time", element)
+      const chapterAnchor = $("ul.chfiv li a", element).first();
+      const chapterLabel = $("span.fivchap", chapterAnchor)
         .first()
         .text()
         .replace(/\s+/g, " ")
         .trim();
-      const publishDate = timeText ? parseRelativeDate(timeText) : undefined;
+      // "Ch. 48" / "Ch. 10.5" → "48" / "10.5"; fall back to the chapter URL's
+      // "...-chapter-48/" tail when the label carries no number.
+      const chapterId =
+        chapterLabel.match(/([\d.]+)\s*$/)?.[1] ??
+        (chapterAnchor.attr("href") ?? "")
+          .match(/chapter-(\d+(?:-\d+)?)\/?$/)?.[1]
+          ?.replace(/-/g, ".") ??
+        "";
+      if (!chapterId) continue;
 
-      if (chapterId) {
-        items.push({
-          type: "chapterUpdatesCarouselItem",
-          mangaId,
-          chapterId,
-          imageUrl,
-          title,
-          subtitle: timeText || chapterLabel || undefined,
-          publishDate,
-        });
-      } else {
-        // No usable chapter number — a plain card beats an invalid id.
-        items.push({
-          type: "simpleCarouselItem",
-          mangaId,
-          imageUrl,
-          title,
-          subtitle: chapterLabel || undefined,
-        });
-      }
+      // The upload age text node ("1 hour", "33 minutes"); a fresh drop renders
+      // a "NEW" badge (fivtime.new-chapter) with icon/script children to strip.
+      const timeEl = $("span.fivtime", chapterAnchor).first();
+      const isNew = timeEl.hasClass("new-chapter");
+      const rawTime = timeEl.clone().children().remove().end().text().replace(/\s+/g, " ").trim();
+      const ageText = isNew ? "NEW" : rawTime ? `${rawTime} ago` : "";
+
+      items.push({
+        type: "chapterUpdatesCarouselItem",
+        mangaId,
+        chapterId,
+        imageUrl,
+        title,
+        subtitle: ageText ? `${chapterLabel} · ${ageText}` : chapterLabel || undefined,
+        publishDate: isNew ? new Date() : parseRelativeDate(rawTime),
+      });
     }
     return items;
   }
