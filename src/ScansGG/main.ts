@@ -150,7 +150,12 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
         : section.id === SECTION_LATEST
           ? toLatestItem
           : toSimpleItem;
-    const items = data.map(toItem).filter(hasImage);
+    let items = data.map(toItem).filter(hasImage);
+    // A chapter-updates section is decoded as ChapterUpdatesCarouselItem
+    // wholesale, so an entry without a chapter id would fail the whole array.
+    if (section.id === SECTION_LATEST) {
+      items = items.filter((item) => item.type === "chapterUpdatesCarouselItem");
+    }
 
     const hasNext = data.length === SERIES_PAGE_SIZE;
     return { items, metadata: hasNext ? { page: page + 1 } : undefined };
