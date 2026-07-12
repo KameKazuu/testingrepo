@@ -29,7 +29,6 @@ import {
   SERIES_PAGE_SIZE,
   TAG_OPTIONS,
   type ChapterDto,
-  type HomeResponseDto,
   type Metadata,
   type PageListDto,
   type SearchMetadata,
@@ -43,24 +42,16 @@ import {
   parseMangaDetails,
   toFeaturedItem,
   toLatestItem,
-  toProminentItem,
   toSearchResultItem,
   toSimpleItem,
 } from "./parsers";
 import type ScansGGConfig from "./pbconfig";
 import { pageListViaWebView } from "./utils/webView";
 
-const SECTION_FEATURED = "featured";
+const SECTION_POPULAR = "popular";
 const SECTION_LATEST = "latest";
-const SECTION_POPULAR_DAILY = "popular_daily";
-const SECTION_POPULAR_WEEKLY = "popular_weekly";
-const SECTION_POPULAR_MONTHLY = "popular_monthly";
 const SECTION_ALL_SERIES = "all_series";
 const SECTION_GENRES = "genres";
-
-// One `/home` fetch feeds several discover sections; keep it briefly so the
-// app populating them all doesn't fire the same request per section.
-const HOME_CACHE_TTL = 2 * 60 * 1000;
 
 // Guards the chapter-pagination loop against a misbehaving `has_more` flag.
 const MAX_CHAPTER_PAGES = 200;
@@ -110,44 +101,18 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
   // Discover
   // ----------------------------------------------------------------
 
-  private homeCache: { data: HomeResponseDto; timestamp: number } | null = null;
-
-  // The homepage endpoint serves every front-page section in one cached
-  // response; the older per-section feeds are far slower.
-  private async getHome(): Promise<HomeResponseDto> {
-    if (this.homeCache && Date.now() - this.homeCache.timestamp < HOME_CACHE_TTL) {
-      return this.homeCache.data;
-    }
-    const response = await fetchApi<HomeResponseDto>("home");
-    const data = response.data ?? {};
-    this.homeCache = { data, timestamp: Date.now() };
-    return data;
-  }
-
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
-      { id: SECTION_FEATURED, title: "Featured", type: DiscoverSectionType.featured },
+      { id: SECTION_POPULAR, title: "Popular", type: DiscoverSectionType.featured },
       { id: SECTION_LATEST, title: "Latest Updates", type: DiscoverSectionType.chapterUpdates },
-      {
-        id: SECTION_POPULAR_DAILY,
-        title: "Popular Today",
-        type: DiscoverSectionType.prominentCarousel,
-      },
-      {
-        id: SECTION_POPULAR_WEEKLY,
-        title: "Popular This Week",
-        type: DiscoverSectionType.simpleCarousel,
-      },
-      {
-        id: SECTION_POPULAR_MONTHLY,
-        title: "Popular This Month",
-        type: DiscoverSectionType.simpleCarousel,
-      },
       { id: SECTION_ALL_SERIES, title: "All Series", type: DiscoverSectionType.simpleCarousel },
       { id: SECTION_GENRES, title: "Genres", type: DiscoverSectionType.genres },
     ];
   }
 
+  // Discover only touches the `/series` listing — the one feed the site's own
+  // front page uses. Other homepage-ish endpoints on this API stall
+  // indefinitely rather than answer or 404.
   async getDiscoverSectionItems(
     section: DiscoverSection,
     metadata: Metadata | undefined,
@@ -165,46 +130,28 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
       return { items, metadata: undefined };
     }
 
-    // All Series — the paginated `/series` catalogue.
-    if (section.id === SECTION_ALL_SERIES) {
-      const page = metadata?.page ?? 1;
-      const response = await fetchApi<SeriesDto[]>("series", {
-        limit: SERIES_PAGE_SIZE,
-        offset: (page - 1) * SERIES_PAGE_SIZE,
-      });
-      const items = (response.data ?? []).map(toSimpleItem).filter(hasImage);
-      const hasNext = (response.data ?? []).length === SERIES_PAGE_SIZE;
-      return { items, metadata: hasNext ? { page: page + 1 } : undefined };
-    }
+    const page = metadata?.page ?? 1;
+    // Latest Updates asks for each series' newest chapters so the cards can
+    // carry a chapter badge, exactly like the site's front-page strip.
+    const withChapters = section.id === SECTION_LATEST;
 
-    const home = await this.getHome();
-    let series: SeriesDto[];
-    let toItem: (s: SeriesDto) => DiscoverSectionItem;
+    const response = await fetchApi<SeriesDto[]>("series", {
+      limit: SERIES_PAGE_SIZE,
+      offset: (page - 1) * SERIES_PAGE_SIZE,
+      chapters: withChapters ? true : undefined,
+    });
+    const data = response.data ?? [];
 
-    switch (section.id) {
-      case SECTION_LATEST:
-        series = home.latest_updates ?? [];
-        toItem = toLatestItem;
-        break;
-      case SECTION_POPULAR_DAILY:
-        series = home.popular?.daily ?? [];
-        toItem = toProminentItem;
-        break;
-      case SECTION_POPULAR_WEEKLY:
-        series = home.popular?.weekly ?? [];
-        toItem = toSimpleItem;
-        break;
-      case SECTION_POPULAR_MONTHLY:
-        series = home.popular?.monthly ?? [];
-        toItem = toSimpleItem;
-        break;
-      default:
-        series = home.featured ?? home.series ?? [];
-        toItem = toFeaturedItem;
-        break;
-    }
+    const toItem =
+      section.id === SECTION_POPULAR
+        ? toFeaturedItem
+        : section.id === SECTION_LATEST
+          ? toLatestItem
+          : toSimpleItem;
+    const items = data.map(toItem).filter(hasImage);
 
-    return { items: series.map(toItem).filter(hasImage), metadata: undefined };
+    const hasNext = data.length === SERIES_PAGE_SIZE;
+    return { items, metadata: hasNext ? { page: page + 1 } : undefined };
   }
 
   // ----------------------------------------------------------------

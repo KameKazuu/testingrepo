@@ -87,20 +87,6 @@ export interface GroupDto {
   title?: string | null;
 }
 
-/** Homepage payload from `/home` — the sections the site's front page shows. */
-export interface HomeResponseDto {
-  featured?: SeriesDto[] | null;
-  latest_updates?: SeriesDto[] | null;
-  series?: SeriesDto[] | null;
-  popular?: PopularHomeDto | null;
-}
-
-export interface PopularHomeDto {
-  daily?: SeriesDto[] | null;
-  weekly?: SeriesDto[] | null;
-  monthly?: SeriesDto[] | null;
-}
-
 /** Page-list payload from `/chapter-navigation` (pages nested under `chapter`). */
 export interface PageListDto {
   chapter?: ChapterPagesDto | null;
