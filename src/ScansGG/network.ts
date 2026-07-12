@@ -10,7 +10,7 @@ import {
 } from "@paperback/types";
 
 import { getApiUrl, getDomain } from "./forms/settings";
-import { type ResponseDto } from "./models";
+import { USER_AGENT, type ResponseDto } from "./models";
 
 const IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|gif|avif|bmp|svg)(\?|#|$)/i;
 
@@ -34,7 +34,7 @@ export class ScansGGInterceptor extends PaperbackInterceptor {
     const headers: Record<string, string> = {
       ...request.headers,
       referer: `${domain}/`,
-      "user-agent": await Application.getDefaultUserAgent(),
+      "user-agent": USER_AGENT,
       accept,
       "accept-language": "en-US,en;q=0.5",
     };
@@ -53,7 +53,7 @@ export class ScansGGInterceptor extends PaperbackInterceptor {
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",
-        headers: { "user-agent": await Application.getDefaultUserAgent() },
+        headers: { "user-agent": USER_AGENT },
       });
     }
     return data;

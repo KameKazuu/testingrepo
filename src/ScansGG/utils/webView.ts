@@ -3,6 +3,8 @@
 
 import { type CookieStorageInterceptor } from "@paperback/types";
 
+import { USER_AGENT } from "../models";
+
 // The reader renders page images client-side, and the `/chapter-navigation`
 // API endpoint is slow/unreliable (frequently times out). Loading the reader
 // page in a WebView lets its own scripts fetch and lay out the pages, then we
@@ -59,14 +61,13 @@ export async function pageListViaWebView(
   cookieInterceptor: CookieStorageInterceptor,
 ): Promise<string[]> {
   const cookies = cookieInterceptor.cookiesForUrl(readerUrl);
-  const userAgent = await Application.getDefaultUserAgent();
 
   const [, buffer] = await Application.scheduleRequest({ url: readerUrl, method: "GET" });
   const html = Application.arrayBufferToUTF8String(buffer);
 
   const raw = await Application.executeInWebView({
     // Images must render for their src to resolve, so keep loadImages on.
-    source: { html, baseUrl: readerUrl, loadCSS: false, loadImages: true, userAgent },
+    source: { html, baseUrl: readerUrl, loadCSS: false, loadImages: true, userAgent: USER_AGENT },
     inject: COLLECT_PAGES,
     storage: { cookies },
   });

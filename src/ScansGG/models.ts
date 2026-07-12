@@ -24,6 +24,13 @@ export const CHAPTER_PAGE_SIZE = 100;
 export const BASE_URL_KEY = "scansgg.baseUrlOverride";
 export const API_URL_KEY = "scansgg.apiUrlOverride";
 
+// One UA for every request class (API, documents, images, WebView, and the
+// Cloudflare bypass) — cf_clearance cookies are bound to the exact UA string,
+// so mixing agents invalidates a solved challenge.
+export const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+  "Chrome/138.0.0.0 Safari/537.36";
+
 // ---------------------------------------------------------------------------
 // API response DTOs (only the fields this extension consumes)
 // ---------------------------------------------------------------------------
