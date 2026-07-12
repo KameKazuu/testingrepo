@@ -25,6 +25,7 @@ import {
 import { ScansGGAdvancedSearchForm } from "./forms/search";
 import { getDomain, ScansGGSettingsForm } from "./forms/settings";
 import {
+  CDN_URL,
   CHAPTER_PAGE_SIZE,
   SERIES_PAGE_SIZE,
   TAG_OPTIONS,
@@ -37,9 +38,10 @@ import {
 import { fetchApi, ScansGGInterceptor } from "./network";
 import {
   numericSeriesId,
-  parseChapterDetails,
   parseChapterList,
+  parseChapterPages,
   parseMangaDetails,
+  parseReaderPagePaths,
   toFeaturedItem,
   toLatestItem,
   toSearchResultItem,
@@ -268,29 +270,84 @@ export class ScansGGExtension implements ExtensionImpl<typeof ScansGGConfig> {
       ? storedSeriesId
       : await this.resolveSlugId(chapter.sourceManga);
 
-    // Primary: the JSON page endpoint (fast once given a slugged series id).
+    const toDetails = (pages: string[]): ChapterDetails => ({
+      id: chapter.chapterId,
+      mangaId: chapter.sourceManga.mangaId,
+      pages,
+    });
+
+    // The chapter backend can take close to a minute on chapters it hasn't
+    // cached yet, and the transport cuts off at 60s. Run the JSON endpoint
+    // and the reader page in parallel and take whichever yields pages first.
     try {
-      const query: Record<string, string> = {
-        series_id: seriesId,
-        chapter_id: chapter.chapterId,
-      };
-      if (groupId !== "0") query.group_id = groupId;
-      const response = await fetchApi<PageListDto>("chapter-navigation", query);
-      if (response.data) return parseChapterDetails(response.data, chapter);
+      return toDetails(
+        await Promise.any([
+          this.pagesViaApi(seriesId, chapter, groupId),
+          this.pagesViaReaderHtml(seriesId, chapter, groupId),
+        ]),
+      );
     } catch {
-      // Fall through to the WebView scrape below.
+      // A timed-out round still leaves the server cache warm, so one more
+      // API attempt tends to answer quickly.
     }
 
-    // Fallback: load the reader page in a WebView and scrape the rendered
-    // page images, the same way the site itself displays them. The site's
-    // canonical reader URL carries the release group as `?group=`.
-    const groupSuffix = groupId !== "0" ? `?group=${groupId}` : "";
-    const readerUrl = `${getDomain()}/series/${seriesId}/${chapter.chapterId}${groupSuffix}`;
-    const pages = await pageListViaWebView(readerUrl, this.cookieStorageInterceptor);
+    try {
+      return toDetails(await this.pagesViaApi(seriesId, chapter, groupId));
+    } catch {
+      // Last resort below.
+    }
+
+    // Final fallback: render the reader in a WebView and scrape the images.
+    const pages = await pageListViaWebView(
+      this.readerUrl(seriesId, chapter.chapterId, groupId),
+      this.cookieStorageInterceptor,
+    );
     if (pages.length === 0) {
       throw new Error(`No page data returned for chapter ${chapter.chapterId}.`);
     }
-    return { id: chapter.chapterId, mangaId: chapter.sourceManga.mangaId, pages };
+    return toDetails(pages);
+  }
+
+  // The site's canonical reader URL carries the release group as `?group=`.
+  private readerUrl(seriesId: string, chapterId: string, groupId: string): string {
+    const groupSuffix = groupId !== "0" ? `?group=${groupId}` : "";
+    return `${getDomain()}/series/${seriesId}/${chapterId}${groupSuffix}`;
+  }
+
+  private async pagesViaApi(
+    seriesId: string,
+    chapter: Chapter,
+    groupId: string,
+  ): Promise<string[]> {
+    const query: Record<string, string> = {
+      series_id: seriesId,
+      chapter_id: chapter.chapterId,
+    };
+    if (groupId !== "0") query.group_id = groupId;
+    const response = await fetchApi<PageListDto>("chapter-navigation", query);
+    if (!response.data) {
+      throw new Error(`No page data returned for chapter ${chapter.chapterId}.`);
+    }
+    return parseChapterPages(response.data, chapter);
+  }
+
+  // The reader page's server-rendered HTML embeds the same page list in its
+  // Nuxt payload, so it doubles as a second independent source of pages.
+  private async pagesViaReaderHtml(
+    seriesId: string,
+    chapter: Chapter,
+    groupId: string,
+  ): Promise<string[]> {
+    const url = this.readerUrl(seriesId, chapter.chapterId, groupId);
+    const [response, buffer] = await Application.scheduleRequest({ url, method: "GET" });
+    if (response.status !== 200) {
+      throw new Error(`Reader page failed with status ${response.status}.`);
+    }
+    const paths = parseReaderPagePaths(Application.arrayBufferToUTF8String(buffer));
+    if (paths.length === 0) {
+      throw new Error(`No pages found in the reader payload for ${chapter.chapterId}.`);
+    }
+    return paths.map((path) => `${CDN_URL}/pages/${chapter.chapterId}/${path}`);
   }
 
   // Canonical `{id}-{slug}` series id: from the manga id itself, the stored

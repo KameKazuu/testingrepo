@@ -4,7 +4,6 @@
 import {
   ContentRating,
   type Chapter,
-  type ChapterDetails,
   type DiscoverSectionItem,
   type SearchResultItem,
   type SourceManga,
@@ -275,7 +274,7 @@ export function parseChapterList(
 // pages
 // ---------------------------------------------------------------------------
 
-export function parseChapterDetails(data: PageListDto, chapter: Chapter): ChapterDetails {
+export function parseChapterPages(data: PageListDto, chapter: Chapter): string[] {
   const chapterData = data.chapter;
   const chapterId = chapterData?.id ?? Number(chapter.chapterId);
   const pages = [...(chapterData?.pages ?? [])]
@@ -287,9 +286,39 @@ export function parseChapterDetails(data: PageListDto, chapter: Chapter): Chapte
     throw new Error(`No pages returned for chapter ${chapter.chapterId}.`);
   }
 
-  return {
-    id: chapter.chapterId,
-    mangaId: chapter.sourceManga.mangaId,
-    pages,
-  };
+  return pages;
+}
+
+// The reader page embeds its API responses in the Nuxt payload script. Page
+// entries serialize as {"position": <index>, "path": <index>} objects whose
+// values live flat in the same array, so they can be lifted out directly
+// without replaying the whole payload graph.
+export function parseReaderPagePaths(html: string): string[] {
+  const match = html.match(/<script[^>]+id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!match?.[1]) return [];
+
+  let nodes: unknown[];
+  try {
+    const parsed: unknown = JSON.parse(match[1]);
+    if (!Array.isArray(parsed)) return [];
+    nodes = parsed;
+  } catch {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const pages: { position: number; path: string }[] = [];
+  for (const node of nodes) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) continue;
+    const record = node as Record<string, unknown>;
+    if (typeof record.position !== "number" || typeof record.path !== "number") continue;
+    const position = nodes[record.position];
+    const path = nodes[record.path];
+    if (typeof position !== "number" || typeof path !== "string" || path.length === 0) continue;
+    if (seen.has(path)) continue;
+    seen.add(path);
+    pages.push({ position, path });
+  }
+
+  return pages.sort((a, b) => a.position - b.position).map((page) => page.path);
 }
