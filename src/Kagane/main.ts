@@ -26,10 +26,10 @@ import { KaganeAdvancedSearchForm } from "./forms/search";
 import { getApiUrl, getDataSaver, getDomain, KaganeSettingsForm } from "./forms/settings";
 import {
   BOOKS_PATH,
+  GENRE_PATH,
   SEARCH_PATH,
   SERIES_PAGE_SIZE,
   SERIES_PATH,
-  TAXONOMY_PATHS,
   type GenreDto,
   type Metadata,
   type OptionItem,
@@ -112,35 +112,27 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     if (this.genreCatalog) return this.genreCatalog;
     const names = new Map<string, string>();
     const options: OptionItem[] = [];
-    let anySucceeded = false;
 
-    // Merge every taxonomy list that answers; series reference both `genres`
-    // and `tags` by UUID, so a wider name map only improves tag resolution.
-    for (const path of TAXONOMY_PATHS) {
-      try {
-        const entries = await fetchJson<GenreDto[]>(path.split("/"));
-        anySucceeded = true;
-        for (const entry of entries) {
-          const name = entry.genre_name ?? entry.tag_name ?? entry.name;
-          if (!entry.id || !name) continue;
-          names.set(entry.id, name);
-          // Only genre-taxonomy axes belong in the filter UI, and `format`
-          // duplicates the series' own format field.
-          const axis = entry.genre_type?.toLowerCase();
-          if (axis && axis !== "format") {
-            options.push({ id: entry.id, value: name });
-          }
+    try {
+      const entries = await fetchJson<GenreDto[]>(GENRE_PATH.split("/"));
+      for (const entry of entries) {
+        const name = entry.genre_name ?? entry.name;
+        if (!entry.id || !name) continue;
+        names.set(entry.id, name);
+        // `format` duplicates the series' own format field; keep it out of the
+        // filter but still resolve its name for the details tag list.
+        if ((entry.genre_type ?? "genre").toLowerCase() !== "format") {
+          options.push({ id: entry.id, value: name });
         }
-      } catch (error) {
-        if (error instanceof CloudflareError) throw error;
-        // A missing candidate path costs nothing; keep merging the rest.
       }
+      options.sort((a, b) => a.value.localeCompare(b.value));
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+      // A failed taxonomy fetch just means unnamed genres; don't cache it so a
+      // cold start behind a challenge retries next call.
+      return { names, options };
     }
-    options.sort((a, b) => a.value.localeCompare(b.value));
 
-    // Only cache a round where at least one list answered, so a cold start
-    // behind a challenge retries next call instead of pinning an empty map.
-    if (!anySucceeded) return { names, options };
     this.genreCatalog = { names, options };
     return this.genreCatalog;
   }
@@ -223,12 +215,11 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     const term = (query.title ?? "").trim();
     const genres = query.metadata?.genres ?? [];
 
-    // Captured transport: POST with the filters as a JSON body (`title` is the
-    // confirmed text key; `genres` is the inferred filter key — if genre
-    // browsing comes back unfiltered, that body key is what needs correcting).
+    // Captured transport: POST with the filters as a JSON body — `title` for
+    // text, `genres` as { values, match_all } for the genre filter.
     const body: SearchBody = {};
     if (term.length > 0) body.title = term;
-    if (genres.length > 0) body.genres = genres;
+    if (genres.length > 0) body.genres = { values: genres, match_all: true };
 
     const response = await fetchJson<SeriesPageDto>(
       SEARCH_PATH.split("/"),

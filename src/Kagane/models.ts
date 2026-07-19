@@ -53,17 +53,24 @@ export const SERIES_PATH = "series";
 /** Per-book reader payload: POST `books/{bookId}?is_datasaver=`. CONFIRMED. */
 export const BOOKS_PATH = "books";
 /**
- * Taxonomy lists. `tags/list` is CONFIRMED (the search page loads it for its
- * filter UI); `genres/list` mirrors it for the genres axis. Every fetch is
- * failure-tolerant and merged, so a wrong candidate costs nothing.
+ * Genre taxonomy list (the curated genre/theme/demographic axis used by the
+ * filter UI and to resolve a series' `genres[]` UUIDs to names). The parallel
+ * `tags/list` is deliberately not fetched: it is a multi-megabyte dump of
+ * free-form hashtags this extension never resolves. The fetch is
+ * failure-tolerant, so a wrong candidate path just leaves genres unnamed.
  */
-export const TAXONOMY_PATHS = ["genres/list", "tags/list"] as const;
+export const GENRE_PATH = "genres/list";
+
+/** POST search/series genre filter. CONFIRMED: { values, match_all }. */
+export interface GenreFilter extends JSONObject {
+  values: string[];
+  match_all: boolean;
+}
 
 /** JSON body for POST search/series (only the fields this extension sends). */
 export interface SearchBody extends JSONObject {
   title?: string;
-  /** INFERRED filter key — genre taxonomy UUIDs. */
-  genres?: string[];
+  genres?: GenreFilter;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,12 +149,12 @@ export interface PageDto {
   height?: number | null;
 }
 
-/** A taxonomy entry from TAXONOMY_PATHS (genre entries carry `genre_name`). */
+/** A genre taxonomy entry from GENRE_PATH. */
 export interface GenreDto {
   id: string;
   genre_name?: string | null;
-  tag_name?: string | null;
   name?: string | null;
+  /** genre / theme / demographic / format axis. */
   genre_type?: string | null;
 }
 
