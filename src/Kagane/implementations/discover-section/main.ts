@@ -107,7 +107,7 @@ async function enrichDetails(
 // The browse feed is the search endpoint with the reader's own filter body and
 // a sort (newest-first, most-viewed, …).
 async function fetchDiscoverSearchPage(sort: string, page: number): Promise<KaganeSearchResponse> {
-  const body = await buildSearchBody({ title: "", metadata: [] });
+  const body = await buildSearchBody("", {});
   const url = new URL(API_URL)
     .addPathComponent("api")
     .addPathComponent("v2")
@@ -155,7 +155,7 @@ function genreChips(metadata: KaganeMetadata): PagedResults<DiscoverSectionItem>
       ([id, name]): DiscoverSectionItem => ({
         type: "genresCarouselItem",
         name,
-        searchQuery: { title: "", metadata: [{ id: "genres", value: { [id]: "included" } }] },
+        searchQuery: { title: "", metadata: { genres: { [id]: "included" } } },
       }),
     );
   return { items };
@@ -167,7 +167,7 @@ function buildTrendingRangeItems(): PagedResults<DiscoverSectionItem> {
     (range): DiscoverSectionItem => ({
       type: "genresCarouselItem",
       name: range.title,
-      searchQuery: { title: "", metadata: [{ id: "range", value: range.id }] },
+      searchQuery: { title: "", metadata: { range: range.id } },
     }),
   );
   return { items };

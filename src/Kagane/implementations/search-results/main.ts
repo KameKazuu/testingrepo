@@ -2,6 +2,7 @@
 /* Copyright © 2026 Inkdex */
 
 import type {
+  AdvancedSearchForm,
   PagedResults,
   Request,
   SearchQuery,
@@ -9,11 +10,6 @@ import type {
   SortingOption,
 } from "@paperback/types";
 import { CloudflareError, URL } from "@paperback/types";
-import {
-  SearchFilterForm,
-  type SearchFilter,
-  type SearchFilterValue,
-} from "@paperback/types/lib/compat/0.8";
 
 import {
   apiHeaders,
@@ -42,35 +38,36 @@ import {
   type KaganeSearchResponse,
 } from "../shared/models";
 import { buildImageUrl, getContentRatingValues, mapItemContentRating } from "../shared/utils";
-import {
-  buildSearchFilters,
-  parseTagInput,
-  readDropdownFilter,
-  readInputFilter,
-  readMultiselectFilter,
-} from "./parsers";
+import { KaganeAdvancedSearchForm, type FilterItem, type KaganeSearchMetadata } from "./forms";
+import { getVisibleSources, parseTagInput } from "./parsers";
 
 export class SearchProvider {
-  async getSearchFilters(): Promise<SearchFilter[]> {
+  async getAdvancedSearchForm(
+    query: SearchQuery<KaganeSearchMetadata>,
+  ): Promise<AdvancedSearchForm> {
     const metadata = await getKaganeMetadata();
-    // The full tag taxonomy renders as a browsable multiselect. If it can't be
-    // fetched, the sheet still opens — typed tags keep working via the input.
-    // A Cloudflare challenge must surface so the app can raise the bypass.
-    let tagOptions: Array<{ id: string; value: string }> = [];
+    const genreItems: FilterItem[] = Object.entries(metadata.genres)
+      .map(([id, title]) => ({ id, title }))
+      .sort((left, right) => left.title.localeCompare(right.title));
+    const sourceItems: FilterItem[] = getVisibleSources(metadata.sources, getSourceDisplayMode())
+      .map((source) => ({ id: source.source_id, title: source.title }))
+      .sort((left, right) => left.title.localeCompare(right.title));
+
+    // The full tag taxonomy renders as a browsable tri-state list. If it can't
+    // be fetched the form still opens — typed tags keep working. A Cloudflare
+    // challenge must surface so the app can raise the bypass.
+    let tagItems: FilterItem[] = [];
     try {
-      tagOptions = (await getKaganeTagEntries())
-        .map((tag) => ({ id: tag.id, value: tag.tag_name }))
-        .sort((left, right) => left.value.localeCompare(right.value));
+      tagItems = (await getKaganeTagEntries())
+        .map((tag) => ({ id: tag.id, title: tag.tag_name }))
+        .sort((left, right) => left.title.localeCompare(right.title));
     } catch (error) {
       if (error instanceof CloudflareError) throw error;
       console.log(`[Kagane] tag taxonomy unavailable for filters: ${String(error)}`);
-      tagOptions = [];
+      tagItems = [];
     }
-    return buildSearchFilters(metadata, getSourceDisplayMode(), tagOptions);
-  }
 
-  getAdvancedSearchForm(query: SearchQuery<SearchFilterValue[]>) {
-    return new SearchFilterForm(query.metadata, this.getSearchFilters());
+    return new KaganeAdvancedSearchForm(query, genreItems, tagItems, sourceItems);
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {
@@ -78,20 +75,17 @@ export class SearchProvider {
   }
 
   async getSearchResults(
-    query: SearchQuery<SearchFilterValue[]>,
+    query: SearchQuery<KaganeSearchMetadata>,
     metadata?: { page?: number },
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
     const page = metadata?.page ?? 1;
     const kaganeMetadata = await getKaganeMetadata();
-    const searchBody = await buildSearchBody(query);
-    // A "range" filter (from the Trending discover chips) carries the trending
-    // window whose sort to apply; otherwise use the reader's sorting option.
-    const rangeEntry = (query.metadata ?? []).find((filter) => filter.id === "range");
-    const rangeSort =
-      typeof rangeEntry?.value === "string"
-        ? RANGE_OPTIONS.find((range) => range.id === rangeEntry.value)?.sort
-        : undefined;
+    const meta = normalizeMetadata(query.metadata);
+    const searchBody = await buildSearchBody(query.title, meta);
+    // A trending chip carries the window whose sort to apply; otherwise use
+    // the reader's sorting option.
+    const rangeSort = RANGE_OPTIONS.find((range) => range.id === meta.range)?.sort;
     const sort = rangeSort ?? sortingOption?.id ?? "relevance";
 
     const url = new URL(API_URL)
@@ -128,14 +122,42 @@ export class SearchProvider {
   }
 }
 
+// Queries predating the native form (old discover chips, saved searches) carry
+// 0.8-style filter arrays; translate the ids we ever emitted into the object
+// shape so they keep working.
+function normalizeMetadata(raw: KaganeSearchMetadata | undefined): KaganeSearchMetadata {
+  if (Array.isArray(raw)) {
+    const meta: KaganeSearchMetadata = {};
+    for (const entry of raw as Array<{ id?: string; value?: unknown }>) {
+      if (entry.id === "range" && typeof entry.value === "string") {
+        meta.range = entry.value;
+      }
+      if (entry.id === "genres" && entry.value && typeof entry.value === "object") {
+        meta.genres = entry.value as Record<string, "included" | "excluded">;
+      }
+    }
+    return meta;
+  }
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+function pickTriState(
+  record: Record<string, "included" | "excluded"> | undefined,
+  state: "included" | "excluded",
+): string[] {
+  return Object.entries(record ?? {})
+    .filter(([, value]) => value === state)
+    .map(([id]) => id);
+}
+
 export async function buildSearchBody(
-  query: SearchQuery<SearchFilterValue[]>,
+  title: string | undefined,
+  meta: KaganeSearchMetadata,
 ): Promise<Record<string, unknown>> {
-  const filters = query.metadata ?? [];
-  // Per-search filter selections override the corresponding settings.
+  // Per-search selections override the corresponding settings.
   const displayMode = getSourceDisplayMode();
-  const sourceTypes = readMultiselectFilter(filters, "source_types");
-  const languages = readMultiselectFilter(filters, "languages");
+  const sourceTypes = meta.sourceTypes ?? [];
+  const languages = meta.languages ?? [];
   const body: Record<string, unknown> = {
     source_type:
       sourceTypes.length > 0
@@ -149,13 +171,13 @@ export async function buildSearchBody(
     content_lang: languages.length > 0 ? languages : getContentLanguages(),
   };
 
-  const title = query.title?.trim();
-  if (title) {
-    body.title = title;
+  const trimmedTitle = title?.trim();
+  if (trimmedTitle) {
+    body.title = trimmedTitle;
   }
 
-  const yearFrom = Number.parseInt(readInputFilter(filters, "year_from"), 10);
-  const yearTo = Number.parseInt(readInputFilter(filters, "year_to"), 10);
+  const yearFrom = Number.parseInt(meta.yearFrom ?? "", 10);
+  const yearTo = Number.parseInt(meta.yearTo ?? "", 10);
   if (Number.isFinite(yearFrom) || Number.isFinite(yearTo)) {
     body.start_year = {
       ...(Number.isFinite(yearFrom) ? { min: yearFrom } : {}),
@@ -163,9 +185,9 @@ export async function buildSearchBody(
     };
   }
 
-  // An explicit Format search filter wins; otherwise apply the hide-list by
+  // An explicit Format selection wins; otherwise apply the hide-list by
   // sending every format that is not hidden.
-  const formats = readMultiselectFilter(filters, "formats");
+  const formats = meta.formats ?? [];
   const hiddenFormats = getHiddenFormats();
   if (formats.length > 0) {
     body.format = formats;
@@ -173,46 +195,43 @@ export async function buildSearchBody(
     body.format = FORMAT_OPTIONS.filter((format) => !hiddenFormats.includes(format));
   }
 
-  const statuses = readMultiselectFilter(filters, "statuses");
+  const statuses = meta.statuses ?? [];
   if (statuses.length > 0) {
     body.upload_status = statuses;
   }
 
-  const sources = readMultiselectFilter(filters, "sources");
+  const sources = meta.sources ?? [];
   if (sources.length > 0) {
     body.source_id = sources;
   }
 
-  const includedGenres = readMultiselectFilter(filters, "genres");
-  const excludedGenres = [
-    ...readMultiselectFilter(filters, "genres", "excluded"),
-    ...getExcludedGenres(),
-  ];
+  const includedGenres = pickTriState(meta.genres, "included");
+  const excludedGenres = [...pickTriState(meta.genres, "excluded"), ...getExcludedGenres()];
   if (includedGenres.length > 0 || excludedGenres.length > 0) {
     body.genres = buildCompoundFilter(
       includedGenres,
       excludedGenres,
-      readDropdownFilter(filters, "genres_match_all", "true") === "true",
+      (meta.genresMatchAll?.[0] ?? "AND") === "AND",
     );
   }
 
-  // Tags come from several places: the browsable multiselect (UUIDs, both
-  // states), the typed input's "-tag" entries, the preset hide-categories
-  // (already UUIDs), and the custom hidden tag names. Names are resolved
-  // through the taxonomy (case-insensitive) — fetched lazily only when names
-  // are present.
-  const tags = parseTagInput(readInputFilter(filters, "tags_text"));
+  // Tags come from several places: the tri-state list (UUIDs, both states),
+  // the typed input's "-tag" entries, the preset hide-categories (already
+  // UUIDs), and the custom hidden tag names. Names are resolved through the
+  // taxonomy (case-insensitive) — fetched lazily only when names are present.
+  const typedTags = parseTagInput(meta.typedTags ?? "");
   const customHiddenNames = getCustomHiddenTags();
-  const includedTags = [...readMultiselectFilter(filters, "tags")];
-  const excludedTags = [
-    ...readMultiselectFilter(filters, "tags", "excluded"),
-    ...getHiddenTagCategoryIds(),
-  ];
-  if (tags.included.length > 0 || tags.excluded.length > 0 || customHiddenNames.length > 0) {
+  const includedTags = pickTriState(meta.tags, "included");
+  const excludedTags = [...pickTriState(meta.tags, "excluded"), ...getHiddenTagCategoryIds()];
+  if (
+    typedTags.included.length > 0 ||
+    typedTags.excluded.length > 0 ||
+    customHiddenNames.length > 0
+  ) {
     const tagIds = await getKaganeTags();
-    includedTags.push(...resolveTagIds(tags.included, tagIds));
+    includedTags.push(...resolveTagIds(typedTags.included, tagIds));
     excludedTags.push(
-      ...resolveTagIds(tags.excluded, tagIds),
+      ...resolveTagIds(typedTags.excluded, tagIds),
       ...resolveTagIds(customHiddenNames, tagIds),
     );
   }
@@ -220,7 +239,7 @@ export async function buildSearchBody(
     body.tags = buildCompoundFilter(
       includedTags,
       excludedTags,
-      readDropdownFilter(filters, "tags_match_all", "true") === "true",
+      (meta.tagsMatchAll?.[0] ?? "AND") === "AND",
     );
   }
 
