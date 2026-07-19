@@ -11,12 +11,7 @@ import {
   getKaganeMetadata,
   prefetchPages,
 } from "../../services/network";
-import {
-  getChapterTitleMode,
-  getContentLanguages,
-  getDataSaver,
-  getPreloadPages,
-} from "../settings-form/main";
+import { getChapterTitleMode, getContentLanguages, getPreloadPages } from "../settings-form/main";
 import {
   API_URL,
   DEFAULT_CACHE_URL,
@@ -41,9 +36,12 @@ export class ChapterProvider {
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const chapterId = chapter.chapterId;
     const challenge = await getChallengeResponse(chapterId);
-    const dataSaver = getDataSaver();
     const cacheUrl = challenge.cache_url || DEFAULT_CACHE_URL;
 
+    // The image request the site's reader makes is exactly
+    // {cache_url}/api/v2/books/page/{chapterId}/{pageId}.{ext}?token={token} —
+    // the data-saver choice is already baked into the challenge (its POST
+    // carries is_datasaver), so the image URL itself only needs the token.
     const pages = [...(challenge.manifest?.pages ?? [])]
       .sort((left, right) => left.page_no - right.page_no)
       .map((page) => {
@@ -55,7 +53,6 @@ export class ChapterProvider {
           .addPathComponent(chapterId)
           .addPathComponent(`${page.page_id}.${page.ext ?? "jxl"}`)
           .setQueryItem("token", challenge.access_token)
-          .setQueryItem("is_datasaver", String(dataSaver))
           .toString();
       });
 

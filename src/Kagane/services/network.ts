@@ -142,7 +142,6 @@ async function buildPageRetryRequest(request: Request): Promise<Request | undefi
     .addPathComponent(parts.chapterId)
     .addPathComponent(parts.fileName)
     .setQueryItem("token", challenge.access_token)
-    .setQueryItem("is_datasaver", String(getDataSaver()))
     .toString();
 
   return {
@@ -283,7 +282,7 @@ async function warmPages(urls: string[]): Promise<void> {
         await Application.scheduleRequest({
           url,
           method: "GET",
-          headers: { accept: "image/*,*/*;q=0.8" },
+          headers: { accept: "image/*" },
         });
       } catch {
         // Ignore — the reader will fetch anything that failed to warm.
