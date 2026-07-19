@@ -50,12 +50,12 @@ export class KaganeInterceptor extends PaperbackInterceptor {
     const isImage = IMAGE_EXTENSION_REGEX.test(request.url);
     const isApi = request.url.startsWith(getApiUrl());
 
-    // Match what a real browser sends for each request class so the traffic
-    // reads as a genuine reader session, not a bot — a mismatched Accept (or an
-    // Origin header on a plain document GET, which browsers never send) is a
-    // classic bot tell that trips the WAF.
+    // Match what the site's own reader sends for each request class (captured
+    // traffic) so ours is indistinguishable — a mismatched Accept, or an Origin
+    // on a plain GET (browsers only attach it to POSTs here, the API being
+    // same-origin), is a classic bot tell that trips the WAF.
     const accept = isApi
-      ? "application/json, text/plain, */*"
+      ? "*/*"
       : isImage
         ? "image/avif,image/webp,image/apng,image/png,image/svg+xml,*/*;q=0.8"
         : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
@@ -65,10 +65,16 @@ export class KaganeInterceptor extends PaperbackInterceptor {
       referer: `${domain}/`,
       "user-agent": USER_AGENT,
       accept,
-      "accept-language": "en-US,en;q=0.5",
+      "accept-language": "en-US,en;q=0.9",
     };
-    // Browsers only attach Origin to cross-origin requests (the API host).
-    if (isApi) headers.origin = domain;
+    if (isApi) {
+      headers["sec-fetch-site"] = "same-origin";
+      headers["sec-fetch-mode"] = "cors";
+      headers["sec-fetch-dest"] = "empty";
+      if ((request.method ?? "GET").toUpperCase() === "POST") {
+        headers.origin = domain;
+      }
+    }
 
     return { ...request, headers };
   }
@@ -90,14 +96,16 @@ export class KaganeInterceptor extends PaperbackInterceptor {
 }
 
 /**
- * GET a JSON endpoint under the API host and return its parsed payload.
- * Path segments are appended in order; query values are skipped when undefined.
- * A Cloudflare challenge surfaces as a thrown CloudflareError from the
- * interceptor above, so it is never mistaken for a parse failure here.
+ * Call a JSON endpoint under the API base and return its parsed payload.
+ * Path segments are appended in order; query values are skipped when
+ * undefined; a `body` turns the call into a JSON POST (the search endpoint's
+ * transport). A Cloudflare challenge surfaces as a thrown CloudflareError
+ * from the interceptor above, so it is never mistaken for a parse failure.
  */
 export async function fetchJson<T>(
   segments: (string | number)[],
   query: Record<string, string | number | undefined> = {},
+  body?: unknown,
 ): Promise<T> {
   const builder = new URL(getApiUrl());
   for (const segment of segments) {
@@ -109,7 +117,16 @@ export async function fetchJson<T>(
   }
   const url = builder.toString();
 
-  const [response, buffer] = await Application.scheduleRequest({ url, method: "GET" });
+  const [response, buffer] = await Application.scheduleRequest(
+    body === undefined
+      ? { url, method: "GET" }
+      : {
+          url,
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+  );
   if (response.status === 404) {
     throw new Error(`Content not found: ${url}`);
   }

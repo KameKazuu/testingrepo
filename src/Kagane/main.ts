@@ -27,16 +27,17 @@ import { getApiUrl, getDataSaver, getDomain, KaganeSettingsForm } from "./forms/
 import {
   BOOKS_PATH,
   CHAPTERS_SUBPATH,
-  GENRE_PATH,
   SEARCH_PATH,
   SERIES_PAGE_SIZE,
   SERIES_PATH,
+  TAXONOMY_PATHS,
   type BookDto,
   type BookPageDto,
   type GenreDto,
   type Metadata,
   type OptionItem,
   type ReaderDto,
+  type SearchBody,
   type SearchMetadata,
   type SeriesDto,
   type SeriesPageDto,
@@ -118,23 +119,35 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     if (this.genreCatalog) return this.genreCatalog;
     const names = new Map<string, string>();
     const options: OptionItem[] = [];
-    try {
-      const genres = await fetchJson<GenreDto[]>([GENRE_PATH]);
-      for (const genre of genres) {
-        if (!genre.id || !genre.genre_name) continue;
-        names.set(genre.id, genre.genre_name);
-        // The `format` axis duplicates the series' own format field; keep the
-        // filter list to the genre/theme/demographic axes readers browse by.
-        if ((genre.genre_type ?? "genre").toLowerCase() !== "format") {
-          options.push({ id: genre.id, value: genre.genre_name });
+    let anySucceeded = false;
+
+    // Merge every taxonomy list that answers; series reference both `genres`
+    // and `tags` by UUID, so a wider name map only improves tag resolution.
+    for (const path of TAXONOMY_PATHS) {
+      try {
+        const entries = await fetchJson<GenreDto[]>(path.split("/"));
+        anySucceeded = true;
+        for (const entry of entries) {
+          const name = entry.genre_name ?? entry.tag_name ?? entry.name;
+          if (!entry.id || !name) continue;
+          names.set(entry.id, name);
+          // Only genre-taxonomy axes belong in the filter UI, and `format`
+          // duplicates the series' own format field.
+          const axis = entry.genre_type?.toLowerCase();
+          if (axis && axis !== "format") {
+            options.push({ id: entry.id, value: name });
+          }
         }
+      } catch (error) {
+        if (error instanceof CloudflareError) throw error;
+        // A missing candidate path costs nothing; keep merging the rest.
       }
-      options.sort((a, b) => a.value.localeCompare(b.value));
-    } catch (error) {
-      if (error instanceof CloudflareError) throw error;
-      // A failed taxonomy fetch just means unnamed genres; don't cache it.
-      return { names, options };
     }
+    options.sort((a, b) => a.value.localeCompare(b.value));
+
+    // Only cache a round where at least one list answered, so a cold start
+    // behind a challenge retries next call instead of pinning an empty map.
+    if (!anySucceeded) return { names, options };
     this.genreCatalog = { names, options };
     return this.genreCatalog;
   }
@@ -171,10 +184,13 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
 
     const apiUrl = getApiUrl();
     const page = metadata?.page ?? 0;
-    const response = await fetchJson<SeriesPageDto>([SEARCH_PATH], {
-      page,
-      size: SERIES_PAGE_SIZE,
-    });
+    // The browse feed is the search endpoint with an empty filter body
+    // (POST search/series?page=&size=, newest-first — captured transport).
+    const response = await fetchJson<SeriesPageDto>(
+      SEARCH_PATH.split("/"),
+      { page, size: SERIES_PAGE_SIZE },
+      {} satisfies SearchBody,
+    );
     const series = response.content ?? [];
 
     let items =
@@ -214,14 +230,18 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     const term = (query.title ?? "").trim();
     const genres = query.metadata?.genres ?? [];
 
-    const response = await fetchJson<SeriesPageDto>([SEARCH_PATH], {
-      page,
-      size: SERIES_PAGE_SIZE,
-      query: term.length > 0 ? term : undefined,
-      // INFERRED filter param — if genre browsing returns unfiltered results,
-      // this key is what needs correcting.
-      genres: genres.length > 0 ? genres.join(",") : undefined,
-    });
+    // Captured transport: POST with the filters as a JSON body (`title` is the
+    // confirmed text key; `genres` is the inferred filter key — if genre
+    // browsing comes back unfiltered, that body key is what needs correcting).
+    const body: SearchBody = {};
+    if (term.length > 0) body.title = term;
+    if (genres.length > 0) body.genres = genres;
+
+    const response = await fetchJson<SeriesPageDto>(
+      SEARCH_PATH.split("/"),
+      { page, size: SERIES_PAGE_SIZE },
+      body,
+    );
     const series = response.content ?? [];
 
     const items = series
