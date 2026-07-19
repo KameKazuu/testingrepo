@@ -142,6 +142,12 @@ function shouldRetryPageRequest(request: Request, response: Response, data: Arra
   if (response.status === 401 || response.status === 403 || response.status === 507) {
     return true;
   }
+  // A successful page load never needs a retry. Skip the body scan on 2xx —
+  // stringifying every multi-megabyte page image to regex-check it stalls the
+  // reader's prefetch for nothing (image loads run through this interceptor).
+  if (response.status >= 200 && response.status < 300) {
+    return false;
+  }
 
   const text = Application.arrayBufferToUTF8String(data);
   if (typeof text !== "string") {
