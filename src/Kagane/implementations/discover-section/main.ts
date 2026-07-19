@@ -166,7 +166,7 @@ function genreChips(metadata: KaganeMetadata): PagedResults<DiscoverSectionItem>
   return { items };
 }
 
-// Trending chips (Today / This Week / This Month / All Time) → a sorted search.
+// Trending chips (Today / This Week / This Month) → a sorted search.
 function rangeChips(): PagedResults<DiscoverSectionItem> {
   const items = RANGE_OPTIONS.map(
     (range): DiscoverSectionItem => ({

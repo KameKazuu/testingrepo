@@ -3,7 +3,7 @@
 
 import type { DiscoverSectionItem } from "@paperback/types";
 
-import type { DetailsDto, KaganeMetadata, KaganeSearchBook } from "../shared/models";
+import type { DetailsDto, KaganeMetadata, KaganeSearchBook, LatestChapter } from "../shared/models";
 import {
   buildImageUrl,
   formatViews,
@@ -89,8 +89,18 @@ export function mapFeaturedItem(
   };
 }
 
-// Latest updates card — carries the newest chapter, so it renders as a proper
-// update entry with a star-rating subtitle and a publish date.
+// The newest chapter's label ("Vol.1 Ch.3" / "Ch. 27").
+function chapterLabel(latest: LatestChapter): string | undefined {
+  const chapter = latest.chapter_no?.trim();
+  const volume = latest.volume_no?.trim();
+  if (chapter) return volume ? `Vol.${volume} Ch.${chapter}` : `Ch. ${chapter}`;
+  if (volume) return `Volume ${volume}`;
+  return latest.title?.trim() || undefined;
+}
+
+// Latest updates card — like the reference latest feed: the subtitle carries
+// the star rating and the newest chapter ("★ 8.6 · Ch. 27") and the publish
+// time renders as the relative date.
 export function mapLatestItem(
   book: KaganeSearchBook,
   detail: DetailsDto | undefined,
@@ -98,6 +108,9 @@ export function mapLatestItem(
 ): DiscoverSectionItem {
   const latest = book.latest_chapters?.[0];
   if (!latest?.book_id) return mapSimpleItem(book, detail, metadata);
+  const subtitle = [detailRating(detail), chapterLabel(latest)]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
   return {
     type: "chapterUpdatesCarouselItem",
     mangaId: book.series_id,
@@ -105,7 +118,7 @@ export function mapLatestItem(
     title: book.title.trim(),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
-    subtitle: ratingOrDescriptor(book, detail, metadata),
+    subtitle: subtitle || undefined,
     publishDate: parseKaganeDate(latest.available_at ?? latest.created_at),
   };
 }

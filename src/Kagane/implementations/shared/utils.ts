@@ -79,16 +79,27 @@ export function formatViews(views?: number | null): string | undefined {
   return String(views);
 }
 
-// The API rates titles out of 100; show it as a starred /10 score ("★ 8.6").
+// The API rates titles out of 100. Discover cards show a starred /10 score
+// ("★ 8.6"); the details page shows the raw percentage ("88%").
 export function starRating(percent?: number | null): string | undefined {
   if (typeof percent !== "number" || percent <= 0) return undefined;
   return `★ ${(percent / 10).toFixed(1)}`;
 }
 
+export function percentRating(percent?: number | null): string | undefined {
+  if (typeof percent !== "number" || percent <= 0) return undefined;
+  return `${Math.round(percent)}%`;
+}
+
 export function parseKaganeDate(value?: string | null): Date | undefined {
   if (!value) return undefined;
 
-  const parsed = new Date(value.endsWith("Z") ? value : `${value}Z`);
+  // Timestamps come either ISO with an offset ("…+00:00") or as a bare
+  // "yyyy-MM-dd HH:mm:ss" in UTC. Only append Z when no zone is present —
+  // appending it to an offset string yields an invalid date.
+  const iso = value.includes("T") ? value : value.replace(" ", "T");
+  const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
+  const parsed = new Date(hasZone ? iso : `${iso}Z`);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
