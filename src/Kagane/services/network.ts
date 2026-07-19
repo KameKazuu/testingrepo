@@ -323,6 +323,21 @@ export async function getKaganeMetadata(): Promise<KaganeMetadata> {
   return metadata;
 }
 
+// The last metadata we cached, ignoring the freshness window. Used as a
+// fallback so UI that needs the genre taxonomy (e.g. the settings form) can
+// still populate when a live refresh fails.
+export function readCachedMetadata(): KaganeMetadata | undefined {
+  const cached = Application.getState(METADATA_CACHE_KEY);
+  if (typeof cached === "string" && cached) {
+    try {
+      return JSON.parse(cached) as KaganeMetadata;
+    } catch {
+      // Corrupt cache — ignore.
+    }
+  }
+  return undefined;
+}
+
 // The tag taxonomy is thousands of entries, so it is fetched lazily — only when
 // a tag search is actually run — and cached for a day. Returns a lower-cased
 // name → UUID map so tag names can be resolved to the ids the search expects.

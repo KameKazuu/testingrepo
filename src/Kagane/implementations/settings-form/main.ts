@@ -2,8 +2,9 @@
 /* Copyright © 2026 Inkdex */
 
 import type { Form, SettingsFormProviding } from "@paperback/types";
+import { CloudflareError } from "@paperback/types";
 
-import { getKaganeMetadata } from "../../services/network";
+import { getKaganeMetadata, readCachedMetadata } from "../../services/network";
 import {
   CHAPTER_TITLE_MODE_KEY,
   CHAPTER_TITLE_MODE_OPTIONS,
@@ -18,8 +19,15 @@ import {
   SOURCE_DISPLAY_MODE_KEY,
   type KaganeContentRating,
 } from "../shared/models";
+import type { KaganeMetadata } from "../shared/models";
 import { normalizeContentRating } from "../shared/utils";
 import { KaganeSettingsForm } from "./forms";
+
+function toGenreOptions(metadata: KaganeMetadata): { id: string; title: string }[] {
+  return Object.entries(metadata.genres)
+    .map(([id, title]) => ({ id, title }))
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
 
 function readStringArray(key: string, fallback: string[], validIds?: Set<string>): string[] {
   const value = Application.getState(key);
@@ -136,16 +144,17 @@ export function setContentLanguages(value: string[]): void {
 export class SettingsFormProvider implements SettingsFormProviding {
   async getSettingsForm(): Promise<Form> {
     // Excluded-genre options come from the live taxonomy (id = UUID) so the
-    // SelectRow ids are always valid; fall back to an empty list if the
-    // metadata can't be fetched.
+    // SelectRow ids are always valid.
     let genreOptions: { id: string; title: string }[] = [];
     try {
-      const metadata = await getKaganeMetadata();
-      genreOptions = Object.entries(metadata.genres)
-        .map(([id, title]) => ({ id, title }))
-        .sort((left, right) => left.title.localeCompare(right.title));
-    } catch {
-      genreOptions = [];
+      genreOptions = toGenreOptions(await getKaganeMetadata());
+    } catch (error) {
+      // A challenge must surface so the app can raise the bypass — swallowing
+      // it here is what left the picker empty. For any other failure, fall
+      // back to the last cached taxonomy rather than showing nothing.
+      if (error instanceof CloudflareError) throw error;
+      const cached = readCachedMetadata();
+      genreOptions = cached ? toGenreOptions(cached) : [];
     }
     return new KaganeSettingsForm(genreOptions);
   }
