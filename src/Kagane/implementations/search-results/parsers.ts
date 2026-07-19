@@ -61,7 +61,11 @@ export function parseTagInput(input: string): { included: string[]; excluded: st
   return { included, excluded };
 }
 
-export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string): SearchFilter[] {
+export function buildSearchFilters(
+  metadata: KaganeMetadata,
+  displayMode: string,
+  tagOptions: Array<{ id: string; value: string }> = [],
+): SearchFilter[] {
   const sources = getVisibleSources(metadata.sources, displayMode);
 
   return [
@@ -156,10 +160,26 @@ export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string
       allowEmptySelection: true,
       maximum: undefined,
     },
+    // The full browsable tag taxonomy (skipped when it couldn't be fetched —
+    // the typed input below still works).
+    ...(tagOptions.length > 0
+      ? ([
+          {
+            type: "multiselect",
+            id: "tags",
+            title: "Tags",
+            options: tagOptions,
+            value: {},
+            allowExclusion: true,
+            allowEmptySelection: true,
+            maximum: undefined,
+          },
+        ] satisfies SearchFilter[])
+      : []),
     {
       type: "input",
-      id: "tags",
-      title: "Tags",
+      id: "tags_text",
+      title: "Tags (typed)",
       placeholder: "romance, -gore",
       value: "",
     },
@@ -168,8 +188,8 @@ export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string
       id: "tags_match_all",
       title: "Tag Matching",
       options: [
-        { id: "true", value: "Match All Entered Tags" },
-        { id: "false", value: "Match Any Entered Tag" },
+        { id: "true", value: "Match All Selected Tags" },
+        { id: "false", value: "Match Any Selected Tag" },
       ],
       value: "true",
     },

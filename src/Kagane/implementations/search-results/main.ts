@@ -15,7 +15,13 @@ import {
   type SearchFilterValue,
 } from "@paperback/types/lib/compat/0.8";
 
-import { apiHeaders, fetchJSON, getKaganeMetadata, getKaganeTags } from "../../services/network";
+import {
+  apiHeaders,
+  fetchJSON,
+  getKaganeMetadata,
+  getKaganeTagEntries,
+  getKaganeTags,
+} from "../../services/network";
 import {
   getContentLanguages,
   getContentRatingSetting,
@@ -47,7 +53,17 @@ import {
 export class SearchProvider {
   async getSearchFilters(): Promise<SearchFilter[]> {
     const metadata = await getKaganeMetadata();
-    return buildSearchFilters(metadata, getSourceDisplayMode());
+    // The full tag taxonomy renders as a browsable multiselect. If it can't be
+    // fetched, the sheet still opens — typed tags keep working via the input.
+    let tagOptions: Array<{ id: string; value: string }> = [];
+    try {
+      tagOptions = (await getKaganeTagEntries())
+        .map((tag) => ({ id: tag.id, value: tag.tag_name }))
+        .sort((left, right) => left.value.localeCompare(right.value));
+    } catch {
+      tagOptions = [];
+    }
+    return buildSearchFilters(metadata, getSourceDisplayMode(), tagOptions);
   }
 
   getAdvancedSearchForm(query: SearchQuery<SearchFilterValue[]>) {
@@ -177,17 +193,21 @@ export async function buildSearchBody(
     );
   }
 
-  // Excluded tags come from three places: the search input's "-tag" entries,
-  // the preset hide-categories (already UUIDs), and the custom hidden tag
-  // names. The search expects tag UUIDs, so names are resolved through the
-  // taxonomy (case-insensitive) — fetched lazily only when names are present.
-  const tags = parseTagInput(readInputFilter(filters, "tags"));
+  // Tags come from several places: the browsable multiselect (UUIDs, both
+  // states), the typed input's "-tag" entries, the preset hide-categories
+  // (already UUIDs), and the custom hidden tag names. Names are resolved
+  // through the taxonomy (case-insensitive) — fetched lazily only when names
+  // are present.
+  const tags = parseTagInput(readInputFilter(filters, "tags_text"));
   const customHiddenNames = getCustomHiddenTags();
-  let includedTags: string[] = [];
-  const excludedTags = [...getHiddenTagCategoryIds()];
+  const includedTags = [...readMultiselectFilter(filters, "tags")];
+  const excludedTags = [
+    ...readMultiselectFilter(filters, "tags", "excluded"),
+    ...getHiddenTagCategoryIds(),
+  ];
   if (tags.included.length > 0 || tags.excluded.length > 0 || customHiddenNames.length > 0) {
     const tagIds = await getKaganeTags();
-    includedTags = resolveTagIds(tags.included, tagIds);
+    includedTags.push(...resolveTagIds(tags.included, tagIds));
     excludedTags.push(
       ...resolveTagIds(tags.excluded, tagIds),
       ...resolveTagIds(customHiddenNames, tagIds),

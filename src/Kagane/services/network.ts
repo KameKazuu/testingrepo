@@ -355,16 +355,15 @@ export function readCachedMetadata(): KaganeMetadata | undefined {
   return undefined;
 }
 
-// The tag taxonomy is thousands of entries, so it is fetched lazily — only when
-// a tag search is actually run — and cached for a day. Returns a lower-cased
-// name → UUID map so tag names can be resolved to the ids the search expects.
-export async function getKaganeTags(): Promise<Record<string, string>> {
+// The tag taxonomy is thousands of entries, so it is fetched lazily — when a
+// tag search runs or the filter sheet opens — and cached for a day.
+export async function getKaganeTagEntries(): Promise<TagDto[]> {
   const cacheDate = Number(Application.getState(TAGS_CACHE_DATE_KEY) ?? 0);
   const cached = Application.getState(TAGS_CACHE_KEY);
 
   if (typeof cached === "string" && cacheDate + METADATA_CACHE_TTL_SECONDS > Date.now() / 1000) {
     try {
-      return JSON.parse(cached) as Record<string, string>;
+      return JSON.parse(cached) as TagDto[];
     } catch {
       Application.setState("", TAGS_CACHE_KEY);
       Application.setState("0", TAGS_CACHE_DATE_KEY);
@@ -376,16 +375,23 @@ export async function getKaganeTags(): Promise<Record<string, string>> {
     method: "GET",
     headers: apiHeaders(),
   });
+  const entries = tags
+    .filter((tag) => Boolean(tag.id && tag.tag_name))
+    .map((tag) => ({ id: tag.id, tag_name: tag.tag_name }));
 
-  const map: Record<string, string> = {};
-  for (const tag of tags) {
-    if (tag.tag_name && tag.id) {
-      map[tag.tag_name.toLowerCase()] = tag.id;
-    }
-  }
-
-  Application.setState(JSON.stringify(map), TAGS_CACHE_KEY);
+  Application.setState(JSON.stringify(entries), TAGS_CACHE_KEY);
   Application.setState(String(Date.now() / 1000), TAGS_CACHE_DATE_KEY);
 
+  return entries;
+}
+
+// Lower-cased name → UUID map for resolving typed tag names to the ids the
+// search expects.
+export async function getKaganeTags(): Promise<Record<string, string>> {
+  const entries = await getKaganeTagEntries();
+  const map: Record<string, string> = {};
+  for (const tag of entries) {
+    map[tag.tag_name.toLowerCase()] = tag.id;
+  }
   return map;
 }
