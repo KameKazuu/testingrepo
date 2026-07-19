@@ -25,8 +25,8 @@ const ENRICH_LIMIT = 15;
 
 const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "popular", title: "Popular", type: DiscoverSectionType.featured },
-  { id: "latest", title: "Latest Updates", type: DiscoverSectionType.chapterUpdates },
   { id: "trending", title: "Trending", type: DiscoverSectionType.genres },
+  { id: "latest", title: "Latest Updates", type: DiscoverSectionType.chapterUpdates },
   { id: "recently_added", title: "Recently Added", type: DiscoverSectionType.simpleCarousel },
   { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
 ];

@@ -21,6 +21,19 @@ import {
   type SourcesDto,
 } from "../implementations/shared/models";
 
+// Single-flight Cloudflare gate. On a cold discover load several sections are
+// challenged at once; without this each would open its own bypass WebView. The
+// first challenged request opens one; the rest wait for it and retry on the
+// resulting clearance. Released by cloudflareBypassCompleted (see main.ts).
+let bypassGate: Promise<void> | undefined;
+let releaseBypassGate: (() => void) | undefined;
+
+export function completeBypassGate(): void {
+  releaseBypassGate?.();
+  bypassGate = undefined;
+  releaseBypassGate = undefined;
+}
+
 export class KaganeInterceptor extends PaperbackInterceptor {
   async interceptRequest(request: Request): Promise<Request> {
     return {
@@ -40,6 +53,22 @@ export class KaganeInterceptor extends PaperbackInterceptor {
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
     if (await isCloudflareChallenge(request, response, data)) {
+      // A bypass is already running for a sibling request — wait for it
+      // (bounded) and retry on the fresh clearance rather than opening a
+      // second WebView.
+      if (bypassGate) {
+        await Promise.race([bypassGate, Application.sleep(20)]);
+        const [, retryData] = await Application.scheduleRequest({
+          ...request,
+          method: request.method ?? "GET",
+        });
+        return retryData;
+      }
+
+      // First to hit the challenge: open the gate, then raise the bypass.
+      bypassGate = new Promise<void>((resolve) => {
+        releaseBypassGate = resolve;
+      });
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",

@@ -52,7 +52,7 @@ export function parseMangaDetails(
       synopsis: buildSynopsis(data, sourceName),
       author: joinUnique(authors),
       artist: joinUnique(artists),
-      status: mapPublicationStatus(data.upload_status),
+      status: mapPublicationStatus(data.publication_status ?? data.upload_status),
       contentRating: getPaperbackContentRating(options.contentRating),
       tagGroups,
       shareUrl: `${BASE_URL}/series/${mangaId}`,
@@ -115,7 +115,7 @@ function buildTagGroups(data: DetailsDto): TagSection[] {
   }));
 
   const rating = percentRating(data.average_rating ?? data.bayesian_rating);
-  const ratingTags = rating ? [{ id: "rating", title: rating }] : [];
+  const ratingTags = rating ? [{ id: "rating", title: `★ ${rating}` }] : [];
 
   return [
     ...(ratingTags.length > 0
