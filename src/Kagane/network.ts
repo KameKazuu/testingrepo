@@ -110,6 +110,7 @@ export async function fetchJson<T>(
   segments: (string | number)[],
   query: Record<string, string | number | undefined> = {},
   body?: unknown,
+  headers: Record<string, string> = {},
 ): Promise<T> {
   const builder = new URL(getApiUrl());
   for (const segment of segments) {
@@ -123,11 +124,11 @@ export async function fetchJson<T>(
 
   const [response, buffer] = await Application.scheduleRequest(
     body === undefined
-      ? { url, method: "GET" }
+      ? { url, method: "GET", headers }
       : {
           url,
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...headers },
           body: JSON.stringify(body),
         },
   );

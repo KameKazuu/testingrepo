@@ -33,6 +33,7 @@ import {
   type GenreDto,
   type Metadata,
   type OptionItem,
+  type IntegrityDto,
   type ReaderDto,
   type SearchBody,
   type SearchMetadata,
@@ -72,6 +73,10 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
   // Genre taxonomy for the genres carousel and the advanced-search filter,
   // fetched once per session (details carry their own named genres).
   private genreOptions: OptionItem[] | undefined;
+
+  // Short-lived integrity token the book/reader endpoint requires.
+  private integrityToken = "";
+  private integrityExp = 0;
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -284,13 +289,17 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const dataSaver = getDataSaver();
-    // The reader payload is a POST (a GET 404s); data saver rides as a query
-    // param and again as a path segment on each resulting image URL.
-    const reader = await fetchJson<ReaderDto>(
-      [BOOKS_PATH, chapter.chapterId],
-      { is_datasaver: dataSaver ? "true" : "false" },
-      {},
-    );
+    // The reader payload is a POST gated by a short-lived integrity token; data
+    // saver rides as a query param and again as a segment on each image URL.
+    // On a 401 the token has lapsed — refresh once and retry.
+    let reader: ReaderDto;
+    try {
+      reader = await this.fetchReader(chapter.chapterId, dataSaver);
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+      this.integrityExp = 0;
+      reader = await this.fetchReader(chapter.chapterId, dataSaver);
+    }
     if (!reader.access_token || !reader.cache_url) {
       throw new Error(`No reader payload returned for chapter ${chapter.chapterId}.`);
     }
@@ -299,6 +308,40 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
       mangaId: chapter.sourceManga.mangaId,
       pages: parseReaderPages(reader, chapter.chapterId, dataSaver),
     };
+  }
+
+  private async fetchReader(bookId: string, dataSaver: boolean): Promise<ReaderDto> {
+    const token = await this.getIntegrityToken();
+    return fetchJson<ReaderDto>(
+      [BOOKS_PATH, bookId],
+      { is_datasaver: dataSaver ? "true" : "false" },
+      {},
+      { "x-integrity-token": token },
+    );
+  }
+
+  // The book endpoint answers 401 "Integrity token is required" without a valid
+  // token. It is minted at {domain}/api/integrity (POST, empty body) after a
+  // warm-up GET of the homepage, and cached until its `exp`.
+  private async getIntegrityToken(): Promise<string> {
+    if (this.integrityToken && this.integrityExp > Date.now()) return this.integrityToken;
+
+    const domain = getDomain();
+    await Application.scheduleRequest({ url: `${domain}/`, method: "GET" });
+    const [response, buffer] = await Application.scheduleRequest({
+      url: `${domain}/api/integrity`,
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "",
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`Integrity token request failed with status ${response.status}.`);
+    }
+    const dto = JSON.parse(Application.arrayBufferToUTF8String(buffer)) as IntegrityDto;
+    if (!dto.token) throw new Error("Integrity token response was empty.");
+    this.integrityToken = dto.token;
+    this.integrityExp = (dto.exp ?? 0) * 1000;
+    return this.integrityToken;
   }
 }
 

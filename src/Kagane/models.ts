@@ -172,6 +172,13 @@ export interface StaffDto {
   role?: string | null;
 }
 
+/** POST {domain}/api/integrity response — a short-lived token gate for books. */
+export interface IntegrityDto {
+  token: string;
+  /** Expiry in seconds since epoch. */
+  exp?: number | null;
+}
+
 /** `books/{id}` reader payload. CONFIRMED shape. */
 export interface ReaderDto {
   /** JWT bound to the book; passed as `?token=` on every page image. */
