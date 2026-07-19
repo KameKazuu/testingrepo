@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { ContentRating, SourceIntents, type ExtensionInfo } from "@paperback/types";
+import type { ExtensionInfo } from "@paperback/types";
+import { ContentRating, SourceIntents } from "@paperback/types";
 
 export default {
   name: "Kagane",
   description: "Extension that pulls content from kagane.to.",
-  version: "1.0.0-alpha.9",
+  version: "1.0.0-alpha.10",
   icon: "icon.png",
   language: "en",
   contentRating: ContentRating.MATURE,
