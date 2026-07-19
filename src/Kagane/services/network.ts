@@ -21,18 +21,14 @@ import {
   type SourcesDto,
 } from "../implementations/shared/models";
 
-// Single-flight Cloudflare gate. On a cold discover load several sections are
-// challenged at once; without this each would open its own bypass WebView. The
-// first challenged request opens one; the rest wait for it and retry on the
-// resulting clearance. Released by cloudflareBypassCompleted (see main.ts).
-let bypassGate: Promise<void> | undefined;
-let releaseBypassGate: (() => void) | undefined;
-
-export function completeBypassGate(): void {
-  releaseBypassGate?.();
-  bypassGate = undefined;
-  releaseBypassGate = undefined;
-}
+// De-duplicates the Cloudflare bypass on a cold load without ever suppressing
+// it: the first challenged request raises the WebView and stamps the time;
+// sibling requests challenged within a short window after it wait briefly and
+// retry on the resulting clearance instead of opening a second WebView. Purely
+// time-based, so it can never get stuck (a promise gate could leak and then
+// silently swallow every future challenge).
+let lastBypassAt = 0;
+const BYPASS_WINDOW_MS = 12000;
 
 export class KaganeInterceptor extends PaperbackInterceptor {
   async interceptRequest(request: Request): Promise<Request> {
@@ -53,11 +49,12 @@ export class KaganeInterceptor extends PaperbackInterceptor {
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
     if (await isCloudflareChallenge(request, response, data)) {
-      // A bypass is already running for a sibling request — wait for it
-      // (bounded) and retry on the fresh clearance rather than opening a
-      // second WebView.
-      if (bypassGate) {
-        await Promise.race([bypassGate, Application.sleep(20)]);
+      const now = Date.now();
+      // A sibling request raised the bypass moments ago — give the WebView a
+      // beat to finish, then retry on the fresh clearance rather than opening
+      // a second one.
+      if (now - lastBypassAt < BYPASS_WINDOW_MS) {
+        await Application.sleep(3);
         const [, retryData] = await Application.scheduleRequest({
           ...request,
           method: request.method ?? "GET",
@@ -65,10 +62,9 @@ export class KaganeInterceptor extends PaperbackInterceptor {
         return retryData;
       }
 
-      // First to hit the challenge: open the gate, then raise the bypass.
-      bypassGate = new Promise<void>((resolve) => {
-        releaseBypassGate = resolve;
-      });
+      // First to hit the challenge in this window: stamp the time and raise
+      // the bypass.
+      lastBypassAt = now;
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",

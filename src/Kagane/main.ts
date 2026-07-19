@@ -10,7 +10,7 @@ import { MangaProvider } from "./implementations/manga/main";
 import { SearchProvider } from "./implementations/search-results/main";
 import { SettingsFormProvider } from "./implementations/settings-form/main";
 import { applyMixins } from "./implementations/shared/utils";
-import { completeBypassGate, KaganeInterceptor } from "./services/network";
+import { KaganeInterceptor } from "./services/network";
 
 export interface KaganeImplementation
   extends SearchProvider, MangaProvider, ChapterProvider, DiscoverProvider, SettingsFormProvider {}
@@ -50,9 +50,6 @@ export class KaganeExtension implements Omit<Extension, keyof MangaProviding> {
         this.cookieStorageInterceptor.setCookie(cookie);
       }
     }
-    // Release any sibling requests waiting on this bypass so they retry on the
-    // fresh clearance instead of opening another WebView.
-    completeBypassGate();
   }
 }
 
