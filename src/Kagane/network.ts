@@ -10,7 +10,6 @@ import {
 } from "@paperback/types";
 
 import { getApiUrl, getDomain } from "./forms/settings";
-import { USER_AGENT } from "./models";
 
 const IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|gif|avif|bmp|jxl)(\?|#|$)/i;
 
@@ -63,7 +62,12 @@ export class KaganeInterceptor extends PaperbackInterceptor {
     const headers: Record<string, string> = {
       ...request.headers,
       referer: `${domain}/`,
-      "user-agent": USER_AGENT,
+      // Use the device's real UA — the exact one the Cloudflare-bypass WebView
+      // uses to earn cf_clearance. A hardcoded (esp. Chrome) UA that differs
+      // from it invalidates the clearance, and Cloudflare then expects the
+      // Sec-CH-UA client hints real Chrome always sends, re-challenging every
+      // request in an endless loop.
+      "user-agent": await Application.getDefaultUserAgent(),
       accept,
       "accept-language": "en-US,en;q=0.9",
     };
@@ -88,7 +92,7 @@ export class KaganeInterceptor extends PaperbackInterceptor {
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",
-        headers: { "user-agent": USER_AGENT },
+        headers: { "user-agent": await Application.getDefaultUserAgent() },
       });
     }
     return data;

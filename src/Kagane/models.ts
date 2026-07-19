@@ -24,12 +24,9 @@ export const BASE_URL_KEY = "kagane.baseUrlOverride";
 export const API_URL_KEY = "kagane.apiUrlOverride";
 export const DATA_SAVER_KEY = "kagane.dataSaver";
 
-// One UA for every request class (API, images, WebView, and the Cloudflare
-// bypass) — cf_clearance cookies are bound to the exact UA string, so mixing
-// agents invalidates a solved challenge.
-export const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-  "Chrome/138.0.0.0 Safari/537.36";
+// The extension pins no User-Agent: every request uses the device's own UA
+// (Application.getDefaultUserAgent) so it matches the Cloudflare-bypass
+// WebView. cf_clearance is UA-bound, so a mismatched UA loops the challenge.
 
 // Series listing page size (Spring-Data `content` envelope; `page` is 0-based).
 export const SERIES_PAGE_SIZE = 30;
