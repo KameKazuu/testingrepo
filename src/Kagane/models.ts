@@ -54,10 +54,10 @@ export const SERIES_PATH = "series";
 export const BOOKS_PATH = "books";
 /**
  * Taxonomy lists. `tags/list` is CONFIRMED (the search page loads it for its
- * filter UI); `genre/list` mirrors it for the genres axis. Every fetch is
+ * filter UI); `genres/list` mirrors it for the genres axis. Every fetch is
  * failure-tolerant and merged, so a wrong candidate costs nothing.
  */
-export const TAXONOMY_PATHS = ["genre/list", "tags/list"] as const;
+export const TAXONOMY_PATHS = ["genres/list", "tags/list"] as const;
 
 /** JSON body for POST search/series (only the fields this extension sends). */
 export interface SearchBody extends JSONObject {

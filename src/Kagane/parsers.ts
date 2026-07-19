@@ -165,12 +165,16 @@ export function parseMangaDetails(
     ),
   ];
 
+  // Paperback rejects an empty thumbnail URL outright (it crashes the whole
+  // details page), so fall back to the site icon when a cover is missing.
+  const thumbnailUrl = buildCoverUrl(apiUrl, series.cover_image_id) || `${domain}/favicon.ico`;
+
   return {
     mangaId: series.series_id,
     mangaInfo: {
       primaryTitle: Application.decodeHTMLEntities(series.title),
       secondaryTitles,
-      thumbnailUrl: buildCoverUrl(apiUrl, series.cover_image_id),
+      thumbnailUrl,
       synopsis: Application.decodeHTMLEntities((series.description ?? "").trim()),
       status: mapStatus(series.publication_status),
       contentRating: mapContentRating(series.content_rating),
