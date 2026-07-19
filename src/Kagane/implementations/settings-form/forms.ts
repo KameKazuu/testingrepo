@@ -24,6 +24,7 @@ import {
   getContentRatingSetting,
   getDataSaver,
   getExcludedGenres,
+  getPreloadPages,
   getShowEdition,
   getShowSource,
   getSourceDisplayMode,
@@ -32,6 +33,7 @@ import {
   setContentRatingSetting,
   setDataSaver,
   setExcludedGenres,
+  setPreloadPages,
   setShowEdition,
   setShowSource,
   setSourceDisplayMode,
@@ -61,7 +63,7 @@ export class KaganeSettingsForm extends Form {
         ],
       ),
       Section("display", [this.showEditionRow(), this.showSourceRow(), this.chapterTitleModeRow()]),
-      Section("reader", [this.dataSaverRow()]),
+      Section("reader", [this.preloadPagesRow(), this.dataSaverRow()]),
     ];
   }
 
@@ -150,6 +152,16 @@ export class KaganeSettingsForm extends Form {
     return SelectRow("chapter-title-mode", props);
   }
 
+  preloadPagesRow(): FormItemElement<unknown> {
+    const props: ToggleRowProps = {
+      title: "Preload Pages",
+      value: getPreloadPages(),
+      onValueChange: Application.Selector(this as KaganeSettingsForm, "handlePreloadPages"),
+    };
+
+    return ToggleRow("preload-pages", props);
+  }
+
   dataSaverRow(): FormItemElement<unknown> {
     const props: ToggleRowProps = {
       title: "Data Saver",
@@ -196,6 +208,11 @@ export class KaganeSettingsForm extends Form {
 
   async handleChapterTitleMode(value: string[]): Promise<void> {
     setChapterTitleMode(value[0] ?? "optional");
+    this.reloadForm();
+  }
+
+  async handlePreloadPages(value: boolean): Promise<void> {
+    setPreloadPages(value);
     this.reloadForm();
   }
 

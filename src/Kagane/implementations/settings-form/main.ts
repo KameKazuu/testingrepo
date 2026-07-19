@@ -12,6 +12,7 @@ import {
   DATA_SAVER_KEY,
   EXCLUDED_GENRES_KEY,
   LANGUAGE_OPTIONS,
+  PRELOAD_PAGES_KEY,
   SHOW_EDITION_KEY,
   SHOW_SOURCE_KEY,
   SOURCE_DISPLAY_MODE_KEY,
@@ -81,6 +82,16 @@ export function getDataSaver(): boolean {
 
 export function setDataSaver(value: boolean): void {
   Application.setState(value, DATA_SAVER_KEY);
+}
+
+// Warm every page image in the background when a chapter opens so the reader
+// finds them already cached. Defaults on; turn off to save data.
+export function getPreloadPages(): boolean {
+  return (Application.getState(PRELOAD_PAGES_KEY) as boolean | undefined) ?? true;
+}
+
+export function setPreloadPages(value: boolean): void {
+  Application.setState(value, PRELOAD_PAGES_KEY);
 }
 
 export function getChapterTitleMode(): string {

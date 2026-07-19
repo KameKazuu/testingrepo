@@ -19,6 +19,7 @@ export const SOURCE_DISPLAY_MODE_KEY = "kagane-source-display-mode";
 export const SHOW_EDITION_KEY = "kagane-show-edition";
 export const SHOW_SOURCE_KEY = "kagane-show-source";
 export const DATA_SAVER_KEY = "kagane-data-saver";
+export const PRELOAD_PAGES_KEY = "kagane-preload-pages";
 export const CHAPTER_TITLE_MODE_KEY = "kagane-chapter-title-mode";
 export const EXCLUDED_GENRES_KEY = "kagane-excluded-genres";
 export const CONTENT_LANGUAGES_KEY = "kagane-content-languages";

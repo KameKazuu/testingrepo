@@ -260,6 +260,40 @@ export function browserHeaders(extra?: Record<string, string>): Record<string, s
   };
 }
 
+// Warm a chapter's page images in the background so the reader finds them
+// already cached instead of fetching each one as you turn the page. Fire-and-
+// forget: the caller does not await this, so the chapter opens immediately.
+// The images live on the cache CDN (not the same-origin API), so these never
+// touch the Cloudflare path. Bounded concurrency keeps it from bursting; any
+// failure is ignored because the reader re-requests anything that isn't warm.
+export function prefetchPages(urls: string[]): void {
+  void warmPages(urls);
+}
+
+async function warmPages(urls: string[]): Promise<void> {
+  const CONCURRENCY = 4;
+  let cursor = 0;
+
+  const worker = async (): Promise<void> => {
+    while (cursor < urls.length) {
+      const url = urls[cursor];
+      cursor += 1;
+      if (!url) continue;
+      try {
+        await Application.scheduleRequest({
+          url,
+          method: "GET",
+          headers: { accept: "image/*,*/*;q=0.8" },
+        });
+      } catch {
+        // Ignore — the reader will fetch anything that failed to warm.
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, urls.length) }, worker));
+}
+
 export async function fetchJSON<T>(request: Request): Promise<T> {
   const [response, buffer] = await Application.scheduleRequest(request);
 

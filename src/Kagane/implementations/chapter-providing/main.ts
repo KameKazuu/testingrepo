@@ -9,8 +9,14 @@ import {
   fetchJSON,
   getChallengeResponse,
   getKaganeMetadata,
+  prefetchPages,
 } from "../../services/network";
-import { getChapterTitleMode, getContentLanguages, getDataSaver } from "../settings-form/main";
+import {
+  getChapterTitleMode,
+  getContentLanguages,
+  getDataSaver,
+  getPreloadPages,
+} from "../settings-form/main";
 import {
   API_URL,
   DEFAULT_CACHE_URL,
@@ -52,6 +58,12 @@ export class ChapterProvider {
           .setQueryItem("is_datasaver", String(dataSaver))
           .toString();
       });
+
+    // Kick off background warm-ups (unless the reader turned it off) so pages
+    // are cached before they're viewed; not awaited, so the chapter opens now.
+    if (getPreloadPages()) {
+      prefetchPages(pages);
+    }
 
     return {
       id: chapterId,
