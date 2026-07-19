@@ -192,12 +192,37 @@ export interface KaganeSearchBook {
   start_year?: number | null;
   cover_image_id?: string | null;
   alternate_titles?: string[];
+  content_rating?: string | null;
+  format?: string | null;
+  publication_status?: string | null;
+  translated_language?: string | null;
+  /** Genre taxonomy UUIDs; resolved to names via KaganeMetadata.genres. */
+  genres?: string[];
+  latest_chapters?: LatestChapter[];
 }
+
+export interface LatestChapter {
+  book_id: string;
+  title?: string | null;
+  chapter_no?: string | null;
+  volume_no?: string | null;
+  created_at?: string | null;
+  available_at?: string | null;
+}
+
+/** Trending time windows for the ranged discover chips. */
+export const RANGE_OPTIONS = [
+  { id: "avg_views_today,desc", title: "Today" },
+  { id: "avg_views_week,desc", title: "This Week" },
+  { id: "avg_views_month,desc", title: "This Month" },
+  { id: "total_views,desc", title: "All Time" },
+];
 
 export interface DetailsDto {
   title: string;
   description?: string | null;
   upload_status: string;
+  publication_status?: string | null;
   format?: string | null;
   source_id?: string | null;
   series_staff?: SeriesStaff[];
@@ -208,6 +233,9 @@ export interface DetailsDto {
   edition_info?: string | null;
   tracker_id?: string | null;
   series_covers?: SeriesCover[];
+  average_rating?: number | null;
+  bayesian_rating?: number | null;
+  total_views?: number | null;
 }
 
 export interface SeriesStaff {

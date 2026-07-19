@@ -46,6 +46,39 @@ export function getPaperbackContentRating(maxRating: KaganeContentRating): Conte
   return ContentRating.EVERYONE;
 }
 
+// A single title's own rating string ("Safe" / "Suggestive" / …) → Paperback.
+export function mapItemContentRating(value?: string | null): ContentRating {
+  switch ((value ?? "").toLowerCase()) {
+    case "pornographic":
+      return ContentRating.ADULT;
+    case "erotica":
+    case "suggestive":
+      return ContentRating.MATURE;
+    default:
+      return ContentRating.EVERYONE;
+  }
+}
+
+// Resolve a series' genre UUIDs to display names via the metadata map.
+export function resolveGenreNames(
+  genreIds: string[] | undefined,
+  genres: Record<string, string>,
+  max = 3,
+): string[] {
+  return (genreIds ?? [])
+    .map((id) => genres[id])
+    .filter((name): name is string => Boolean(name))
+    .slice(0, max);
+}
+
+// Compact view-count label: 12345 → "12.3K", 2100000 → "2.1M".
+export function formatViews(views?: number | null): string | undefined {
+  if (typeof views !== "number" || views <= 0) return undefined;
+  if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)}M`;
+  if (views >= 1_000) return `${(views / 1_000).toFixed(1)}K`;
+  return String(views);
+}
+
 export function parseKaganeDate(value?: string | null): Date | undefined {
   if (!value) return undefined;
 

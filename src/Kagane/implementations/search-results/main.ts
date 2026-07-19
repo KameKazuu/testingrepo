@@ -34,7 +34,6 @@ import {
 import { buildImageUrl, getContentRatingValues, getPaperbackContentRating } from "../shared/utils";
 import {
   buildSearchFilters,
-  findIdsByName,
   parseTagInput,
   readDropdownFilter,
   readInputFilter,
@@ -63,7 +62,13 @@ export class SearchProvider {
     const page = metadata?.page ?? 1;
     const kaganeMetadata = await getKaganeMetadata();
     const searchBody = buildSearchBody(query, kaganeMetadata);
-    const sort = sortingOption?.id ?? "relevance";
+    // A "range" filter (from the Trending discover chips) carries the sort to
+    // apply; otherwise use the reader's chosen sorting option.
+    const rangeEntry = (query.metadata ?? []).find((filter) => filter.id === "range");
+    const sort =
+      typeof rangeEntry?.value === "string" && rangeEntry.value
+        ? rangeEntry.value
+        : (sortingOption?.id ?? "relevance");
 
     const url = new URL(API_URL)
       .addPathComponent("api")
@@ -104,7 +109,7 @@ export class SearchProvider {
 
 export function buildSearchBody(
   query: SearchQuery<SearchFilterValue[]>,
-  metadata: KaganeMetadata,
+  _metadata: KaganeMetadata,
 ): Record<string, unknown> {
   const filters = query.metadata ?? [];
   const body: Record<string, unknown> = {
@@ -137,7 +142,7 @@ export function buildSearchBody(
   const includedGenres = readMultiselectFilter(filters, "genres");
   const excludedGenres = [
     ...readMultiselectFilter(filters, "genres", "excluded"),
-    ...findIdsByName(getExcludedGenres(), metadata.genres),
+    ...getExcludedGenres(),
   ];
   if (includedGenres.length > 0 || excludedGenres.length > 0) {
     body.genres = buildCompoundFilter(

@@ -72,14 +72,12 @@ async function isCloudflareChallenge(
   if (!request.url.startsWith(BASE_URL)) {
     return false;
   }
-  // Only the site's navigational GET requests (the reader warm-up and the
-  // detail/metadata loads that precede opening a chapter) can be solved by the
-  // bypass WebView. The browse/search XHR POSTs ride on the clearance those
-  // obtain, so raising a challenge on a POST would only spin an unsolvable
-  // loop — keep the bypass tied to the reader/navigation flow.
-  if ((request.method ?? "GET").toUpperCase() !== "GET") {
-    return false;
-  }
+  // Cloudflare challenges the browse/search POSTs as well as navigations
+  // (they come back with cf-mitigated: challenge), so every same-origin
+  // request must be able to raise the bypass — otherwise discover breaks. The
+  // managed challenge is solved in the WebView under the device User-Agent,
+  // and the resulting cf_clearance is reused across methods, so this does not
+  // loop.
   if (response.headers?.["cf-mitigated"] === "challenge") {
     return true;
   }

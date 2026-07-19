@@ -15,7 +15,6 @@ import {
 import {
   CHAPTER_TITLE_MODE_OPTIONS,
   CONTENT_RATING_OPTIONS,
-  GENRE_OPTIONS,
   LANGUAGE_OPTIONS,
   SOURCE_DISPLAY_MODE_OPTIONS,
 } from "../shared/models";
@@ -39,6 +38,13 @@ import {
 } from "./main";
 
 export class KaganeSettingsForm extends Form {
+  private genreOptions: { id: string; title: string }[];
+
+  constructor(genreOptions: { id: string; title: string }[] = []) {
+    super();
+    this.genreOptions = genreOptions;
+  }
+
   override getSections(): FormSectionElement<unknown>[] {
     return [
       Section(
@@ -101,10 +107,10 @@ export class KaganeSettingsForm extends Form {
   excludedGenresRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
       title: "Excluded Genres",
-      options: GENRE_OPTIONS.map((genre) => ({ id: genre, title: genre })),
+      options: this.genreOptions,
       value: getExcludedGenres(),
       minItemCount: 0,
-      maxItemCount: GENRE_OPTIONS.length,
+      maxItemCount: Math.max(this.genreOptions.length, 1),
       onValueChange: Application.Selector(this as KaganeSettingsForm, "handleExcludedGenres"),
     };
 

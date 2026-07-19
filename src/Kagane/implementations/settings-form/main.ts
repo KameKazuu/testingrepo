@@ -3,6 +3,7 @@
 
 import type { Form, SettingsFormProviding } from "@paperback/types";
 
+import { getKaganeMetadata } from "../../services/network";
 import {
   CHAPTER_TITLE_MODE_KEY,
   CHAPTER_TITLE_MODE_OPTIONS,
@@ -10,7 +11,6 @@ import {
   CONTENT_RATING_KEY,
   DATA_SAVER_KEY,
   EXCLUDED_GENRES_KEY,
-  GENRE_OPTIONS,
   LANGUAGE_OPTIONS,
   SHOW_EDITION_KEY,
   SHOW_SOURCE_KEY,
@@ -98,15 +98,14 @@ export function setChapterTitleMode(value: string): void {
   );
 }
 
+// Excluded genres are stored as genre taxonomy UUIDs (the option ids used by
+// the settings SelectRow), so they drop straight into the search body.
 export function getExcludedGenres(): string[] {
-  return readStringArray(EXCLUDED_GENRES_KEY, [], new Set(GENRE_OPTIONS));
+  return readStringArray(EXCLUDED_GENRES_KEY, []);
 }
 
 export function setExcludedGenres(value: string[]): void {
-  Application.setState(
-    value.filter((entry) => GENRE_OPTIONS.includes(entry)),
-    EXCLUDED_GENRES_KEY,
-  );
+  Application.setState(value, EXCLUDED_GENRES_KEY);
 }
 
 export function getContentLanguages(): string[] {
@@ -125,6 +124,18 @@ export function setContentLanguages(value: string[]): void {
 
 export class SettingsFormProvider implements SettingsFormProviding {
   async getSettingsForm(): Promise<Form> {
-    return new KaganeSettingsForm();
+    // Excluded-genre options come from the live taxonomy (id = UUID) so the
+    // SelectRow ids are always valid; fall back to an empty list if the
+    // metadata can't be fetched.
+    let genreOptions: { id: string; title: string }[] = [];
+    try {
+      const metadata = await getKaganeMetadata();
+      genreOptions = Object.entries(metadata.genres)
+        .map(([id, title]) => ({ id, title }))
+        .sort((left, right) => left.title.localeCompare(right.title));
+    } catch {
+      genreOptions = [];
+    }
+    return new KaganeSettingsForm(genreOptions);
   }
 }
