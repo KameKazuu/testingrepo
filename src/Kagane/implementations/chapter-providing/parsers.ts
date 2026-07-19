@@ -66,11 +66,11 @@ function mapChapter(
   const volume = parseChapterNumber(book.volume_no);
   const hasVolumeOnly = volume !== undefined && chapterNumber === undefined;
 
-  // Official uploads get a checkmark after the platform name in the scanlator
-  // slot ("Tappytoon ✓"), so they're distinguishable from scanlation groups.
+  // Official uploads get a star after the platform name in the scanlator
+  // slot ("Tappytoon ⭐"), so they're distinguishable from scanlation groups.
   const groupLabel =
     book.groups?.map((group) => group.title).join(", ") || officialSource?.title || undefined;
-  const version = officialSource && groupLabel ? `${groupLabel} ✓` : groupLabel;
+  const version = officialSource && groupLabel ? `${groupLabel} ⭐` : groupLabel;
 
   const chapter: Chapter = {
     chapterId: book.book_id,
