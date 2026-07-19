@@ -224,7 +224,7 @@ async function getIntegrityToken(forceRefresh = false): Promise<string> {
     return token;
   }
 
-  await Application.scheduleRequest({
+  await scheduleWithRetry({
     url: `${BASE_URL}/`,
     method: "GET",
     headers: browserHeaders(),
@@ -266,8 +266,22 @@ export function browserHeaders(extra?: Record<string, string>): Record<string, s
   };
 }
 
+// The origin sheds connections under load: pooled keep-alive sockets die
+// ("network connection lost") and new connections get refused outright. One
+// short retry absorbs those transient socket deaths. A CloudflareError must
+// pass straight through, or the bypass would never be raised.
+async function scheduleWithRetry(request: Request): Promise<[Response, ArrayBuffer]> {
+  try {
+    return await Application.scheduleRequest(request);
+  } catch (error) {
+    if (error instanceof CloudflareError) throw error;
+    await Application.sleep(1);
+    return Application.scheduleRequest(request);
+  }
+}
+
 export async function fetchJSON<T>(request: Request): Promise<T> {
-  const [response, buffer] = await Application.scheduleRequest(request);
+  const [response, buffer] = await scheduleWithRetry(request);
 
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`Request failed with status ${response.status}: ${request.url}`);
