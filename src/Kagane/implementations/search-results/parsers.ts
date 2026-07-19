@@ -5,8 +5,10 @@ import type { SearchFilter, SearchFilterValue } from "@paperback/types/lib/compa
 
 import {
   FORMAT_OPTIONS,
+  LANGUAGE_OPTIONS,
   PUBLICATION_STATUS_OPTIONS,
   RANGE_OPTIONS,
+  SOURCE_TYPE_OPTIONS,
   type KaganeMetadata,
   type SourceDto,
 } from "../shared/models";
@@ -66,16 +68,17 @@ export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string
     // The Trending discover chips carry this filter to select their sort.
     // It must be registered here — unregistered filter ids are stripped when
     // the app normalizes a chip's search query, which would leave every
-    // trending tab on the same default sort.
+    // trending tab on the same default sort. Option ids must not contain
+    // commas, so the sort string is looked up from RANGE_OPTIONS.
     {
       type: "dropdown",
       id: "range",
       title: "Trending Window",
       options: [
-        { id: "", value: "None" },
+        { id: "none", value: "None" },
         ...RANGE_OPTIONS.map((range) => ({ id: range.id, value: range.title })),
       ],
-      value: "",
+      value: "none",
     },
     {
       type: "multiselect",
@@ -96,6 +99,40 @@ export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string
       allowExclusion: false,
       allowEmptySelection: true,
       maximum: undefined,
+    },
+    {
+      type: "multiselect",
+      id: "languages",
+      title: "Language",
+      options: LANGUAGE_OPTIONS.map((language) => ({ id: language.id, value: language.title })),
+      value: {},
+      allowExclusion: false,
+      allowEmptySelection: true,
+      maximum: undefined,
+    },
+    {
+      type: "multiselect",
+      id: "source_types",
+      title: "Source Type",
+      options: SOURCE_TYPE_OPTIONS.map((type) => ({ id: type, value: type })),
+      value: {},
+      allowExclusion: false,
+      allowEmptySelection: true,
+      maximum: undefined,
+    },
+    {
+      type: "input",
+      id: "year_from",
+      title: "Release Year From",
+      placeholder: "e.g. 2018",
+      value: "",
+    },
+    {
+      type: "input",
+      id: "year_to",
+      title: "Release Year To",
+      placeholder: "e.g. 2024",
+      value: "",
     },
     {
       type: "dropdown",

@@ -279,12 +279,17 @@ export interface LatestChapter {
   available_at?: string | null;
 }
 
-/** Trending time windows for the ranged discover chips. */
+/**
+ * Trending time windows for the ranged discover chips. The id doubles as a
+ * filter-option id, which forbids commas — the sort string lives alongside it.
+ */
 export const RANGE_OPTIONS = [
-  { id: "avg_views_today,desc", title: "Today" },
-  { id: "avg_views_week,desc", title: "This Week" },
-  { id: "avg_views_month,desc", title: "This Month" },
+  { id: "today", title: "Today", sort: "avg_views_today,desc" },
+  { id: "week", title: "This Week", sort: "avg_views_week,desc" },
+  { id: "month", title: "This Month", sort: "avg_views_month,desc" },
 ];
+
+export const SOURCE_TYPE_OPTIONS = ["Official", "Unofficial", "Mixed"];
 
 export interface KaganeSeriesDetailsResponse {
   title: string;

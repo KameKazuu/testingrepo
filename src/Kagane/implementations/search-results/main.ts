@@ -30,6 +30,7 @@ import {
   API_URL,
   FORMAT_OPTIONS,
   PAGE_SIZE,
+  RANGE_OPTIONS,
   SORTING_OPTIONS,
   type KaganeSearchSeries,
   type KaganeSearchResponse,
@@ -65,13 +66,14 @@ export class SearchProvider {
     const page = metadata?.page ?? 1;
     const kaganeMetadata = await getKaganeMetadata();
     const searchBody = await buildSearchBody(query);
-    // A "range" filter (from the Trending discover chips) carries the sort to
-    // apply; otherwise use the reader's chosen sorting option.
+    // A "range" filter (from the Trending discover chips) carries the trending
+    // window whose sort to apply; otherwise use the reader's sorting option.
     const rangeEntry = (query.metadata ?? []).find((filter) => filter.id === "range");
-    const sort =
-      typeof rangeEntry?.value === "string" && rangeEntry.value
-        ? rangeEntry.value
-        : (sortingOption?.id ?? "relevance");
+    const rangeSort =
+      typeof rangeEntry?.value === "string"
+        ? RANGE_OPTIONS.find((range) => range.id === rangeEntry.value)?.sort
+        : undefined;
+    const sort = rangeSort ?? sortingOption?.id ?? "relevance";
 
     const url = new URL(API_URL)
       .addPathComponent("api")
@@ -111,21 +113,35 @@ export async function buildSearchBody(
   query: SearchQuery<SearchFilterValue[]>,
 ): Promise<Record<string, unknown>> {
   const filters = query.metadata ?? [];
+  // Per-search filter selections override the corresponding settings.
   const displayMode = getSourceDisplayMode();
+  const sourceTypes = readMultiselectFilter(filters, "source_types");
+  const languages = readMultiselectFilter(filters, "languages");
   const body: Record<string, unknown> = {
     source_type:
-      displayMode === "official"
-        ? ["Official"]
-        : displayMode === "scanlations"
-          ? ["Unofficial", "Mixed"]
-          : ["Official", "Unofficial", "Mixed"],
+      sourceTypes.length > 0
+        ? sourceTypes
+        : displayMode === "official"
+          ? ["Official"]
+          : displayMode === "scanlations"
+            ? ["Unofficial", "Mixed"]
+            : ["Official", "Unofficial", "Mixed"],
     content_rating: getContentRatingValues(getContentRatingSetting()),
-    content_lang: getContentLanguages(),
+    content_lang: languages.length > 0 ? languages : getContentLanguages(),
   };
 
   const title = query.title?.trim();
   if (title) {
     body.title = title;
+  }
+
+  const yearFrom = Number.parseInt(readInputFilter(filters, "year_from"), 10);
+  const yearTo = Number.parseInt(readInputFilter(filters, "year_to"), 10);
+  if (Number.isFinite(yearFrom) || Number.isFinite(yearTo)) {
+    body.start_year = {
+      ...(Number.isFinite(yearFrom) ? { min: yearFrom } : {}),
+      ...(Number.isFinite(yearTo) ? { max: yearTo } : {}),
+    };
   }
 
   // An explicit Format search filter wins; otherwise apply the hide-list by
