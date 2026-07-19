@@ -23,7 +23,15 @@ import {
 } from "@paperback/types";
 
 import { KaganeAdvancedSearchForm } from "./forms/search";
-import { getApiUrl, getDataSaver, getDomain, KaganeSettingsForm } from "./forms/settings";
+import {
+  getApiUrl,
+  getChapterFormat,
+  getContentRatings,
+  getDataSaver,
+  getDomain,
+  getShowScanlator,
+  KaganeSettingsForm,
+} from "./forms/settings";
 import {
   BOOKS_PATH,
   GENRE_PATH,
@@ -166,12 +174,15 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
 
     const apiUrl = getApiUrl();
     const page = metadata?.page ?? 0;
-    // The browse feed is the search endpoint with an empty filter body
+    // The browse feed is the search endpoint with just the rating filter
     // (POST search/series?page=&size=, newest-first — captured transport).
+    const body: SearchBody = {};
+    const ratings = getContentRatings();
+    if (ratings) body.content_rating = ratings;
     const response = await fetchJson<SeriesPageDto>(
       SEARCH_PATH.split("/"),
       { page, size: SERIES_PAGE_SIZE },
-      {} satisfies SearchBody,
+      body,
     );
     const series = response.content ?? [];
 
@@ -213,10 +224,13 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     const genres = query.metadata?.genres ?? [];
 
     // Captured transport: POST with the filters as a JSON body — `title` for
-    // text, `genres` as { values, match_all } for the genre filter.
+    // text, `genres` as { values, match_all } for the genre filter, plus the
+    // content-rating ceiling from settings.
     const body: SearchBody = {};
     if (term.length > 0) body.title = term;
     if (genres.length > 0) body.genres = { values: genres, match_all: true };
+    const ratings = getContentRatings();
+    if (ratings) body.content_rating = ratings;
 
     const response = await fetchJson<SeriesPageDto>(
       SEARCH_PATH.split("/"),
@@ -284,7 +298,12 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     // The series-detail response carries the full book list under
     // `series_books` — there is no separate chapters endpoint.
     const detail = await fetchJson<SeriesDetailDto>([SERIES_PATH, sourceManga.mangaId]);
-    return parseChapterList(detail.series_books ?? [], sourceManga);
+    return parseChapterList(
+      detail.series_books ?? [],
+      sourceManga,
+      getChapterFormat(),
+      getShowScanlator(),
+    );
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {

@@ -23,6 +23,28 @@ export const DEFAULT_API_URL = "https://kagane.to/api/v2";
 export const BASE_URL_KEY = "kagane.baseUrlOverride";
 export const API_URL_KEY = "kagane.apiUrlOverride";
 export const DATA_SAVER_KEY = "kagane.dataSaver";
+export const CONTENT_RATING_KEY = "kagane.maxContentRating";
+export const CHAPTER_FORMAT_KEY = "kagane.chapterFormat";
+export const SHOW_SCANLATOR_KEY = "kagane.showScanlator";
+
+// Content ratings from tamest to most explicit. A "max rating" setting sends
+// every rating up to and including the chosen one as the search `content_rating`
+// filter (e.g. Suggestive → ["Safe","Suggestive"], matching the site).
+export const CONTENT_RATINGS = ["Safe", "Suggestive", "Erotica", "Pornographic"] as const;
+
+export interface Option {
+  id: string;
+  title: string;
+}
+
+// Chapter-title rendering. The id is the stored value; default keeps the
+// number and the title together.
+export const CHAPTER_FORMAT_DEFAULT = "number_title";
+export const CHAPTER_FORMAT_OPTIONS: Option[] = [
+  { id: "number_title", title: "Ch.X + Title" },
+  { id: "number", title: "Chapter number" },
+  { id: "title", title: "Title only" },
+];
 
 // The extension pins no User-Agent: every request uses the device's own UA
 // (Application.getDefaultUserAgent) so it matches the Cloudflare-bypass
@@ -71,6 +93,7 @@ export interface GenreFilter extends JSONObject {
 export interface SearchBody extends JSONObject {
   title?: string;
   genres?: GenreFilter;
+  content_rating?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +147,11 @@ export interface BookDto {
   created_at?: string | null;
   available_at?: string | null;
   became_visible_at?: string | null;
+  groups?: GroupDto[] | null;
+}
+
+export interface GroupDto {
+  title?: string | null;
 }
 
 // ---------------------------------------------------------------------------

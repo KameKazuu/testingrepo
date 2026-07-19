@@ -220,12 +220,28 @@ export function parseMangaDetails(
 // chapters
 // ---------------------------------------------------------------------------
 
-function buildChapterTitle(book: BookDto): string | undefined {
-  const title = book.title?.trim();
-  return title ? Application.decodeHTMLEntities(title) : undefined;
+function buildChapterTitle(
+  book: BookDto,
+  format: string,
+  showScanlator: boolean,
+): string | undefined {
+  // "number" leans on the app's chapter number and shows no title text.
+  const base = format === "number" ? "" : Application.decodeHTMLEntities(book.title?.trim() ?? "");
+  const group = showScanlator
+    ? (book.groups ?? [])
+        .map((g) => g.title?.trim())
+        .filter((name): name is string => Boolean(name))[0]
+    : undefined;
+  const parts = [base, group].filter((part): part is string => Boolean(part && part.length > 0));
+  return parts.length > 0 ? parts.join(" • ") : undefined;
 }
 
-export function parseChapterList(books: BookDto[], sourceManga: SourceManga): Chapter[] {
+export function parseChapterList(
+  books: BookDto[],
+  sourceManga: SourceManga,
+  format: string,
+  showScanlator: boolean,
+): Chapter[] {
   return books
     .filter((book) => Boolean(book.book_id))
     .map((book) => {
@@ -234,7 +250,7 @@ export function parseChapterList(books: BookDto[], sourceManga: SourceManga): Ch
       return {
         chapterId: book.book_id,
         sourceManga,
-        title: buildChapterTitle(book),
+        title: buildChapterTitle(book, format, showScanlator),
         chapNum,
         volume,
         langCode: "en",
