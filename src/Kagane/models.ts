@@ -45,11 +45,12 @@ export const SERIES_PAGE_SIZE = 30;
 
 /** Text search + browse feed. POST; returns `{ content: SeriesDto[] }`. CONFIRMED. */
 export const SEARCH_PATH = "search/series";
-/** Single-series detail: `series/{seriesId}`. */
+/**
+ * Single-series detail: `series/{seriesId}`. The response embeds the full
+ * chapter list under `series_books`, so there is no separate chapters call.
+ */
 export const SERIES_PATH = "series";
-/** Per-series chapter (book) list: `series/{seriesId}/chapters`. */
-export const CHAPTERS_SUBPATH = "chapters";
-/** Per-book reader payload: `books/{bookId}` (+ `?is_datasaver=`). CONFIRMED. */
+/** Per-book reader payload: POST `books/{bookId}?is_datasaver=`. CONFIRMED. */
 export const BOOKS_PATH = "books";
 /**
  * Taxonomy lists. `tags/list` is CONFIRMED (the search page loads it for its
@@ -93,7 +94,7 @@ export interface SeriesDto {
   end_year?: number | null;
   current_books?: number | null;
   current_volumes?: number | null;
-  /** UUID references into the genre taxonomy (resolved via GENRE_PATH). */
+  /** UUID references into the genre taxonomy (resolved via TAXONOMY_PATHS). */
   genres?: string[] | null;
   /** UUID references into a separate tag taxonomy (names not exposed). */
   tags?: string[] | null;
@@ -101,22 +102,22 @@ export interface SeriesDto {
   groups?: string[] | null;
   original_language?: string | null;
   translated_language?: string | null;
+  /** Newest book, present on listing entries (search feed). */
   latest_chapters?: BookDto[] | null;
+  /** Full chapter list, present only on the series-detail response. */
+  series_books?: BookDto[] | null;
 }
 
-/** A chapter/book, both in `latest_chapters` and the chapter-list endpoint. */
+/** A chapter/book, in `latest_chapters` (feed) and `series_books` (detail). */
 export interface BookDto {
   book_id: string;
   title?: string | null;
   chapter_no?: string | null;
   volume_no?: string | null;
+  /** Canonical ordering key on detail books (higher = later). */
+  sort_no?: number | null;
   created_at?: string | null;
   available_at?: string | null;
-}
-
-/** Some list endpoints wrap books in a Spring-Data page too. */
-export interface BookPageDto {
-  content?: BookDto[] | null;
 }
 
 /** `books/{id}` reader payload. CONFIRMED shape. */
@@ -174,24 +175,24 @@ export interface OptionItem {
 // ---------------------------------------------------------------------------
 
 /**
- * Page image URL. CONFIRMED format:
- *   {cache_url}/api/v2/books/page/{bookId}/{pageId}.{ext}?token={accessToken}
+ * Page image URL. CONFIRMED format (data saver inserts a `datasaver` segment):
+ *   {cache_url}/api/v2/books/page[/datasaver]/{bookId}/{pageId}.{ext}?token=…
  */
 export function buildPageUrl(
   cacheUrl: string,
   bookId: string,
   page: PageDto,
   token: string,
+  dataSaver: boolean,
 ): string {
   const base = cacheUrl.replace(/\/+$/, "");
-  return `${base}/api/v2/books/page/${bookId}/${page.page_id}.${page.ext}?token=${token}`;
+  const saver = dataSaver ? "/datasaver" : "";
+  return `${base}/api/v2/books/page${saver}/${bookId}/${page.page_id}.${page.ext}?token=${token}`;
 }
 
-// Series cover URL. INFERRED — `cover_image_id` is a UUID and the exact image
-// route was not in the captured traffic. If covers render blank in-app, adjust
-// this single function to the real path (grab one cover request from the site).
+/** Series cover URL. CONFIRMED: {api}/image/{coverImageId}/compressed. */
 export function buildCoverUrl(apiUrl: string, coverImageId?: string | null): string {
   if (!coverImageId) return "";
   const base = apiUrl.replace(/\/+$/, "");
-  return `${base}/images/${coverImageId}`;
+  return `${base}/image/${coverImageId}/compressed`;
 }

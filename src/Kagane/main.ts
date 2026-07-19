@@ -26,13 +26,10 @@ import { KaganeAdvancedSearchForm } from "./forms/search";
 import { getApiUrl, getDataSaver, getDomain, KaganeSettingsForm } from "./forms/settings";
 import {
   BOOKS_PATH,
-  CHAPTERS_SUBPATH,
   SEARCH_PATH,
   SERIES_PAGE_SIZE,
   SERIES_PATH,
   TAXONOMY_PATHS,
-  type BookDto,
-  type BookPageDto,
   type GenreDto,
   type Metadata,
   type OptionItem,
@@ -56,10 +53,6 @@ import type KaganeConfig from "./pbconfig";
 const SECTION_LATEST = "latest";
 const SECTION_BROWSE = "browse";
 const SECTION_GENRES = "genres";
-
-// Guards the chapter-pagination loop against a misbehaving paging envelope.
-const MAX_CHAPTER_PAGES = 40;
-const CHAPTER_PAGE_SIZE = 500;
 
 interface GenreCatalog {
   names: Map<string, string>;
@@ -301,40 +294,28 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
   }
 
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
-    const books: BookDto[] = [];
-    let page = 0;
-
-    while (page < MAX_CHAPTER_PAGES) {
-      const response = await fetchJson<BookPageDto | BookDto[]>(
-        [SERIES_PATH, sourceManga.mangaId, CHAPTERS_SUBPATH],
-        { page, size: CHAPTER_PAGE_SIZE },
-      );
-      // The endpoint may answer with a bare array (all books) or a paged
-      // envelope; handle both and stop once a short/last page arrives.
-      if (Array.isArray(response)) {
-        books.push(...response);
-        break;
-      }
-      const batch = response.content ?? [];
-      books.push(...batch);
-      if (batch.length < CHAPTER_PAGE_SIZE) break;
-      page++;
-    }
-
-    return parseChapterList(books, sourceManga);
+    // The series-detail response carries the full book list under
+    // `series_books` — there is no separate chapters endpoint.
+    const series = await fetchJson<SeriesDto>([SERIES_PATH, sourceManga.mangaId]);
+    return parseChapterList(series.series_books ?? [], sourceManga);
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const reader = await fetchJson<ReaderDto>([BOOKS_PATH, chapter.chapterId], {
-      is_datasaver: getDataSaver() ? "true" : "false",
-    });
+    const dataSaver = getDataSaver();
+    // The reader payload is a POST (a GET 404s); data saver rides as a query
+    // param and again as a path segment on each resulting image URL.
+    const reader = await fetchJson<ReaderDto>(
+      [BOOKS_PATH, chapter.chapterId],
+      { is_datasaver: dataSaver ? "true" : "false" },
+      {},
+    );
     if (!reader.access_token || !reader.cache_url) {
       throw new Error(`No reader payload returned for chapter ${chapter.chapterId}.`);
     }
     return {
       id: chapter.chapterId,
       mangaId: chapter.sourceManga.mangaId,
-      pages: parseReaderPages(reader, chapter.chapterId),
+      pages: parseReaderPages(reader, chapter.chapterId, dataSaver),
     };
   }
 }

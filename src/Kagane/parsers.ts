@@ -201,9 +201,10 @@ export function parseChapterList(books: BookDto[], sourceManga: SourceManga): Ch
         title: buildChapterTitle(book),
         chapNum,
         volume,
-        langCode: sourceManga.mangaInfo.additionalInfo?.langCode ?? "en",
-        // Volume-major, chapter-minor ordering so multi-volume series sort right.
-        sortingIndex: volume * 100000 + chapNum,
+        langCode: "en",
+        // `sort_no` is the server's canonical order; fall back to
+        // volume-major / chapter-minor when it is absent.
+        sortingIndex: typeof book.sort_no === "number" ? book.sort_no : volume * 100000 + chapNum,
         publishDate: parseDate(book.available_at ?? book.created_at),
       } satisfies Chapter;
     });
@@ -213,10 +214,10 @@ export function parseChapterList(books: BookDto[], sourceManga: SourceManga): Ch
 // pages
 // ---------------------------------------------------------------------------
 
-export function parseReaderPages(reader: ReaderDto, bookId: string): string[] {
+export function parseReaderPages(reader: ReaderDto, bookId: string, dataSaver: boolean): string[] {
   const pages = [...(reader.manifest?.pages ?? [])]
     .sort((a, b) => a.page_no - b.page_no)
-    .map((page) => buildPageUrl(reader.cache_url, bookId, page, reader.access_token))
+    .map((page) => buildPageUrl(reader.cache_url, bookId, page, reader.access_token, dataSaver))
     .filter((url) => url.length > 0);
 
   if (pages.length === 0) {
