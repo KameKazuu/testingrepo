@@ -6,6 +6,7 @@ import type { SearchFilter, SearchFilterValue } from "@paperback/types/lib/compa
 import {
   FORMAT_OPTIONS,
   PUBLICATION_STATUS_OPTIONS,
+  RANGE_OPTIONS,
   type KaganeMetadata,
   type SourceDto,
 } from "../shared/models";
@@ -62,6 +63,20 @@ export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string
   const sources = getVisibleSources(metadata.sources, displayMode);
 
   return [
+    // The Trending discover chips carry this filter to select their sort.
+    // It must be registered here — unregistered filter ids are stripped when
+    // the app normalizes a chip's search query, which would leave every
+    // trending tab on the same default sort.
+    {
+      type: "dropdown",
+      id: "range",
+      title: "Trending Window",
+      options: [
+        { id: "", value: "None" },
+        ...RANGE_OPTIONS.map((range) => ({ id: range.id, value: range.title })),
+      ],
+      value: "",
+    },
     {
       type: "multiselect",
       id: "formats",
