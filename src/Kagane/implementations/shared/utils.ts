@@ -91,6 +91,13 @@ export function percentRating(percent?: number | null): string | undefined {
   return `${Math.round(percent)}%`;
 }
 
+// MangaInfo.rating is a 0–1 value the app renders as a percentage star on the
+// details page. The API rates out of 100, so scale and clamp it.
+export function ratingFraction(percent?: number | null): number {
+  if (typeof percent !== "number" || percent <= 0) return 0;
+  return Math.min(1, Math.max(0, percent / 100));
+}
+
 export function parseKaganeDate(value?: string | null): Date | undefined {
   if (!value) return undefined;
 

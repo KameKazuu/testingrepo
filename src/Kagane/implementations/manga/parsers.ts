@@ -14,7 +14,7 @@ import {
   getPaperbackContentRating,
   joinUnique,
   mapPublicationStatus,
-  percentRating,
+  ratingFraction,
 } from "../shared/utils";
 
 export function parseMangaDetails(
@@ -53,6 +53,7 @@ export function parseMangaDetails(
       author: joinUnique(authors),
       artist: joinUnique(artists),
       status: mapPublicationStatus(data.publication_status ?? data.upload_status),
+      rating: ratingFraction(data.average_rating ?? data.bayesian_rating),
       contentRating: getPaperbackContentRating(options.contentRating),
       tagGroups,
       shareUrl: `${BASE_URL}/series/${mangaId}`,
@@ -114,19 +115,7 @@ function buildTagGroups(data: DetailsDto): TagSection[] {
     title: tag.tag_name,
   }));
 
-  const rating = percentRating(data.average_rating ?? data.bayesian_rating);
-  const ratingTags = rating ? [{ id: "rating", title: `★ ${rating}` }] : [];
-
   return [
-    ...(ratingTags.length > 0
-      ? [
-          {
-            id: "rating",
-            title: "Rating",
-            tags: ratingTags,
-          },
-        ]
-      : []),
     ...(formatTags.length > 0 || genreTags.length > 0
       ? [
           {
