@@ -10,8 +10,13 @@ import {
   CHAPTER_TITLE_MODE_OPTIONS,
   CONTENT_LANGUAGES_KEY,
   CONTENT_RATING_KEY,
+  CUSTOM_HIDDEN_TAGS_KEY,
   DATA_SAVER_KEY,
   EXCLUDED_GENRES_KEY,
+  FORMAT_OPTIONS,
+  HIDDEN_FORMATS_KEY,
+  HIDDEN_TAG_CATEGORIES,
+  HIDDEN_TAG_CATEGORIES_KEY,
   LANGUAGE_OPTIONS,
   SHOW_EDITION_KEY,
   SHOW_SOURCE_KEY,
@@ -61,11 +66,15 @@ export function setContentRatingSetting(value: string): void {
 }
 
 export function getSourceDisplayMode(): string {
-  return Application.getState(SOURCE_DISPLAY_MODE_KEY) === "official" ? "official" : "all";
+  const value = Application.getState(SOURCE_DISPLAY_MODE_KEY);
+  return value === "official" || value === "scanlations" ? value : "all";
 }
 
 export function setSourceDisplayMode(value: string): void {
-  Application.setState(value === "official" ? "official" : "all", SOURCE_DISPLAY_MODE_KEY);
+  Application.setState(
+    value === "official" || value === "scanlations" ? value : "all",
+    SOURCE_DISPLAY_MODE_KEY,
+  );
 }
 
 export function getShowEdition(): boolean {
@@ -125,6 +134,45 @@ export function getExcludedGenres(): string[] {
 
 export function setExcludedGenres(value: string[]): void {
   Application.setState(value, EXCLUDED_GENRES_KEY);
+}
+
+// Formats hidden from the home page, listings, and search.
+export function getHiddenFormats(): string[] {
+  return readStringArray(HIDDEN_FORMATS_KEY, [], new Set(FORMAT_OPTIONS));
+}
+
+export function setHiddenFormats(value: string[]): void {
+  Application.setState(value, HIDDEN_FORMATS_KEY);
+}
+
+// Selected preset hide-categories (by category id).
+export function getHiddenTagCategories(): string[] {
+  return readStringArray(
+    HIDDEN_TAG_CATEGORIES_KEY,
+    [],
+    new Set(HIDDEN_TAG_CATEGORIES.map((category) => category.id)),
+  );
+}
+
+export function setHiddenTagCategories(value: string[]): void {
+  Application.setState(value, HIDDEN_TAG_CATEGORIES_KEY);
+}
+
+// Every tag UUID covered by the selected preset categories.
+export function getHiddenTagCategoryIds(): string[] {
+  const selected = new Set(getHiddenTagCategories());
+  return HIDDEN_TAG_CATEGORIES.filter((category) => selected.has(category.id)).flatMap(
+    (category) => category.tagIds,
+  );
+}
+
+// Free-text tag names to hide, resolved against the taxonomy at search time.
+export function getCustomHiddenTags(): string[] {
+  return readStringArray(CUSTOM_HIDDEN_TAGS_KEY, []);
+}
+
+export function setCustomHiddenTags(value: string[]): void {
+  Application.setState(value.map((entry) => entry.trim()).filter(Boolean), CUSTOM_HIDDEN_TAGS_KEY);
 }
 
 export function getContentLanguages(): string[] {

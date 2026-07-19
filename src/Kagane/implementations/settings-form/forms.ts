@@ -3,11 +3,13 @@
 
 import {
   Form,
+  InputRow,
   Section,
   SelectRow,
   ToggleRow,
   type FormItemElement,
   type FormSectionElement,
+  type InputRowProps,
   type SelectRowProps,
   type ToggleRowProps,
 } from "@paperback/types";
@@ -15,6 +17,8 @@ import {
 import {
   CHAPTER_TITLE_MODE_OPTIONS,
   CONTENT_RATING_OPTIONS,
+  FORMAT_OPTIONS,
+  HIDDEN_TAG_CATEGORIES,
   LANGUAGE_OPTIONS,
   SOURCE_DISPLAY_MODE_OPTIONS,
 } from "../shared/models";
@@ -22,8 +26,11 @@ import {
   getChapterTitleMode,
   getContentLanguages,
   getContentRatingSetting,
+  getCustomHiddenTags,
   getDataSaver,
   getExcludedGenres,
+  getHiddenFormats,
+  getHiddenTagCategories,
   getShowEdition,
   getShowSource,
   getShowSpoilerTags,
@@ -31,8 +38,11 @@ import {
   setChapterTitleMode,
   setContentLanguages,
   setContentRatingSetting,
+  setCustomHiddenTags,
   setDataSaver,
   setExcludedGenres,
+  setHiddenFormats,
+  setHiddenTagCategories,
   setShowEdition,
   setShowSource,
   setShowSpoilerTags,
@@ -61,6 +71,14 @@ export class KaganeSettingsForm extends Form {
           this.sourceDisplayModeRow(),
           this.excludedGenresRow(),
         ],
+      ),
+      Section(
+        {
+          id: "content-filters",
+          footer:
+            "Hidden formats and tags are removed from the home page, listings, and search results. Custom Hidden Tags is a comma-separated list of exact tag names, like: Love Triangle, Amnesia",
+        },
+        [this.hiddenFormatsRow(), this.hiddenTagCategoriesRow(), this.customHiddenTagsRow()],
       ),
       Section("display", [
         this.showEditionRow(),
@@ -157,6 +175,45 @@ export class KaganeSettingsForm extends Form {
     return SelectRow("chapter-title-mode", props);
   }
 
+  hiddenFormatsRow(): FormItemElement<unknown> {
+    const props: SelectRowProps = {
+      title: "Hidden Formats",
+      options: FORMAT_OPTIONS.map((format) => ({ id: format, title: format })),
+      value: getHiddenFormats(),
+      minItemCount: 0,
+      maxItemCount: FORMAT_OPTIONS.length - 1,
+      onValueChange: Application.Selector(this as KaganeSettingsForm, "handleHiddenFormats"),
+    };
+
+    return SelectRow("hidden-formats", props);
+  }
+
+  hiddenTagCategoriesRow(): FormItemElement<unknown> {
+    const props: SelectRowProps = {
+      title: "Hidden Tags",
+      options: HIDDEN_TAG_CATEGORIES.map((category) => ({
+        id: category.id,
+        title: category.title,
+      })),
+      value: getHiddenTagCategories(),
+      minItemCount: 0,
+      maxItemCount: HIDDEN_TAG_CATEGORIES.length,
+      onValueChange: Application.Selector(this as KaganeSettingsForm, "handleHiddenTagCategories"),
+    };
+
+    return SelectRow("hidden-tag-categories", props);
+  }
+
+  customHiddenTagsRow(): FormItemElement<unknown> {
+    const props: InputRowProps = {
+      title: "Custom Hidden Tags",
+      value: getCustomHiddenTags().join(", "),
+      onValueChange: Application.Selector(this as KaganeSettingsForm, "handleCustomHiddenTags"),
+    };
+
+    return InputRow("custom-hidden-tags", props);
+  }
+
   showSpoilerTagsRow(): FormItemElement<unknown> {
     const props: ToggleRowProps = {
       title: "Show Spoiler Tags",
@@ -213,6 +270,24 @@ export class KaganeSettingsForm extends Form {
 
   async handleChapterTitleMode(value: string[]): Promise<void> {
     setChapterTitleMode(value[0] ?? "optional");
+    this.reloadForm();
+  }
+
+  async handleHiddenFormats(value: string[]): Promise<void> {
+    setHiddenFormats(value);
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async handleHiddenTagCategories(value: string[]): Promise<void> {
+    setHiddenTagCategories(value);
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async handleCustomHiddenTags(value: string): Promise<void> {
+    setCustomHiddenTags(value.split(","));
+    Application.invalidateDiscoverSections();
     this.reloadForm();
   }
 

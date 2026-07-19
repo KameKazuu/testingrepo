@@ -44,11 +44,14 @@ export class KaganeInterceptor extends PaperbackInterceptor {
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
     if (await isCloudflareChallenge(request, response, data)) {
+      // Always raise the bypass against the canonical homepage GET rather than
+      // the failing API call: solving it there mints the domain-wide
+      // cf_clearance, and identical bypass requests collapse into one prompt
+      // instead of one per challenged section on a cold discover load.
       throw new CloudflareError({
-        url: request.url,
-        method: request.method ?? "GET",
+        url: `${BASE_URL}/`,
+        method: "GET",
         headers: {
-          ...request.headers,
           "user-agent": await Application.getDefaultUserAgent(),
         },
       });

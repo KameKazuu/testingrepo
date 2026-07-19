@@ -3,6 +3,7 @@
 
 import type { DiscoverSectionItem } from "@paperback/types";
 
+import { getShowSource } from "../settings-form/main";
 import type {
   KaganeSeriesDetailsResponse,
   KaganeMetadata,
@@ -19,6 +20,15 @@ import {
   resolveGenreNames,
   starRating,
 } from "../shared/utils";
+
+// Mirrors search results: when "Show Source in Title" is on, tag the card's
+// title with its upload source so duplicate titles are distinguishable.
+function displayTitle(book: KaganeSearchSeries, metadata: KaganeMetadata): string {
+  const title = book.title.trim();
+  if (!getShowSource() || !book.source_id) return title;
+  const sourceName = metadata.sources.find((source) => source.source_id === book.source_id)?.title;
+  return sourceName ? `${title} [${sourceName}]` : title;
+}
 
 // Matches the featured card's info-chip shape (SF Symbol + label).
 type InfoItem = { symbol: string; text: string };
@@ -77,7 +87,7 @@ export function mapFeaturedItem(
   return {
     type: "featuredCarouselItem",
     mangaId: book.series_id,
-    title: book.title.trim(),
+    title: displayTitle(book, metadata),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
     supertitle: authorNames(detail) ?? statusLabel(book),
@@ -108,7 +118,7 @@ export function mapLatestItem(
     type: "chapterUpdatesCarouselItem",
     mangaId: book.series_id,
     chapterId: latest.book_id,
-    title: book.title.trim(),
+    title: displayTitle(book, metadata),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
     subtitle: chapterLabel(latest),
@@ -123,7 +133,7 @@ export function mapSimpleItem(
   return {
     type: "simpleCarouselItem",
     mangaId: book.series_id,
-    title: book.title.trim(),
+    title: displayTitle(book, metadata),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
     subtitle: descriptor(book, metadata) ?? statusLabel(book),

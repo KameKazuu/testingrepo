@@ -19,12 +19,16 @@ import { apiHeaders, fetchJSON, getKaganeMetadata, getKaganeTags } from "../../s
 import {
   getContentLanguages,
   getContentRatingSetting,
+  getCustomHiddenTags,
   getExcludedGenres,
+  getHiddenFormats,
+  getHiddenTagCategoryIds,
   getShowSource,
   getSourceDisplayMode,
 } from "../settings-form/main";
 import {
   API_URL,
+  FORMAT_OPTIONS,
   PAGE_SIZE,
   SORTING_OPTIONS,
   type KaganeSearchSeries,
@@ -107,9 +111,14 @@ export async function buildSearchBody(
   query: SearchQuery<SearchFilterValue[]>,
 ): Promise<Record<string, unknown>> {
   const filters = query.metadata ?? [];
+  const displayMode = getSourceDisplayMode();
   const body: Record<string, unknown> = {
     source_type:
-      getSourceDisplayMode() === "official" ? ["Official"] : ["Official", "Unofficial", "Mixed"],
+      displayMode === "official"
+        ? ["Official"]
+        : displayMode === "scanlations"
+          ? ["Unofficial", "Mixed"]
+          : ["Official", "Unofficial", "Mixed"],
     content_rating: getContentRatingValues(getContentRatingSetting()),
     content_lang: getContentLanguages(),
   };
@@ -119,9 +128,14 @@ export async function buildSearchBody(
     body.title = title;
   }
 
+  // An explicit Format search filter wins; otherwise apply the hide-list by
+  // sending every format that is not hidden.
   const formats = readMultiselectFilter(filters, "formats");
+  const hiddenFormats = getHiddenFormats();
   if (formats.length > 0) {
     body.format = formats;
+  } else if (hiddenFormats.length > 0) {
+    body.format = FORMAT_OPTIONS.filter((format) => !hiddenFormats.includes(format));
   }
 
   const statuses = readMultiselectFilter(filters, "statuses");
@@ -147,23 +161,28 @@ export async function buildSearchBody(
     );
   }
 
-  const tagInput = readInputFilter(filters, "tags");
-  if (tagInput) {
-    const tags = parseTagInput(tagInput);
-    if (tags.included.length > 0 || tags.excluded.length > 0) {
-      // The search expects tag UUIDs, not names. Resolve them through the tag
-      // taxonomy (case-insensitive), fetched lazily only for a tag search.
-      const tagIds = await getKaganeTags();
-      const included = resolveTagIds(tags.included, tagIds);
-      const excluded = resolveTagIds(tags.excluded, tagIds);
-      if (included.length > 0 || excluded.length > 0) {
-        body.tags = buildCompoundFilter(
-          included,
-          excluded,
-          readDropdownFilter(filters, "tags_match_all", "true") === "true",
-        );
-      }
-    }
+  // Excluded tags come from three places: the search input's "-tag" entries,
+  // the preset hide-categories (already UUIDs), and the custom hidden tag
+  // names. The search expects tag UUIDs, so names are resolved through the
+  // taxonomy (case-insensitive) — fetched lazily only when names are present.
+  const tags = parseTagInput(readInputFilter(filters, "tags"));
+  const customHiddenNames = getCustomHiddenTags();
+  let includedTags: string[] = [];
+  const excludedTags = [...getHiddenTagCategoryIds()];
+  if (tags.included.length > 0 || tags.excluded.length > 0 || customHiddenNames.length > 0) {
+    const tagIds = await getKaganeTags();
+    includedTags = resolveTagIds(tags.included, tagIds);
+    excludedTags.push(
+      ...resolveTagIds(tags.excluded, tagIds),
+      ...resolveTagIds(customHiddenNames, tagIds),
+    );
+  }
+  if (includedTags.length > 0 || excludedTags.length > 0) {
+    body.tags = buildCompoundFilter(
+      includedTags,
+      excludedTags,
+      readDropdownFilter(filters, "tags_match_all", "true") === "true",
+    );
   }
 
   return body;
