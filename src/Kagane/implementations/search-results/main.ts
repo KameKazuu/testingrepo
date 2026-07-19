@@ -15,7 +15,7 @@ import {
   type SearchFilterValue,
 } from "@paperback/types/lib/compat/0.8";
 
-import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
+import { apiHeaders, fetchJSON, getKaganeMetadata, getKaganeTags } from "../../services/network";
 import {
   getContentLanguages,
   getContentRatingSetting,
@@ -27,7 +27,7 @@ import {
   API_URL,
   PAGE_SIZE,
   SORTING_OPTIONS,
-  type KaganeSearchBook,
+  type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
 import { buildImageUrl, getContentRatingValues, mapItemContentRating } from "../shared/utils";
@@ -60,7 +60,7 @@ export class SearchProvider {
   ): Promise<PagedResults<SearchResultItem>> {
     const page = metadata?.page ?? 1;
     const kaganeMetadata = await getKaganeMetadata();
-    const searchBody = buildSearchBody(query);
+    const searchBody = await buildSearchBody(query);
     // A "range" filter (from the Trending discover chips) carries the sort to
     // apply; otherwise use the reader's chosen sorting option.
     const rangeEntry = (query.metadata ?? []).find((filter) => filter.id === "range");
@@ -103,7 +103,9 @@ export class SearchProvider {
   }
 }
 
-export function buildSearchBody(query: SearchQuery<SearchFilterValue[]>): Record<string, unknown> {
+export async function buildSearchBody(
+  query: SearchQuery<SearchFilterValue[]>,
+): Promise<Record<string, unknown>> {
   const filters = query.metadata ?? [];
   const body: Record<string, unknown> = {
     source_type:
@@ -149,15 +151,26 @@ export function buildSearchBody(query: SearchQuery<SearchFilterValue[]>): Record
   if (tagInput) {
     const tags = parseTagInput(tagInput);
     if (tags.included.length > 0 || tags.excluded.length > 0) {
-      body.tags = buildCompoundFilter(
-        tags.included,
-        tags.excluded,
-        readDropdownFilter(filters, "tags_match_all", "true") === "true",
-      );
+      // The search expects tag UUIDs, not names. Resolve them through the tag
+      // taxonomy (case-insensitive), fetched lazily only for a tag search.
+      const tagIds = await getKaganeTags();
+      const included = resolveTagIds(tags.included, tagIds);
+      const excluded = resolveTagIds(tags.excluded, tagIds);
+      if (included.length > 0 || excluded.length > 0) {
+        body.tags = buildCompoundFilter(
+          included,
+          excluded,
+          readDropdownFilter(filters, "tags_match_all", "true") === "true",
+        );
+      }
     }
   }
 
   return body;
+}
+
+function resolveTagIds(names: string[], tagIds: Record<string, string>): string[] {
+  return names.map((name) => tagIds[name.toLowerCase()]).filter((id): id is string => Boolean(id));
 }
 
 function buildCompoundFilter(
@@ -180,7 +193,7 @@ function buildCompoundFilter(
 }
 
 function mapSearchResult(
-  book: KaganeSearchBook,
+  book: KaganeSearchSeries,
   sources: Map<string, string>,
   showSource: boolean,
 ): SearchResultItem {

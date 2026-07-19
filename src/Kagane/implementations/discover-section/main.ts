@@ -12,7 +12,7 @@ import {
   RANGE_OPTIONS,
   type KaganeSeriesDetailsResponse,
   type KaganeMetadata,
-  type KaganeSearchBook,
+  type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
 import { mapFeaturedItem, mapLatestItem, mapSimpleItem } from "./parsers";
@@ -91,7 +91,7 @@ export class DiscoverProvider {
 // own request has cleared Cloudflare) and key them by series id. Only the
 // Popular hero uses this.
 async function enrichDetails(
-  books: KaganeSearchBook[],
+  books: KaganeSearchSeries[],
   limit: number,
 ): Promise<Map<string, KaganeSeriesDetailsResponse>> {
   const targets = books.slice(0, limit);
@@ -107,7 +107,7 @@ async function enrichDetails(
 // The browse feed is the search endpoint with the reader's own filter body and
 // a sort (newest-first, most-viewed, …).
 async function fetchDiscoverSearchPage(sort: string, page: number): Promise<KaganeSearchResponse> {
-  const body = buildSearchBody({ title: "", metadata: [] });
+  const body = await buildSearchBody({ title: "", metadata: [] });
   const url = new URL(API_URL)
     .addPathComponent("api")
     .addPathComponent("v2")

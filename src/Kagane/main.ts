@@ -32,10 +32,6 @@ export class KaganeExtension implements Omit<Extension, keyof MangaProviding> {
     this.globalRateLimiter.registerInterceptor();
   }
 
-  async saveCloudflareBypassCookies(cookies: Cookie[]): Promise<void> {
-    await this.cloudflareBypassCompleted({ url: "", method: "GET" }, cookies, {});
-  }
-
   async cloudflareBypassCompleted(
     _request: Request,
     cookies: Cookie[],

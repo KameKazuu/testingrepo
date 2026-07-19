@@ -14,12 +14,16 @@ import {
   METADATA_CACHE_DATE_KEY,
   METADATA_CACHE_KEY,
   METADATA_CACHE_TTL_SECONDS,
+  TAGS_CACHE_DATE_KEY,
+  TAGS_CACHE_KEY,
   type ChallengeDto,
   type GenreDto,
   type IntegrityDto,
   type KaganeMetadata,
   type SourcesDto,
+  type TagDto,
 } from "../implementations/shared/models";
+import { buildPageUrl } from "../implementations/shared/utils";
 
 export class KaganeInterceptor extends PaperbackInterceptor {
   async interceptRequest(request: Request): Promise<Request> {
@@ -132,17 +136,19 @@ async function buildPageRetryRequest(request: Request): Promise<Request | undefi
   const parts = getPageRequestParts(request.url);
   if (!parts) return undefined;
 
-  const challenge = await getChallengeResponse(parts.chapterId, true);
+  // Reuse the cached integrity token — getChallengeResponse refreshes it once
+  // on its own if it's actually stale. Forcing a refresh here meant every
+  // failed prefetched page kicked off its own homepage + integrity + challenge
+  // round-trip, flooding the API when a whole batch expired at once.
+  const challenge = await getChallengeResponse(parts.chapterId);
   const cacheUrl = challenge.cache_url || DEFAULT_CACHE_URL;
-  const retryUrl = new URL(cacheUrl)
-    .addPathComponent("api")
-    .addPathComponent("v2")
-    .addPathComponent("books")
-    .addPathComponent("page")
-    .addPathComponent(parts.chapterId)
-    .addPathComponent(parts.fileName)
-    .setQueryItem("token", challenge.access_token)
-    .toString();
+  const retryUrl = buildPageUrl(
+    cacheUrl,
+    parts.chapterId,
+    parts.fileName,
+    challenge.access_token,
+    getDataSaver(),
+  );
 
   return {
     ...request,
@@ -156,7 +162,8 @@ async function buildPageRetryRequest(request: Request): Promise<Request | undefi
 }
 
 function getPageRequestParts(url: string): { chapterId: string; fileName: string } | undefined {
-  const match = url.match(/\/api\/v2\/books\/page\/([^/?#]+)\/([^/?#]+)/);
+  // Tolerate the optional data-saver path segment: /page/[datasaver/]{id}/{file}
+  const match = url.match(/\/api\/v2\/books\/page\/(?:datasaver\/)?([^/?#]+)\/([^/?#]+)/);
   if (!match?.[1] || !match[2]) {
     return undefined;
   }
@@ -259,40 +266,6 @@ export function browserHeaders(extra?: Record<string, string>): Record<string, s
   };
 }
 
-// Warm a chapter's page images in the background so the reader finds them
-// already cached instead of fetching each one as you turn the page. Fire-and-
-// forget: the caller does not await this, so the chapter opens immediately.
-// The images live on the cache CDN (not the same-origin API), so these never
-// touch the Cloudflare path. Bounded concurrency keeps it from bursting; any
-// failure is ignored because the reader re-requests anything that isn't warm.
-export function prefetchPages(urls: string[]): void {
-  void warmPages(urls);
-}
-
-async function warmPages(urls: string[]): Promise<void> {
-  const CONCURRENCY = 4;
-  let cursor = 0;
-
-  const worker = async (): Promise<void> => {
-    while (cursor < urls.length) {
-      const url = urls[cursor];
-      cursor += 1;
-      if (!url) continue;
-      try {
-        await Application.scheduleRequest({
-          url,
-          method: "GET",
-          headers: { accept: "image/*" },
-        });
-      } catch {
-        // Ignore — the reader will fetch anything that failed to warm.
-      }
-    }
-  };
-
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, urls.length) }, worker));
-}
-
 export async function fetchJSON<T>(request: Request): Promise<T> {
   const [response, buffer] = await Application.scheduleRequest(request);
 
@@ -348,4 +321,39 @@ export async function getKaganeMetadata(): Promise<KaganeMetadata> {
   Application.setState(String(Date.now() / 1000), METADATA_CACHE_DATE_KEY);
 
   return metadata;
+}
+
+// The tag taxonomy is thousands of entries, so it is fetched lazily — only when
+// a tag search is actually run — and cached for a day. Returns a lower-cased
+// name → UUID map so tag names can be resolved to the ids the search expects.
+export async function getKaganeTags(): Promise<Record<string, string>> {
+  const cacheDate = Number(Application.getState(TAGS_CACHE_DATE_KEY) ?? 0);
+  const cached = Application.getState(TAGS_CACHE_KEY);
+
+  if (typeof cached === "string" && cacheDate + METADATA_CACHE_TTL_SECONDS > Date.now() / 1000) {
+    try {
+      return JSON.parse(cached) as Record<string, string>;
+    } catch {
+      Application.setState("", TAGS_CACHE_KEY);
+      Application.setState("0", TAGS_CACHE_DATE_KEY);
+    }
+  }
+
+  const tags = await fetchJSON<TagDto[]>({
+    url: `${API_URL}/api/v2/tags/list`,
+    method: "GET",
+    headers: apiHeaders(),
+  });
+
+  const map: Record<string, string> = {};
+  for (const tag of tags) {
+    if (tag.tag_name && tag.id) {
+      map[tag.tag_name.toLowerCase()] = tag.id;
+    }
+  }
+
+  Application.setState(JSON.stringify(map), TAGS_CACHE_KEY);
+  Application.setState(String(Date.now() / 1000), TAGS_CACHE_DATE_KEY);
+
+  return map;
 }

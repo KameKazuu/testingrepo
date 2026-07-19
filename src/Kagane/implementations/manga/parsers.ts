@@ -3,16 +3,11 @@
 
 import type { SourceManga, TagSection } from "@paperback/types";
 
-import {
-  BASE_URL,
-  type KaganeSeriesDetailsResponse,
-  type KaganeContentRating,
-  type KaganeMetadata,
-} from "../shared/models";
+import { BASE_URL, type KaganeSeriesDetailsResponse, type KaganeMetadata } from "../shared/models";
 import {
   buildImageUrl,
-  getPaperbackContentRating,
   joinUnique,
+  mapItemContentRating,
   mapPublicationStatus,
   ratingFraction,
 } from "../shared/utils";
@@ -24,7 +19,7 @@ export function parseMangaDetails(
   options: {
     showEdition: boolean;
     showSource: boolean;
-    contentRating: KaganeContentRating;
+    showSpoilerTags: boolean;
   },
 ): SourceManga {
   const sourceName = data.source_id
@@ -41,7 +36,7 @@ export function parseMangaDetails(
   const artists = staff
     .filter((person) => /artist|art/i.test(person.role))
     .map((person) => person.name);
-  const tagGroups = buildTagGroups(data);
+  const tagGroups = buildTagGroups(data, options.showSpoilerTags);
 
   return {
     mangaId,
@@ -54,7 +49,7 @@ export function parseMangaDetails(
       artist: joinUnique(artists),
       status: mapPublicationStatus(data.publication_status ?? data.upload_status),
       rating: ratingFraction(data.average_rating ?? data.bayesian_rating),
-      contentRating: getPaperbackContentRating(options.contentRating),
+      contentRating: mapItemContentRating(data.content_rating),
       tagGroups,
       shareUrl: `${BASE_URL}/series/${mangaId}`,
     },
@@ -97,7 +92,7 @@ function buildSynopsis(data: KaganeSeriesDetailsResponse, sourceName: string | u
   return lines.join("\n\n");
 }
 
-function buildTagGroups(data: KaganeSeriesDetailsResponse): TagSection[] {
+function buildTagGroups(data: KaganeSeriesDetailsResponse, showSpoilerTags: boolean): TagSection[] {
   const formatTags = data.format?.trim()
     ? [
         {
@@ -106,14 +101,18 @@ function buildTagGroups(data: KaganeSeriesDetailsResponse): TagSection[] {
         },
       ]
     : [];
-  const genreTags = (data.genres ?? []).map((genre) => ({
-    id: safeTagId("genre", genre.genre_name),
-    title: genre.genre_name,
-  }));
-  const tagTags = (data.tags ?? []).map((tag) => ({
-    id: safeTagId("tag", tag.tag_name),
-    title: tag.tag_name,
-  }));
+  const genreTags = (data.genres ?? [])
+    .filter((genre) => showSpoilerTags || !genre.is_spoiler)
+    .map((genre) => ({
+      id: safeTagId("genre", genre.genre_name),
+      title: genre.genre_name,
+    }));
+  const tagTags = (data.tags ?? [])
+    .filter((tag) => showSpoilerTags || !tag.is_spoiler)
+    .map((tag) => ({
+      id: safeTagId("tag", tag.tag_name),
+      title: tag.tag_name,
+    }));
 
   return [
     ...(formatTags.length > 0 || genreTags.length > 0

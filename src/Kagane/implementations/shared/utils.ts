@@ -1,9 +1,36 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { ContentRating } from "@paperback/types";
+import { ContentRating, URL } from "@paperback/types";
 
 import { API_URL, CONTENT_RATING_VALUES, type KaganeContentRating } from "./models";
+
+// The reader fetches a page from the cache CDN as
+//   {cache_url}/api/v2/books/page/{chapterId}/{file}?token={token}
+// and, in data-saver mode, inserts a `datasaver` path segment after `page`
+// (the quality is selected by the path, not a query — the challenge request is
+// what carries is_datasaver).
+export function buildPageUrl(
+  cacheUrl: string,
+  chapterId: string,
+  fileName: string,
+  token: string,
+  dataSaver: boolean,
+): string {
+  const url = new URL(cacheUrl)
+    .addPathComponent("api")
+    .addPathComponent("v2")
+    .addPathComponent("books")
+    .addPathComponent("page");
+  if (dataSaver) {
+    url.addPathComponent("datasaver");
+  }
+  return url
+    .addPathComponent(chapterId)
+    .addPathComponent(fileName)
+    .setQueryItem("token", token)
+    .toString();
+}
 
 export function applyMixins(derivedCtor: Constructor, constructors: Constructor[]) {
   for (const baseCtor of constructors) {
@@ -147,11 +174,27 @@ export function buildChapterTitle(
     displayChapterNo,
     ...chapterNumberCandidates,
   ]);
-  if (mode === "optional" || mode === "always" || mode === "vol_chapter") {
-    return strippedTitle;
+
+  const chapterLabel = displayChapterNo ? `Ch.${displayChapterNo}` : undefined;
+  const volumeLabel = displayVolumeNo ? `Vol.${displayVolumeNo}` : undefined;
+
+  if (mode === "always") {
+    // "Ch.X Title" — prepend the chapter number to whatever title remains.
+    return joinParts([chapterLabel, strippedTitle]) || strippedTitle;
   }
 
-  return strippedTitle;
+  if (mode === "vol_chapter") {
+    // "Vol.X Ch.Y Title" — prepend both the volume and chapter numbers.
+    return joinParts([volumeLabel, chapterLabel, strippedTitle]) || strippedTitle;
+  }
+
+  // optional: the chapter's own title, falling back to the chapter (or volume)
+  // label when it has none.
+  return strippedTitle || chapterLabel || volumeLabel || "";
+}
+
+function joinParts(parts: Array<string | undefined>): string {
+  return parts.filter((part): part is string => Boolean(part)).join(" ");
 }
 
 function normalizeNumberLabel(value?: string | null): string | undefined {

@@ -6,7 +6,9 @@ import type { Chapter, SourceManga } from "@paperback/types";
 import type { ChapterBook, KaganeSeriesDetailsResponse, SourceDto } from "../shared/models";
 import { buildChapterTitle, parseChapterNumber, parseKaganeDate } from "../shared/utils";
 
-const SOURCE_CHAPTER_NUMBER_FORMATS = new Set([
+// Source names (not formats) whose own chapter numbering we trust over the
+// parsed chapter_no.
+const SOURCE_CHAPTER_NUMBER_SOURCES = new Set([
   "Dark Horse Comics",
   "Flame Comics",
   "MangaDex",
@@ -32,14 +34,10 @@ function shouldUseSourceChapterNumber(
   data: KaganeSeriesDetailsResponse,
   sources: SourceDto[],
 ): boolean {
-  if (data.format && SOURCE_CHAPTER_NUMBER_FORMATS.has(data.format)) {
-    return true;
-  }
-
   const sourceName = data.source_id
     ? sources.find((source) => source.source_id === data.source_id)?.title
     : undefined;
-  return Boolean(sourceName && SOURCE_CHAPTER_NUMBER_FORMATS.has(sourceName));
+  return Boolean(sourceName && SOURCE_CHAPTER_NUMBER_SOURCES.has(sourceName));
 }
 
 function mapChapter(

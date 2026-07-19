@@ -9,15 +9,15 @@ import {
   fetchJSON,
   getChallengeResponse,
   getKaganeMetadata,
-  prefetchPages,
 } from "../../services/network";
-import { getChapterTitleMode, getContentLanguages, getPreloadPages } from "../settings-form/main";
+import { getChapterTitleMode, getContentLanguages, getDataSaver } from "../settings-form/main";
 import {
   API_URL,
   DEFAULT_CACHE_URL,
   type KaganeSeriesDetailsResponse,
   type SourceDto,
 } from "../shared/models";
+import { buildPageUrl } from "../shared/utils";
 import { parseChapterList } from "./parsers";
 
 export class ChapterProvider {
@@ -28,7 +28,9 @@ export class ChapterProvider {
       headers: apiHeaders(),
     });
     const sources = await safeSources();
-    const langCode = getContentLanguages()[0] ?? "en";
+    // Prefer the series' own translated language over the reader's first
+    // language preference so chapters are tagged with what they actually are.
+    const langCode = data.translated_language ?? getContentLanguages()[0] ?? "en";
 
     return parseChapterList(data, sourceManga, getChapterTitleMode(), langCode, sources);
   }
@@ -38,29 +40,25 @@ export class ChapterProvider {
     const challenge = await getChallengeResponse(chapterId);
     const cacheUrl = challenge.cache_url || DEFAULT_CACHE_URL;
 
-    // The image request the site's reader makes is exactly
-    // {cache_url}/api/v2/books/page/{chapterId}/{pageId}.{ext}?token={token} —
-    // the data-saver choice is already baked into the challenge (its POST
-    // carries is_datasaver), so the image URL itself only needs the token.
-    const pages = [...(challenge.manifest?.pages ?? [])]
-      .sort((left, right) => left.page_no - right.page_no)
-      .map((page) => {
-        return new URL(cacheUrl)
-          .addPathComponent("api")
-          .addPathComponent("v2")
-          .addPathComponent("books")
-          .addPathComponent("page")
-          .addPathComponent(chapterId)
-          .addPathComponent(`${page.page_id}.${page.ext ?? "jxl"}`)
-          .setQueryItem("token", challenge.access_token)
-          .toString();
-      });
-
-    // Kick off background warm-ups (unless the reader turned it off) so pages
-    // are cached before they're viewed; not awaited, so the chapter opens now.
-    if (getPreloadPages()) {
-      prefetchPages(pages);
+    const manifestPages = challenge.manifest?.pages ?? [];
+    if (manifestPages.length === 0) {
+      throw new Error(`No pages returned for chapter ${chapterId}`);
     }
+
+    // Paperback's reader preloads upcoming pages itself, so we just hand back
+    // the full ordered list of page URLs.
+    const dataSaver = getDataSaver();
+    const pages = [...manifestPages]
+      .sort((left, right) => left.page_no - right.page_no)
+      .map((page) =>
+        buildPageUrl(
+          cacheUrl,
+          chapterId,
+          `${page.page_id}.${page.ext ?? "jxl"}`,
+          challenge.access_token,
+          dataSaver,
+        ),
+      );
 
     return {
       id: chapterId,

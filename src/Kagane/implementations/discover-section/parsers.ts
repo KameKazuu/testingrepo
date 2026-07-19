@@ -6,7 +6,7 @@ import type { DiscoverSectionItem } from "@paperback/types";
 import type {
   KaganeSeriesDetailsResponse,
   KaganeMetadata,
-  KaganeSearchBook,
+  KaganeSearchSeries,
   LatestChapter,
 } from "../shared/models";
 import {
@@ -23,7 +23,7 @@ import {
 // Matches the featured card's info-chip shape (SF Symbol + label).
 type InfoItem = { symbol: string; text: string };
 
-function statusLabel(book: KaganeSearchBook): string | undefined {
+function statusLabel(book: KaganeSearchSeries): string | undefined {
   const status = mapPublicationStatus(book.publication_status ?? "");
   return status !== "Unknown" ? status : undefined;
 }
@@ -42,7 +42,7 @@ function authorNames(detail: KaganeSeriesDetailsResponse | undefined): string | 
 
 // A short "Manga • Romance, Fantasy" descriptor for a card subtitle, built
 // entirely from the listing payload (no detail fetch).
-function descriptor(book: KaganeSearchBook, metadata: KaganeMetadata): string | undefined {
+function descriptor(book: KaganeSearchSeries, metadata: KaganeMetadata): string | undefined {
   const bits = [
     book.format?.trim() && book.format.toLowerCase() !== "other" ? book.format : undefined,
     resolveGenreNames(book.genres, metadata.genres, 2).join(", ") || undefined,
@@ -53,7 +53,7 @@ function descriptor(book: KaganeSearchBook, metadata: KaganeMetadata): string | 
 // The Popular hero: author as the supertitle, description as the summary, and a
 // star rating + view count as the info chips.
 export function mapFeaturedItem(
-  book: KaganeSearchBook,
+  book: KaganeSearchSeries,
   detail: KaganeSeriesDetailsResponse | undefined,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
@@ -99,7 +99,7 @@ function chapterLabel(latest: LatestChapter): string | undefined {
 // publish time as the relative date, both straight from the listing payload
 // (no per-card detail fetch).
 export function mapLatestItem(
-  book: KaganeSearchBook,
+  book: KaganeSearchSeries,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
   const latest = book.latest_chapters?.[0];
@@ -117,7 +117,7 @@ export function mapLatestItem(
 }
 
 export function mapSimpleItem(
-  book: KaganeSearchBook,
+  book: KaganeSearchSeries,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
   return {

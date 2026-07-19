@@ -4,13 +4,15 @@
 import type { SortingOption } from "@paperback/types";
 
 export const BASE_URL = "https://kagane.to";
-export const API_URL = "https://kagane.to";
-export const DEFAULT_CACHE_URL = "https://akari.kagane.to";
+export const API_URL = BASE_URL;
+export const DEFAULT_CACHE_URL = "https://kstatic.to";
 export const PAGE_SIZE = 35;
 
 export const METADATA_CACHE_KEY = "kagane-metadata-cache";
 export const METADATA_CACHE_DATE_KEY = "kagane-metadata-cache-date";
 export const METADATA_CACHE_TTL_SECONDS = 24 * 60 * 60;
+export const TAGS_CACHE_KEY = "kagane-tags-cache";
+export const TAGS_CACHE_DATE_KEY = "kagane-tags-cache-date";
 export const INTEGRITY_TOKEN_KEY = "kagane-integrity-token";
 export const INTEGRITY_EXP_KEY = "kagane-integrity-exp";
 
@@ -18,8 +20,8 @@ export const CONTENT_RATING_KEY = "kagane-content-rating";
 export const SOURCE_DISPLAY_MODE_KEY = "kagane-source-display-mode";
 export const SHOW_EDITION_KEY = "kagane-show-edition";
 export const SHOW_SOURCE_KEY = "kagane-show-source";
+export const SHOW_SPOILER_TAGS_KEY = "kagane-show-spoiler-tags";
 export const DATA_SAVER_KEY = "kagane-data-saver";
-export const PRELOAD_PAGES_KEY = "kagane-preload-pages";
 export const CHAPTER_TITLE_MODE_KEY = "kagane-chapter-title-mode";
 export const EXCLUDED_GENRES_KEY = "kagane-excluded-genres";
 export const CONTENT_LANGUAGES_KEY = "kagane-content-languages";
@@ -94,6 +96,11 @@ export interface GenreDto {
   genre_name: string;
 }
 
+export interface TagDto {
+  id: string;
+  tag_name: string;
+}
+
 export interface SourcesDto {
   sources: SourceDto[];
 }
@@ -110,13 +117,13 @@ export interface KaganeMetadata {
 }
 
 export interface KaganeSearchResponse {
-  content?: KaganeSearchBook[];
+  content?: KaganeSearchSeries[];
   last?: boolean;
   total_elements?: number;
   total_pages?: number;
 }
 
-export interface KaganeSearchBook {
+export interface KaganeSearchSeries {
   series_id: string;
   title: string;
   source_id?: string | null;
@@ -154,6 +161,8 @@ export interface KaganeSeriesDetailsResponse {
   description?: string | null;
   upload_status: string;
   publication_status?: string | null;
+  content_rating?: string | null;
+  translated_language?: string | null;
   format?: string | null;
   source_id?: string | null;
   series_staff?: SeriesStaff[];
@@ -175,11 +184,15 @@ export interface SeriesStaff {
 }
 
 export interface SeriesGenre {
+  genre_id?: string;
   genre_name: string;
+  is_spoiler?: boolean;
 }
 
 export interface SeriesTag {
+  tag_id?: string;
   tag_name: string;
+  is_spoiler?: boolean;
 }
 
 export interface AlternateTitle {

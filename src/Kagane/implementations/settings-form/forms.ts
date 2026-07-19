@@ -24,18 +24,18 @@ import {
   getContentRatingSetting,
   getDataSaver,
   getExcludedGenres,
-  getPreloadPages,
   getShowEdition,
   getShowSource,
+  getShowSpoilerTags,
   getSourceDisplayMode,
   setChapterTitleMode,
   setContentLanguages,
   setContentRatingSetting,
   setDataSaver,
   setExcludedGenres,
-  setPreloadPages,
   setShowEdition,
   setShowSource,
+  setShowSpoilerTags,
   setSourceDisplayMode,
 } from "./main";
 
@@ -62,8 +62,13 @@ export class KaganeSettingsForm extends Form {
           this.excludedGenresRow(),
         ],
       ),
-      Section("display", [this.showEditionRow(), this.showSourceRow(), this.chapterTitleModeRow()]),
-      Section("reader", [this.preloadPagesRow(), this.dataSaverRow()]),
+      Section("display", [
+        this.showEditionRow(),
+        this.showSourceRow(),
+        this.showSpoilerTagsRow(),
+        this.chapterTitleModeRow(),
+      ]),
+      Section("reader", [this.dataSaverRow()]),
     ];
   }
 
@@ -152,14 +157,14 @@ export class KaganeSettingsForm extends Form {
     return SelectRow("chapter-title-mode", props);
   }
 
-  preloadPagesRow(): FormItemElement<unknown> {
+  showSpoilerTagsRow(): FormItemElement<unknown> {
     const props: ToggleRowProps = {
-      title: "Preload Pages",
-      value: getPreloadPages(),
-      onValueChange: Application.Selector(this as KaganeSettingsForm, "handlePreloadPages"),
+      title: "Show Spoiler Tags",
+      value: getShowSpoilerTags(),
+      onValueChange: Application.Selector(this as KaganeSettingsForm, "handleShowSpoilerTags"),
     };
 
-    return ToggleRow("preload-pages", props);
+    return ToggleRow("show-spoiler-tags", props);
   }
 
   dataSaverRow(): FormItemElement<unknown> {
@@ -211,8 +216,8 @@ export class KaganeSettingsForm extends Form {
     this.reloadForm();
   }
 
-  async handlePreloadPages(value: boolean): Promise<void> {
-    setPreloadPages(value);
+  async handleShowSpoilerTags(value: boolean): Promise<void> {
+    setShowSpoilerTags(value);
     this.reloadForm();
   }
 
