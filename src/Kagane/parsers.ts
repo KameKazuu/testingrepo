@@ -15,6 +15,7 @@ import {
   buildPageUrl,
   type BookDto,
   type ReaderDto,
+  type SeriesDetailDto,
   type SeriesDto,
 } from "./models";
 
@@ -138,48 +139,79 @@ export function toLatestItem(series: SeriesDto, apiUrl: string): DiscoverSection
 // manga details
 // ---------------------------------------------------------------------------
 
+// Pick the cover image id: prefer one in the translated language, else the
+// first entry the detail carries.
+function pickCoverImageId(detail: SeriesDetailDto): string | undefined {
+  const covers = detail.series_covers ?? [];
+  const preferred = covers.find(
+    (cover) => cover.language && cover.language === detail.translated_language,
+  );
+  return (preferred ?? covers[0])?.image_id ?? undefined;
+}
+
 export function parseMangaDetails(
-  series: SeriesDto,
+  detail: SeriesDetailDto,
   apiUrl: string,
   domain: string,
-  genreNames: Map<string, string>,
 ): SourceManga {
-  // Resolve genre UUIDs to names via the taxonomy map; fold in the format.
-  const names = [
-    ...(series.format && series.format.toLowerCase() !== "other" ? [series.format] : []),
-    ...(series.genres ?? [])
-      .map((id) => genreNames.get(id))
+  // Genres and tags already arrive named on the detail response, so no
+  // taxonomy lookup is needed; fold the format in as the first genre tag.
+  const genreNames = [
+    ...(detail.format && detail.format.toLowerCase() !== "other" ? [detail.format] : []),
+    ...(detail.genres ?? [])
+      .map((genre) => genre.genre_name?.trim())
       .filter((name): name is string => Boolean(name)),
   ];
-  const uniqueNames = [...new Set(names)];
-  const tags: Tag[] = uniqueNames.map((name) => ({
-    id: name.toLowerCase().replace(/\s+/g, "-"),
-    title: name,
-  }));
+  const tagNameList = (detail.tags ?? [])
+    .map((tag) => tag.tag_name?.trim())
+    .filter((name): name is string => Boolean(name));
+
+  const toTags = (names: string[]): Tag[] =>
+    [...new Set(names)].map((name) => ({
+      id: name.toLowerCase().replace(/\s+/g, "-"),
+      title: name,
+    }));
+  const genreTags = toTags(genreNames);
+  const tagTags = toTags(tagNameList);
 
   const secondaryTitles = [
     ...new Set(
-      (series.alternate_titles ?? [])
-        .map((title) => title.trim())
-        .filter((title) => title.length > 0),
+      (detail.series_alternate_titles ?? [])
+        .map((alt) => (alt.title ?? "").trim())
+        .filter((title) => title.length > 0 && title !== detail.title),
     ),
   ];
 
+  const staff = detail.series_staff ?? [];
+  const byRole = (role: string): string =>
+    staff
+      .filter((member) => (member.role ?? "").toLowerCase() === role)
+      .map((member) => member.name?.trim())
+      .filter((name): name is string => Boolean(name))
+      .join(", ");
+  const author = byRole("author");
+  const artist = byRole("artist");
+
   // Paperback rejects an empty thumbnail URL outright (it crashes the whole
   // details page), so fall back to the site icon when a cover is missing.
-  const thumbnailUrl = buildCoverUrl(apiUrl, series.cover_image_id) || `${domain}/favicon.ico`;
+  const thumbnailUrl = buildCoverUrl(apiUrl, pickCoverImageId(detail)) || `${domain}/favicon.ico`;
 
   return {
-    mangaId: series.series_id,
+    mangaId: detail.series_id,
     mangaInfo: {
-      primaryTitle: Application.decodeHTMLEntities(series.title),
+      primaryTitle: Application.decodeHTMLEntities(detail.title),
       secondaryTitles,
       thumbnailUrl,
-      synopsis: Application.decodeHTMLEntities((series.description ?? "").trim()),
-      status: mapStatus(series.publication_status),
-      contentRating: mapContentRating(series.content_rating),
-      tagGroups: tags.length > 0 ? [{ id: "genres", title: "Genres", tags }] : [],
-      shareUrl: `${domain}/series/${series.series_id}`,
+      synopsis: Application.decodeHTMLEntities((detail.description ?? "").trim()),
+      author: author.length > 0 ? author : undefined,
+      artist: artist.length > 0 ? artist : undefined,
+      status: mapStatus(detail.publication_status),
+      contentRating: mapContentRating(detail.content_rating),
+      tagGroups: [
+        ...(genreTags.length > 0 ? [{ id: "genres", title: "Genres", tags: genreTags }] : []),
+        ...(tagTags.length > 0 ? [{ id: "tags", title: "Tags", tags: tagTags }] : []),
+      ],
+      shareUrl: `${domain}/series/${detail.series_id}`,
     },
   };
 }
@@ -209,7 +241,7 @@ export function parseChapterList(books: BookDto[], sourceManga: SourceManga): Ch
         // `sort_no` is the server's canonical order; fall back to
         // volume-major / chapter-minor when it is absent.
         sortingIndex: typeof book.sort_no === "number" ? book.sort_no : volume * 100000 + chapNum,
-        publishDate: parseDate(book.available_at ?? book.created_at),
+        publishDate: parseDate(book.became_visible_at ?? book.available_at ?? book.created_at),
       } satisfies Chapter;
     });
 }

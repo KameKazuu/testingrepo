@@ -111,8 +111,6 @@ export interface SeriesDto {
   translated_language?: string | null;
   /** Newest book, present on listing entries (search feed). */
   latest_chapters?: BookDto[] | null;
-  /** Full chapter list, present only on the series-detail response. */
-  series_books?: BookDto[] | null;
 }
 
 /** A chapter/book, in `latest_chapters` (feed) and `series_books` (detail). */
@@ -125,6 +123,53 @@ export interface BookDto {
   sort_no?: number | null;
   created_at?: string | null;
   available_at?: string | null;
+  became_visible_at?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Series-detail response (`series/{id}`) — a distinct shape from the listing:
+// the cover lives under `series_covers`, and genres/tags/staff arrive as named
+// objects rather than bare UUIDs (so details need no taxonomy lookup).
+// ---------------------------------------------------------------------------
+
+export interface SeriesDetailDto {
+  series_id: string;
+  title: string;
+  description?: string | null;
+  content_rating?: string | null;
+  publication_status?: string | null;
+  format?: string | null;
+  translated_language?: string | null;
+  series_covers?: CoverDto[] | null;
+  series_alternate_titles?: AltTitleDto[] | null;
+  genres?: NamedRefDto[] | null;
+  tags?: NamedRefDto[] | null;
+  series_staff?: StaffDto[] | null;
+  series_books?: BookDto[] | null;
+}
+
+export interface CoverDto {
+  image_id?: string | null;
+  language?: string | null;
+  chapter_number?: string | null;
+}
+
+export interface AltTitleDto {
+  title?: string | null;
+  label?: string | null;
+}
+
+export interface NamedRefDto {
+  genre_id?: string | null;
+  genre_name?: string | null;
+  tag_id?: string | null;
+  tag_name?: string | null;
+  is_spoiler?: boolean | null;
+}
+
+export interface StaffDto {
+  name?: string | null;
+  role?: string | null;
 }
 
 /** `books/{id}` reader payload. CONFIRMED shape. */

@@ -36,7 +36,7 @@ import {
   type ReaderDto,
   type SearchBody,
   type SearchMetadata,
-  type SeriesDto,
+  type SeriesDetailDto,
   type SeriesPageDto,
 } from "./models";
 import { fetchJson, KaganeInterceptor } from "./network";
@@ -54,11 +54,6 @@ const SECTION_LATEST = "latest";
 const SECTION_BROWSE = "browse";
 const SECTION_GENRES = "genres";
 
-interface GenreCatalog {
-  names: Map<string, string>;
-  options: OptionItem[];
-}
-
 // Paperback rejects an empty image URL and fails the whole carousel, so drop
 // any card that ended up without a cover rather than break the section.
 function hasImage(item: DiscoverSectionItem): boolean {
@@ -74,9 +69,9 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
   kaganeInterceptor = new KaganeInterceptor("main");
 
-  // Genre taxonomy is fetched once and reused for details, the genres carousel
-  // and the advanced-search filter.
-  private genreCatalog: GenreCatalog | undefined;
+  // Genre taxonomy for the genres carousel and the advanced-search filter,
+  // fetched once per session (details carry their own named genres).
+  private genreOptions: OptionItem[] | undefined;
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -108,9 +103,8 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
   // Genre taxonomy
   // ----------------------------------------------------------------
 
-  private async getGenreCatalog(): Promise<GenreCatalog> {
-    if (this.genreCatalog) return this.genreCatalog;
-    const names = new Map<string, string>();
+  private async getGenreOptions(): Promise<OptionItem[]> {
+    if (this.genreOptions) return this.genreOptions;
     const options: OptionItem[] = [];
 
     try {
@@ -118,9 +112,7 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
       for (const entry of entries) {
         const name = entry.genre_name ?? entry.name;
         if (!entry.id || !name) continue;
-        names.set(entry.id, name);
-        // `format` duplicates the series' own format field; keep it out of the
-        // filter but still resolve its name for the details tag list.
+        // `format` duplicates the series' own format field; keep it out.
         if ((entry.genre_type ?? "genre").toLowerCase() !== "format") {
           options.push({ id: entry.id, value: name });
         }
@@ -128,13 +120,13 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
       options.sort((a, b) => a.value.localeCompare(b.value));
     } catch (error) {
       if (error instanceof CloudflareError) throw error;
-      // A failed taxonomy fetch just means unnamed genres; don't cache it so a
-      // cold start behind a challenge retries next call.
-      return { names, options };
+      // A failed taxonomy fetch just leaves the filter empty; don't cache it so
+      // a cold start behind a challenge retries next call.
+      return options;
     }
 
-    this.genreCatalog = { names, options };
-    return this.genreCatalog;
+    this.genreOptions = options;
+    return this.genreOptions;
   }
 
   // ----------------------------------------------------------------
@@ -154,7 +146,7 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
     metadata: Metadata | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
     if (section.id === SECTION_GENRES) {
-      const { options } = await this.getGenreCatalog();
+      const options = await this.getGenreOptions();
       const items: DiscoverSectionItem[] = options.map((option) => ({
         type: "genresCarouselItem",
         name: option.value,
@@ -197,7 +189,7 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
   // ----------------------------------------------------------------
 
   async getAdvancedSearchForm(query: SearchQuery<SearchMetadata>): Promise<AdvancedSearchForm> {
-    const { options } = await this.getGenreCatalog();
+    const options = await this.getGenreOptions();
     return new KaganeAdvancedSearchForm(query, options);
   }
 
@@ -278,17 +270,16 @@ export class KaganeExtension implements ExtensionImpl<typeof KaganeConfig> {
   // ----------------------------------------------------------------
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
-    const series = await fetchJson<SeriesDto>([SERIES_PATH, mangaId]);
-    if (!series.series_id) throw new Error(`No series data returned for id ${mangaId}.`);
-    const { names } = await this.getGenreCatalog();
-    return parseMangaDetails(series, getApiUrl(), getDomain(), names);
+    const detail = await fetchJson<SeriesDetailDto>([SERIES_PATH, mangaId]);
+    if (!detail.series_id) throw new Error(`No series data returned for id ${mangaId}.`);
+    return parseMangaDetails(detail, getApiUrl(), getDomain());
   }
 
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
     // The series-detail response carries the full book list under
     // `series_books` — there is no separate chapters endpoint.
-    const series = await fetchJson<SeriesDto>([SERIES_PATH, sourceManga.mangaId]);
-    return parseChapterList(series.series_books ?? [], sourceManga);
+    const detail = await fetchJson<SeriesDetailDto>([SERIES_PATH, sourceManga.mangaId]);
+    return parseChapterList(detail.series_books ?? [], sourceManga);
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
