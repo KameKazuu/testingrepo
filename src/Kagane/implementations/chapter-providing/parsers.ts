@@ -24,9 +24,22 @@ export function parseChapterList(
 ): Chapter[] {
   const useSourceChapterNumber = shouldUseSourceChapterNumber(data, sources);
   const books = data.series_books ?? [];
+  const seriesSource = data.source_id
+    ? sources.find((source) => source.source_id === data.source_id)
+    : undefined;
+  const officialSource =
+    seriesSource?.source_type.toLowerCase() === "official" ? seriesSource : undefined;
 
   return books.map((book, index) =>
-    mapChapter(book, sourceManga, chapterTitleMode, langCode, useSourceChapterNumber, index),
+    mapChapter(
+      book,
+      sourceManga,
+      chapterTitleMode,
+      langCode,
+      useSourceChapterNumber,
+      index,
+      officialSource,
+    ),
   );
 }
 
@@ -47,10 +60,17 @@ function mapChapter(
   langCode: string,
   useSourceChapterNumber: boolean,
   sortingIndex: number,
+  officialSource: SourceDto | undefined,
 ): Chapter {
   const chapterNumber = parseChapterNumber(book.chapter_no);
   const volume = parseChapterNumber(book.volume_no);
   const hasVolumeOnly = volume !== undefined && chapterNumber === undefined;
+
+  // Official uploads get a checkmark after the platform name in the scanlator
+  // slot ("Tappytoon ✓"), so they're distinguishable from scanlation groups.
+  const groupLabel =
+    book.groups?.map((group) => group.title).join(", ") || officialSource?.title || undefined;
+  const version = officialSource && groupLabel ? `${groupLabel} ✓` : groupLabel;
 
   const chapter: Chapter = {
     chapterId: book.book_id,
@@ -61,7 +81,7 @@ function mapChapter(
     chapNum: hasVolumeOnly ? 0 : useSourceChapterNumber ? book.sort_no : (chapterNumber ?? 0),
     volume: volume ?? 0,
     langCode,
-    version: book.groups?.map((group) => group.title).join(", ") || undefined,
+    version,
     publishDate: parseKaganeDate(book.created_at),
     sortingIndex,
   };
