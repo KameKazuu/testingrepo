@@ -39,15 +39,7 @@ export function readMultiselectFilter(
     .map(([id]) => id);
 }
 
-export function findIdsByName(names: string[], values: Record<string, string>): string[] {
-  return names
-    .map((name) => {
-      const lowerName = name.toLowerCase();
-      return Object.entries(values).find(([, value]) => value.toLowerCase() === lowerName)?.[0];
-    })
-    .filter((value): value is string => Boolean(value));
-}
-
+// A comma-separated tag list where a leading "-" excludes: "romance, -gore".
 export function parseTagInput(input: string): { included: string[]; excluded: string[] } {
   const included: string[] = [];
   const excluded: string[] = [];
@@ -59,6 +51,8 @@ export function parseTagInput(input: string): { included: string[]; excluded: st
     const shouldExclude = entry.startsWith("-");
     const tagName = shouldExclude ? entry.slice(1).trim() : entry;
     if (!tagName) continue;
+
+    (shouldExclude ? excluded : included).push(tagName);
   }
 
   return { included, excluded };
@@ -109,6 +103,13 @@ export function buildSearchFilters(metadata: KaganeMetadata, displayMode: string
       allowExclusion: true,
       allowEmptySelection: true,
       maximum: undefined,
+    },
+    {
+      type: "input",
+      id: "tags",
+      title: "Tags",
+      placeholder: "romance, -gore",
+      value: "",
     },
     {
       type: "dropdown",

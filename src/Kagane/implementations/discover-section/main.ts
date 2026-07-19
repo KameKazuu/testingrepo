@@ -10,18 +10,19 @@ import {
   API_URL,
   PAGE_SIZE,
   RANGE_OPTIONS,
-  type DetailsDto,
+  type KaganeSeriesDetailsResponse,
   type KaganeMetadata,
   type KaganeSearchBook,
-  type SearchDto,
+  type KaganeSearchResponse,
 } from "../shared/models";
 import { mapFeaturedItem, mapLatestItem, mapSimpleItem } from "./parsers";
 
-// How many cards to enrich with a detail fetch (author / rating / views). The
-// listing API carries none of those, so this is the visible-card budget — kept
-// small so discover stays light (and doesn't multiply Cloudflare challenges).
+// The Popular hero is the only section enriched with detail fetches (author /
+// rating / views / description); the listing carries none of those. Kept to a
+// handful of visible cards so discover stays light and doesn't multiply
+// Cloudflare challenges. Latest and Recently Added render from listing data
+// alone — no per-card detail requests.
 const FEATURED_LIMIT = 10;
-const ENRICH_LIMIT = 15;
 
 const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "popular", title: "Popular", type: DiscoverSectionType.featured },
@@ -40,19 +41,22 @@ export class DiscoverProvider {
     section: DiscoverSection,
     metadata?: { page?: number },
   ): Promise<PagedResults<DiscoverSectionItem>> {
+    // Trending is a static set of range chips — resolve it before touching the
+    // network so opening it costs no request.
+    if (section.id === "trending") {
+      return buildTrendingRangeItems();
+    }
+
     const kaganeMetadata = await getKaganeMetadata();
 
     if (section.id === "genres") {
       return genreChips(kaganeMetadata);
     }
-    if (section.id === "trending") {
-      return rangeChips();
-    }
 
     const page = metadata?.page ?? 1;
 
     if (section.id === "popular") {
-      const data = await searchSection("total_views,desc", page, kaganeMetadata);
+      const data = await fetchDiscoverSearchPage("total_views,desc", page);
       const books = (data.content ?? []).slice(0, FEATURED_LIMIT);
       const details = await enrichDetails(books, FEATURED_LIMIT);
       const items = books.map((book) =>
@@ -62,12 +66,8 @@ export class DiscoverProvider {
     }
 
     if (section.id === "latest") {
-      const data = await searchSection("updated_at,desc", page, kaganeMetadata);
-      const books = data.content ?? [];
-      const details = await enrichDetails(books, ENRICH_LIMIT);
-      const items = books.map((book) =>
-        mapLatestItem(book, details.get(book.series_id), kaganeMetadata),
-      );
+      const data = await fetchDiscoverSearchPage("updated_at,desc", page);
+      const items = (data.content ?? []).map((book) => mapLatestItem(book, kaganeMetadata));
       return {
         items,
         metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,
@@ -75,12 +75,8 @@ export class DiscoverProvider {
     }
 
     if (section.id === "recently_added") {
-      const data = await searchSection("created_at,desc", page, kaganeMetadata);
-      const books = data.content ?? [];
-      const details = await enrichDetails(books, ENRICH_LIMIT);
-      const items = books.map((book) =>
-        mapSimpleItem(book, details.get(book.series_id), kaganeMetadata),
-      );
+      const data = await fetchDiscoverSearchPage("created_at,desc", page);
+      const items = (data.content ?? []).map((book) => mapSimpleItem(book, kaganeMetadata));
       return {
         items,
         metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,
@@ -92,14 +88,15 @@ export class DiscoverProvider {
 }
 
 // Fetch details for the first `limit` books (in parallel, after the section's
-// own request has cleared Cloudflare) and key them by series id.
+// own request has cleared Cloudflare) and key them by series id. Only the
+// Popular hero uses this.
 async function enrichDetails(
   books: KaganeSearchBook[],
   limit: number,
-): Promise<Map<string, DetailsDto>> {
+): Promise<Map<string, KaganeSeriesDetailsResponse>> {
   const targets = books.slice(0, limit);
-  const details = await Promise.all(targets.map((book) => safeDetail(book.series_id)));
-  const map = new Map<string, DetailsDto>();
+  const details = await Promise.all(targets.map((book) => fetchOptionalDetails(book.series_id)));
+  const map = new Map<string, KaganeSeriesDetailsResponse>();
   targets.forEach((book, index) => {
     const detail = details[index];
     if (detail) map.set(book.series_id, detail);
@@ -109,12 +106,8 @@ async function enrichDetails(
 
 // The browse feed is the search endpoint with the reader's own filter body and
 // a sort (newest-first, most-viewed, …).
-async function searchSection(
-  sort: string,
-  page: number,
-  metadata: KaganeMetadata,
-): Promise<SearchDto> {
-  const body = buildSearchBody({ title: "", metadata: [] }, metadata);
+async function fetchDiscoverSearchPage(sort: string, page: number): Promise<KaganeSearchResponse> {
+  const body = buildSearchBody({ title: "", metadata: [] });
   const url = new URL(API_URL)
     .addPathComponent("api")
     .addPathComponent("v2")
@@ -131,12 +124,14 @@ async function searchSection(
     headers: apiHeaders(),
     body: JSON.stringify(body),
   };
-  return fetchJSON<SearchDto>(request);
+  return fetchJSON<KaganeSearchResponse>(request);
 }
 
-async function safeDetail(seriesId: string): Promise<DetailsDto | undefined> {
+async function fetchOptionalDetails(
+  seriesId: string,
+): Promise<KaganeSeriesDetailsResponse | undefined> {
   try {
-    return await fetchJSON<DetailsDto>({
+    return await fetchJSON<KaganeSeriesDetailsResponse>({
       url: new URL(API_URL)
         .addPathComponent("api")
         .addPathComponent("v2")
@@ -167,7 +162,7 @@ function genreChips(metadata: KaganeMetadata): PagedResults<DiscoverSectionItem>
 }
 
 // Trending chips (Today / This Week / This Month) → a sorted search.
-function rangeChips(): PagedResults<DiscoverSectionItem> {
+function buildTrendingRangeItems(): PagedResults<DiscoverSectionItem> {
   const items = RANGE_OPTIONS.map(
     (range): DiscoverSectionItem => ({
       type: "genresCarouselItem",

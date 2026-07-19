@@ -27,11 +27,10 @@ import {
   API_URL,
   PAGE_SIZE,
   SORTING_OPTIONS,
-  type KaganeMetadata,
   type KaganeSearchBook,
-  type SearchDto,
+  type KaganeSearchResponse,
 } from "../shared/models";
-import { buildImageUrl, getContentRatingValues, getPaperbackContentRating } from "../shared/utils";
+import { buildImageUrl, getContentRatingValues, mapItemContentRating } from "../shared/utils";
 import {
   buildSearchFilters,
   parseTagInput,
@@ -61,7 +60,7 @@ export class SearchProvider {
   ): Promise<PagedResults<SearchResultItem>> {
     const page = metadata?.page ?? 1;
     const kaganeMetadata = await getKaganeMetadata();
-    const searchBody = buildSearchBody(query, kaganeMetadata);
+    const searchBody = buildSearchBody(query);
     // A "range" filter (from the Trending discover chips) carries the sort to
     // apply; otherwise use the reader's chosen sorting option.
     const rangeEntry = (query.metadata ?? []).find((filter) => filter.id === "range");
@@ -89,16 +88,13 @@ export class SearchProvider {
       body: JSON.stringify(searchBody),
     };
 
-    const data = await fetchJSON<SearchDto>(request);
+    const data = await fetchJSON<KaganeSearchResponse>(request);
     const sourceMap = new Map(
       kaganeMetadata.sources.map((source) => [source.source_id, source.title]),
     );
-    const contentRating = getPaperbackContentRating(getContentRatingSetting());
     const showSource = getShowSource();
 
-    const items = (data.content ?? []).map((book) =>
-      mapSearchResult(book, sourceMap, showSource, contentRating),
-    );
+    const items = (data.content ?? []).map((book) => mapSearchResult(book, sourceMap, showSource));
 
     return {
       items,
@@ -107,10 +103,7 @@ export class SearchProvider {
   }
 }
 
-export function buildSearchBody(
-  query: SearchQuery<SearchFilterValue[]>,
-  _metadata: KaganeMetadata,
-): Record<string, unknown> {
+export function buildSearchBody(query: SearchQuery<SearchFilterValue[]>): Record<string, unknown> {
   const filters = query.metadata ?? [];
   const body: Record<string, unknown> = {
     source_type:
@@ -190,7 +183,6 @@ function mapSearchResult(
   book: KaganeSearchBook,
   sources: Map<string, string>,
   showSource: boolean,
-  contentRating: SearchResultItem["contentRating"],
 ): SearchResultItem {
   const sourceName = book.source_id ? sources.get(book.source_id) : undefined;
   const title =
@@ -205,6 +197,6 @@ function mapSearchResult(
     title,
     imageUrl: buildImageUrl(book.cover_image_id),
     subtitle: subtitles.join(" - "),
-    contentRating,
+    contentRating: mapItemContentRating(book.content_rating),
   };
 }

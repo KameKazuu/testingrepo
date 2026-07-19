@@ -21,15 +21,6 @@ import {
   type SourcesDto,
 } from "../implementations/shared/models";
 
-// De-duplicates the Cloudflare bypass on a cold load without ever suppressing
-// it: the first challenged request raises the WebView and stamps the time;
-// sibling requests challenged within a short window after it wait briefly and
-// retry on the resulting clearance instead of opening a second WebView. Purely
-// time-based, so it can never get stuck (a promise gate could leak and then
-// silently swallow every future challenge).
-let lastBypassAt = 0;
-const BYPASS_WINDOW_MS = 12000;
-
 export class KaganeInterceptor extends PaperbackInterceptor {
   async interceptRequest(request: Request): Promise<Request> {
     return {
@@ -49,22 +40,6 @@ export class KaganeInterceptor extends PaperbackInterceptor {
     data: ArrayBuffer,
   ): Promise<ArrayBuffer> {
     if (await isCloudflareChallenge(request, response, data)) {
-      const now = Date.now();
-      // A sibling request raised the bypass moments ago — give the WebView a
-      // beat to finish, then retry on the fresh clearance rather than opening
-      // a second one.
-      if (now - lastBypassAt < BYPASS_WINDOW_MS) {
-        await Application.sleep(3);
-        const [, retryData] = await Application.scheduleRequest({
-          ...request,
-          method: request.method ?? "GET",
-        });
-        return retryData;
-      }
-
-      // First to hit the challenge in this window: stamp the time and raise
-      // the bypass.
-      lastBypassAt = now;
       throw new CloudflareError({
         url: request.url,
         method: request.method ?? "GET",
@@ -316,19 +291,20 @@ export async function getKaganeMetadata(): Promise<KaganeMetadata> {
     }
   }
 
-  const [genres, sources] = await Promise.all([
-    fetchJSON<GenreDto[]>({
-      url: `${API_URL}/api/v2/genres/list`,
-      method: "GET",
-      headers: apiHeaders(),
-    }),
-    fetchJSON<SourcesDto>({
-      url: `${API_URL}/api/v2/sources/list`,
-      method: "POST",
-      headers: apiHeaders(),
-      body: JSON.stringify({ source_types: null }),
-    }),
-  ]);
+  // Fetched one after another rather than in parallel: on a cold load the first
+  // clears any Cloudflare challenge (raising the bypass once) so the second
+  // rides the fresh clearance, instead of both hitting the challenge at once.
+  const genres = await fetchJSON<GenreDto[]>({
+    url: `${API_URL}/api/v2/genres/list`,
+    method: "GET",
+    headers: apiHeaders(),
+  });
+  const sources = await fetchJSON<SourcesDto>({
+    url: `${API_URL}/api/v2/sources/list`,
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify({ source_types: null }),
+  });
 
   const metadata: KaganeMetadata = {
     genres: Object.fromEntries(genres.map((genre) => [genre.id, genre.genre_name])),

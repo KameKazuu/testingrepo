@@ -5,7 +5,7 @@ import type { SourceManga, TagSection } from "@paperback/types";
 
 import {
   BASE_URL,
-  type DetailsDto,
+  type KaganeSeriesDetailsResponse,
   type KaganeContentRating,
   type KaganeMetadata,
 } from "../shared/models";
@@ -19,7 +19,7 @@ import {
 
 export function parseMangaDetails(
   mangaId: string,
-  data: DetailsDto,
+  data: KaganeSeriesDetailsResponse,
   metadata: KaganeMetadata | undefined,
   options: {
     showEdition: boolean;
@@ -62,7 +62,7 @@ export function parseMangaDetails(
 }
 
 function buildTitle(
-  data: DetailsDto,
+  data: KaganeSeriesDetailsResponse,
   sourceName: string | undefined,
   showEdition: boolean,
   showSource: boolean,
@@ -76,7 +76,7 @@ function buildTitle(
   return showSource && sourceName ? `${editionTitle} [${sourceName}]` : editionTitle;
 }
 
-function buildSynopsis(data: DetailsDto, sourceName: string | undefined): string {
+function buildSynopsis(data: KaganeSeriesDetailsResponse, sourceName: string | undefined): string {
   const lines: string[] = [];
   const description = data.description?.trim();
   if (description) {
@@ -97,7 +97,7 @@ function buildSynopsis(data: DetailsDto, sourceName: string | undefined): string
   return lines.join("\n\n");
 }
 
-function buildTagGroups(data: DetailsDto): TagSection[] {
+function buildTagGroups(data: KaganeSeriesDetailsResponse): TagSection[] {
   const formatTags = data.format?.trim()
     ? [
         {

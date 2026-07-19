@@ -3,7 +3,12 @@
 
 import type { DiscoverSectionItem } from "@paperback/types";
 
-import type { DetailsDto, KaganeMetadata, KaganeSearchBook, LatestChapter } from "../shared/models";
+import type {
+  KaganeSeriesDetailsResponse,
+  KaganeMetadata,
+  KaganeSearchBook,
+  LatestChapter,
+} from "../shared/models";
 import {
   buildImageUrl,
   formatViews,
@@ -23,11 +28,11 @@ function statusLabel(book: KaganeSearchBook): string | undefined {
   return status !== "Unknown" ? status : undefined;
 }
 
-function detailRating(detail: DetailsDto | undefined): string | undefined {
+function detailRating(detail: KaganeSeriesDetailsResponse | undefined): string | undefined {
   return starRating(detail?.average_rating ?? detail?.bayesian_rating);
 }
 
-function authorNames(detail: DetailsDto | undefined): string | undefined {
+function authorNames(detail: KaganeSeriesDetailsResponse | undefined): string | undefined {
   return joinUnique(
     (detail?.series_staff ?? [])
       .filter((person) => /author|story/i.test(person.role))
@@ -35,7 +40,8 @@ function authorNames(detail: DetailsDto | undefined): string | undefined {
   );
 }
 
-// A short "Manga • Romance, Fantasy" descriptor for a card subtitle.
+// A short "Manga • Romance, Fantasy" descriptor for a card subtitle, built
+// entirely from the listing payload (no detail fetch).
 function descriptor(book: KaganeSearchBook, metadata: KaganeMetadata): string | undefined {
   const bits = [
     book.format?.trim() && book.format.toLowerCase() !== "other" ? book.format : undefined,
@@ -44,20 +50,11 @@ function descriptor(book: KaganeSearchBook, metadata: KaganeMetadata): string | 
   return bits.length > 0 ? bits.join(" • ") : undefined;
 }
 
-// A star rating when available, otherwise the format/genre descriptor.
-function ratingOrDescriptor(
-  book: KaganeSearchBook,
-  detail: DetailsDto | undefined,
-  metadata: KaganeMetadata,
-): string | undefined {
-  return detailRating(detail) ?? descriptor(book, metadata) ?? statusLabel(book);
-}
-
 // The Popular hero: author as the supertitle, description as the summary, and a
 // star rating + view count as the info chips.
 export function mapFeaturedItem(
   book: KaganeSearchBook,
-  detail: DetailsDto | undefined,
+  detail: KaganeSeriesDetailsResponse | undefined,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
   const rating = detailRating(detail);
@@ -98,19 +95,15 @@ function chapterLabel(latest: LatestChapter): string | undefined {
   return latest.title?.trim() || undefined;
 }
 
-// Latest updates card — like the reference latest feed: the subtitle carries
-// the star rating and the newest chapter ("★ 8.6 · Ch. 27") and the publish
-// time renders as the relative date.
+// Latest updates card — the newest chapter label as the subtitle and the
+// publish time as the relative date, both straight from the listing payload
+// (no per-card detail fetch).
 export function mapLatestItem(
   book: KaganeSearchBook,
-  detail: DetailsDto | undefined,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
   const latest = book.latest_chapters?.[0];
-  if (!latest?.book_id) return mapSimpleItem(book, detail, metadata);
-  const subtitle = [detailRating(detail), chapterLabel(latest)]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
+  if (!latest?.book_id) return mapSimpleItem(book, metadata);
   return {
     type: "chapterUpdatesCarouselItem",
     mangaId: book.series_id,
@@ -118,14 +111,13 @@ export function mapLatestItem(
     title: book.title.trim(),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
-    subtitle: subtitle || undefined,
+    subtitle: chapterLabel(latest),
     publishDate: parseKaganeDate(latest.available_at ?? latest.created_at),
   };
 }
 
 export function mapSimpleItem(
   book: KaganeSearchBook,
-  detail: DetailsDto | undefined,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
   return {
@@ -134,6 +126,6 @@ export function mapSimpleItem(
     title: book.title.trim(),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
-    subtitle: ratingOrDescriptor(book, detail, metadata),
+    subtitle: descriptor(book, metadata) ?? statusLabel(book),
   };
 }

@@ -83,78 +83,9 @@ export const SORTING_OPTIONS: SortingOption[] = [
   { id: "avg_views_week,desc", label: "Popular (Week)" },
   { id: "avg_views_month,desc", label: "Popular (Month)" },
   { id: "updated_at,desc", label: "Latest" },
-  { id: "series_name,desc", label: "By Name" },
+  { id: "series_name,desc", label: "Name (Z–A)" },
   { id: "books_count,desc", label: "Books Count" },
   { id: "created_at,desc", label: "Created At" },
-];
-
-export const GENRE_OPTIONS = [
-  "4-koma",
-  "AI",
-  "Action",
-  "Adventure",
-  "Award Winning",
-  "Comedy",
-  "Coming of Age",
-  "Cooking",
-  "Crime",
-  "Demons",
-  "Doujinshi",
-  "Drama",
-  "Ecchi",
-  "Fan Colored",
-  "Fantasy",
-  "Full Color",
-  "Gender Bender",
-  "Gore",
-  "Harem",
-  "Hentai",
-  "Historical",
-  "Horror",
-  "Isekai",
-  "Josei",
-  "LGBTQIA+",
-  "Magic",
-  "Magical Girls",
-  "Martial Arts",
-  "Mecha",
-  "Medical",
-  "Military",
-  "Monsters",
-  "Music",
-  "Mystery",
-  "Office Workers",
-  "Official Colored",
-  "Omegaverse",
-  "Oneshot",
-  "Philosophical",
-  "Police",
-  "Post-Apocalyptic",
-  "Psychological",
-  "Reincarnation",
-  "Reverse Harem",
-  "Romance",
-  "School Life",
-  "Sci-Fi",
-  "Seinen",
-  "Shoujo Ai",
-  "Shoujo",
-  "Shounen Ai",
-  "Shounen",
-  "Slice of Life",
-  "Smut",
-  "Sports",
-  "Supernatural",
-  "Survival",
-  "Thriller",
-  "Time Travel",
-  "Tragedy",
-  "Vampires",
-  "Video Games",
-  "Villainess",
-  "Wuxia",
-  "Yaoi",
-  "Yuri",
 ];
 
 export interface GenreDto {
@@ -177,7 +108,7 @@ export interface KaganeMetadata {
   sources: SourceDto[];
 }
 
-export interface SearchDto {
+export interface KaganeSearchResponse {
   content?: KaganeSearchBook[];
   last?: boolean;
   total_elements?: number;
@@ -217,7 +148,7 @@ export const RANGE_OPTIONS = [
   { id: "avg_views_month,desc", title: "This Month" },
 ];
 
-export interface DetailsDto {
+export interface KaganeSeriesDetailsResponse {
   title: string;
   description?: string | null;
   upload_status: string;

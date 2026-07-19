@@ -6,7 +6,7 @@ import { URL } from "@paperback/types";
 
 import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
 import { getContentRatingSetting, getShowEdition, getShowSource } from "../settings-form/main";
-import { API_URL, type DetailsDto, type KaganeMetadata } from "../shared/models";
+import { API_URL, type KaganeSeriesDetailsResponse, type KaganeMetadata } from "../shared/models";
 import { parseMangaDetails } from "./parsers";
 
 export class MangaProvider {
@@ -22,7 +22,10 @@ export class MangaProvider {
       headers: apiHeaders(),
     };
 
-    const [data, metadata] = await Promise.all([fetchJSON<DetailsDto>(request), safeMetadata()]);
+    // Sequential (metadata is cached after the first discover load) so a cold
+    // open doesn't fire two challengeable requests at once.
+    const metadata = await safeMetadata();
+    const data = await fetchJSON<KaganeSeriesDetailsResponse>(request);
 
     return parseMangaDetails(mangaId, data, metadata, {
       showEdition: getShowEdition(),

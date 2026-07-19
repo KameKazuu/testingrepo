@@ -11,12 +11,17 @@ import {
   getKaganeMetadata,
 } from "../../services/network";
 import { getChapterTitleMode, getContentLanguages, getDataSaver } from "../settings-form/main";
-import { API_URL, DEFAULT_CACHE_URL, type DetailsDto, type SourceDto } from "../shared/models";
+import {
+  API_URL,
+  DEFAULT_CACHE_URL,
+  type KaganeSeriesDetailsResponse,
+  type SourceDto,
+} from "../shared/models";
 import { parseChapterList } from "./parsers";
 
 export class ChapterProvider {
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
-    const data = await fetchJSON<DetailsDto>({
+    const data = await fetchJSON<KaganeSeriesDetailsResponse>({
       url: seriesUrl(sourceManga.mangaId),
       method: "GET",
       headers: apiHeaders(),

@@ -80,15 +80,11 @@ export function formatViews(views?: number | null): string | undefined {
 }
 
 // The API rates titles out of 100. Discover cards show a starred /10 score
-// ("★ 8.6"); the details page shows the raw percentage ("88%").
+// ("★ 8.6"); the details page shows a native percentage star via
+// MangaInfo.rating.
 export function starRating(percent?: number | null): string | undefined {
   if (typeof percent !== "number" || percent <= 0) return undefined;
   return `★ ${(percent / 10).toFixed(1)}`;
-}
-
-export function percentRating(percent?: number | null): string | undefined {
-  if (typeof percent !== "number" || percent <= 0) return undefined;
-  return `${Math.round(percent)}%`;
 }
 
 // MangaInfo.rating is a 0–1 value the app renders as a percentage star on the

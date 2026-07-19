@@ -3,7 +3,7 @@
 
 import type { Chapter, SourceManga } from "@paperback/types";
 
-import type { ChapterBook, DetailsDto, SourceDto } from "../shared/models";
+import type { ChapterBook, KaganeSeriesDetailsResponse, SourceDto } from "../shared/models";
 import { buildChapterTitle, parseChapterNumber, parseKaganeDate } from "../shared/utils";
 
 const SOURCE_CHAPTER_NUMBER_FORMATS = new Set([
@@ -14,7 +14,7 @@ const SOURCE_CHAPTER_NUMBER_FORMATS = new Set([
 ]);
 
 export function parseChapterList(
-  data: DetailsDto,
+  data: KaganeSeriesDetailsResponse,
   sourceManga: SourceManga,
   chapterTitleMode: string,
   langCode: string,
@@ -28,7 +28,10 @@ export function parseChapterList(
   );
 }
 
-function shouldUseSourceChapterNumber(data: DetailsDto, sources: SourceDto[]): boolean {
+function shouldUseSourceChapterNumber(
+  data: KaganeSeriesDetailsResponse,
+  sources: SourceDto[],
+): boolean {
   if (data.format && SOURCE_CHAPTER_NUMBER_FORMATS.has(data.format)) {
     return true;
   }
