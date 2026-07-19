@@ -8,7 +8,7 @@ import type {
   SearchResultItem,
   SortingOption,
 } from "@paperback/types";
-import { URL } from "@paperback/types";
+import { CloudflareError, URL } from "@paperback/types";
 import {
   SearchFilterForm,
   type SearchFilter,
@@ -55,12 +55,15 @@ export class SearchProvider {
     const metadata = await getKaganeMetadata();
     // The full tag taxonomy renders as a browsable multiselect. If it can't be
     // fetched, the sheet still opens — typed tags keep working via the input.
+    // A Cloudflare challenge must surface so the app can raise the bypass.
     let tagOptions: Array<{ id: string; value: string }> = [];
     try {
       tagOptions = (await getKaganeTagEntries())
         .map((tag) => ({ id: tag.id, value: tag.tag_name }))
         .sort((left, right) => left.value.localeCompare(right.value));
-    } catch {
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+      console.log(`[Kagane] tag taxonomy unavailable for filters: ${String(error)}`);
       tagOptions = [];
     }
     return buildSearchFilters(metadata, getSourceDisplayMode(), tagOptions);

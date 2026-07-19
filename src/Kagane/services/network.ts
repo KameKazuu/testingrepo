@@ -363,11 +363,17 @@ export async function getKaganeTagEntries(): Promise<TagDto[]> {
 
   if (typeof cached === "string" && cacheDate + METADATA_CACHE_TTL_SECONDS > Date.now() / 1000) {
     try {
-      return JSON.parse(cached) as TagDto[];
+      const parsed: unknown = JSON.parse(cached);
+      // Older builds cached a name→id object under this key — only an array
+      // of entries is valid now; anything else is refetched.
+      if (Array.isArray(parsed)) {
+        return parsed as TagDto[];
+      }
     } catch {
-      Application.setState("", TAGS_CACHE_KEY);
-      Application.setState("0", TAGS_CACHE_DATE_KEY);
+      // Corrupt cache — refetch below.
     }
+    Application.setState("", TAGS_CACHE_KEY);
+    Application.setState("0", TAGS_CACHE_DATE_KEY);
   }
 
   const tags = await fetchJSON<TagDto[]>({
