@@ -79,6 +79,12 @@ export function formatViews(views?: number | null): string | undefined {
   return String(views);
 }
 
+// The API rates titles out of 100; show it as a starred /10 score ("★ 8.6").
+export function starRating(percent?: number | null): string | undefined {
+  if (typeof percent !== "number" || percent <= 0) return undefined;
+  return `★ ${(percent / 10).toFixed(1)}`;
+}
+
 export function parseKaganeDate(value?: string | null): Date | undefined {
   if (!value) return undefined;
 

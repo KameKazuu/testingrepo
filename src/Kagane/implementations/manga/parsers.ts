@@ -14,6 +14,7 @@ import {
   getPaperbackContentRating,
   joinUnique,
   mapPublicationStatus,
+  starRating,
 } from "../shared/utils";
 
 export function parseMangaDetails(
@@ -113,7 +114,19 @@ function buildTagGroups(data: DetailsDto): TagSection[] {
     title: tag.tag_name,
   }));
 
+  const rating = starRating(data.average_rating ?? data.bayesian_rating);
+  const ratingTags = rating ? [{ id: "rating", title: rating }] : [];
+
   return [
+    ...(ratingTags.length > 0
+      ? [
+          {
+            id: "rating",
+            title: "Rating",
+            tags: ratingTags,
+          },
+        ]
+      : []),
     ...(formatTags.length > 0 || genreTags.length > 0
       ? [
           {

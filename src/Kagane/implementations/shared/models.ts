@@ -215,7 +215,6 @@ export const RANGE_OPTIONS = [
   { id: "avg_views_today,desc", title: "Today" },
   { id: "avg_views_week,desc", title: "This Week" },
   { id: "avg_views_month,desc", title: "This Month" },
-  { id: "total_views,desc", title: "All Time" },
 ];
 
 export interface DetailsDto {
