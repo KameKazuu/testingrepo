@@ -59,6 +59,7 @@ const FEATURED_HERO_LIMIT = 8;
 const HOMEPAGE_CACHE_TTL = 5 * 60 * 1000;
 
 const SECTION_POPULAR = "popular";
+const SECTION_RANDOM = "random";
 const SECTION_UPDATES = "updates";
 const SECTION_POPULAR_WEEK = "popular_week";
 const SECTION_TOP_SERIES = "top_series";
@@ -138,6 +139,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
         title: "Best Ongoings",
         type: DiscoverSectionType.prominentCarousel,
       },
+      { id: SECTION_RANDOM, title: "Random Picks", type: DiscoverSectionType.simpleCarousel },
       { id: SECTION_GENRES, title: "Genres", type: DiscoverSectionType.genres },
     ];
   }
@@ -179,15 +181,24 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       return { items: parseHomeUpdates(await this.getHomepage()), metadata: undefined };
     }
 
-    // The hero is the site's own top carousel, enriched with detail-page info.
+    // The front page's top strip is a fresh random shuffle on every load —
+    // surfaced here as its own row, rotating whenever the cached page renews.
+    if (section.id === SECTION_RANDOM) {
+      const items = parseHomeCarousel(await this.getHomepage());
+      return {
+        items: items.filter((item) => item.poster.length > 0).map(toHomeCard),
+        metadata: undefined,
+      };
+    }
+
+    // The hero draws from the popularity feed rather than the front page's own
+    // top strip — that strip is a fresh random shuffle on every load, which
+    // would headline arbitrary titles and defeat the enrichment cache.
     if (section.id === SECTION_POPULAR) {
-      let items = parseHomeCarousel(await this.getHomepage());
-      if (items.length === 0) {
-        // The embedded carousel is the source of truth; fall back to the
-        // popularity feed if the page ever stops carrying it.
-        items = (await this.fetchCatalogPage({ sort: "real_views", order: "desc" }, undefined))
-          .items;
-      }
+      const { items } = await this.fetchCatalogPage(
+        { sort: "real_views", order: "desc" },
+        undefined,
+      );
       return { items: await this.buildHeroItems(items), metadata: undefined };
     }
 
