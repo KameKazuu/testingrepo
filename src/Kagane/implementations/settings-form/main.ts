@@ -19,8 +19,6 @@ import {
   HIDDEN_TAG_CATEGORIES_KEY,
   CONTENT_RATING_VALUES,
   LANGUAGE_OPTIONS,
-  POPULAR_TIME_SPAN_KEY,
-  POPULAR_TIME_SPAN_OPTIONS,
   SHOW_EDITION_KEY,
   SHOW_SOURCE_KEY,
   SHOW_SPOILER_TAGS_KEY,
@@ -83,21 +81,6 @@ export function setContentRatingSelections(value: string[]): void {
     CONTENT_RATING_VALUES.includes(entry as KaganeContentRating),
   );
   Application.setState(valid.length > 0 ? valid : DEFAULT_CONTENT_RATINGS, CONTENT_RATING_KEY);
-}
-
-export function getPopularTimeSpan(): string {
-  const value = Application.getState(POPULAR_TIME_SPAN_KEY);
-  return typeof value === "string" &&
-    POPULAR_TIME_SPAN_OPTIONS.some((option) => option.id === value)
-    ? value
-    : "week";
-}
-
-export function setPopularTimeSpan(value: string): void {
-  Application.setState(
-    POPULAR_TIME_SPAN_OPTIONS.some((option) => option.id === value) ? value : "week",
-    POPULAR_TIME_SPAN_KEY,
-  );
 }
 
 export function getSourceDisplayMode(): string {

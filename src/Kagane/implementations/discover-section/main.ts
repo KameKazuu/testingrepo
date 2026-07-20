@@ -6,11 +6,9 @@ import { CloudflareError, DiscoverSectionType, URL } from "@paperback/types";
 
 import { apiHeaders, fetchJSON, getKaganeMetadata, warmTagTaxonomy } from "../../services/network";
 import { buildSearchBody } from "../search-results/main";
-import { getPopularTimeSpan } from "../settings-form/main";
 import {
   API_URL,
   PAGE_SIZE,
-  POPULAR_TIME_SPAN_OPTIONS,
   RANGE_OPTIONS,
   type KaganeSeriesDetailsResponse,
   type KaganeMetadata,
@@ -58,11 +56,7 @@ export class DiscoverProvider {
     const page = metadata?.page ?? 1;
 
     if (section.id === "popular") {
-      const timeSpan = getPopularTimeSpan();
-      const popularSort =
-        POPULAR_TIME_SPAN_OPTIONS.find((option) => option.id === timeSpan)?.sort ??
-        "total_views,desc";
-      const data = await fetchDiscoverSearchPage(popularSort, page);
+      const data = await fetchDiscoverSearchPage("total_views,desc", page);
       const books = (data.content ?? []).slice(0, FEATURED_LIMIT);
       const details = await enrichDetails(books, FEATURED_LIMIT);
       const items = books.map((book) =>

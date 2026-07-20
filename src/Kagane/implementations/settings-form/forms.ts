@@ -20,7 +20,6 @@ import {
   FORMAT_OPTIONS,
   HIDDEN_TAG_CATEGORIES,
   LANGUAGE_OPTIONS,
-  POPULAR_TIME_SPAN_OPTIONS,
   SOURCE_DISPLAY_MODE_OPTIONS,
 } from "../shared/models";
 import {
@@ -29,7 +28,6 @@ import {
   getContentRatingSelections,
   getCustomHiddenTags,
   getDataSaver,
-  getPopularTimeSpan,
   getExcludedGenres,
   getHiddenFormats,
   getHiddenTagCategories,
@@ -42,7 +40,6 @@ import {
   setContentRatingSelections,
   setCustomHiddenTags,
   setDataSaver,
-  setPopularTimeSpan,
   setExcludedGenres,
   setHiddenFormats,
   setHiddenTagCategories,
@@ -71,7 +68,6 @@ export class KaganeSettingsForm extends Form {
         [
           this.contentLanguagesRow(),
           this.contentRatingRow(),
-          this.popularTimeSpanRow(),
           this.sourceDisplayModeRow(),
           this.excludedGenresRow(),
         ],
@@ -118,22 +114,6 @@ export class KaganeSettingsForm extends Form {
     };
 
     return SelectRow("content-rating", props);
-  }
-
-  popularTimeSpanRow(): FormItemElement<unknown> {
-    const props: SelectRowProps = {
-      title: "Popular Time Span",
-      options: POPULAR_TIME_SPAN_OPTIONS.map((option) => ({
-        id: option.id,
-        title: option.title,
-      })),
-      value: [getPopularTimeSpan()],
-      minItemCount: 1,
-      maxItemCount: 1,
-      onValueChange: Application.Selector(this as KaganeSettingsForm, "handlePopularTimeSpan"),
-    };
-
-    return SelectRow("popular-time-span", props);
   }
 
   sourceDisplayModeRow(): FormItemElement<unknown> {
@@ -262,12 +242,6 @@ export class KaganeSettingsForm extends Form {
 
   async handleContentRating(value: string[]): Promise<void> {
     setContentRatingSelections(value);
-    Application.invalidateDiscoverSections();
-    this.reloadForm();
-  }
-
-  async handlePopularTimeSpan(value: string[]): Promise<void> {
-    setPopularTimeSpan(value[0] ?? "week");
     Application.invalidateDiscoverSections();
     this.reloadForm();
   }

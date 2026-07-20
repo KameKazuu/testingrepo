@@ -17,7 +17,6 @@ export const INTEGRITY_TOKEN_KEY = "kagane-integrity-token";
 export const INTEGRITY_EXP_KEY = "kagane-integrity-exp";
 
 export const CONTENT_RATING_KEY = "kagane-content-rating";
-export const POPULAR_TIME_SPAN_KEY = "kagane-popular-time-span";
 export const SOURCE_DISPLAY_MODE_KEY = "kagane-source-display-mode";
 export const SHOW_EDITION_KEY = "kagane-show-edition";
 export const SHOW_SOURCE_KEY = "kagane-show-source";
@@ -291,14 +290,6 @@ export const RANGE_OPTIONS = [
 ];
 
 export const SOURCE_TYPE_OPTIONS = ["Official", "Unofficial", "Mixed"];
-
-/** The time window the Popular discover section ranks by. */
-export const POPULAR_TIME_SPAN_OPTIONS = [
-  { id: "today", title: "Today", sort: "avg_views_today,desc" },
-  { id: "week", title: "This Week", sort: "avg_views_week,desc" },
-  { id: "month", title: "This Month", sort: "avg_views_month,desc" },
-  { id: "allTime", title: "All Time", sort: "total_views,desc" },
-];
 
 export interface KaganeSeriesDetailsResponse {
   title: string;
