@@ -20,7 +20,7 @@ import {
 } from "../../services/network";
 import {
   getContentLanguages,
-  getContentRatingSetting,
+  getContentRatingSelections,
   getCustomHiddenTags,
   getExcludedGenres,
   getHiddenFormats,
@@ -37,7 +37,7 @@ import {
   type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
-import { buildImageUrl, getContentRatingValues, mapItemContentRating } from "../shared/utils";
+import { buildImageUrl, mapItemContentRating, titleCase } from "../shared/utils";
 import { KaganeAdvancedSearchForm, type FilterItem, type KaganeSearchMetadata } from "./forms";
 import { getVisibleSources, parseTagInput } from "./parsers";
 
@@ -167,7 +167,7 @@ export async function buildSearchBody(
           : displayMode === "scanlations"
             ? ["Unofficial", "Mixed"]
             : ["Official", "Unofficial", "Mixed"],
-    content_rating: getContentRatingValues(getContentRatingSetting()),
+    content_rating: getContentRatingSelections().map(titleCase),
     content_lang: languages.length > 0 ? languages : getContentLanguages(),
   };
 

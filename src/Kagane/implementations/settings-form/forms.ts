@@ -20,14 +20,16 @@ import {
   FORMAT_OPTIONS,
   HIDDEN_TAG_CATEGORIES,
   LANGUAGE_OPTIONS,
+  POPULAR_TIME_SPAN_OPTIONS,
   SOURCE_DISPLAY_MODE_OPTIONS,
 } from "../shared/models";
 import {
   getChapterTitleMode,
   getContentLanguages,
-  getContentRatingSetting,
+  getContentRatingSelections,
   getCustomHiddenTags,
   getDataSaver,
+  getPopularTimeSpan,
   getExcludedGenres,
   getHiddenFormats,
   getHiddenTagCategories,
@@ -37,9 +39,10 @@ import {
   getSourceDisplayMode,
   setChapterTitleMode,
   setContentLanguages,
-  setContentRatingSetting,
+  setContentRatingSelections,
   setCustomHiddenTags,
   setDataSaver,
+  setPopularTimeSpan,
   setExcludedGenres,
   setHiddenFormats,
   setHiddenTagCategories,
@@ -68,6 +71,7 @@ export class KaganeSettingsForm extends Form {
         [
           this.contentLanguagesRow(),
           this.contentRatingRow(),
+          this.popularTimeSpanRow(),
           this.sourceDisplayModeRow(),
           this.excludedGenresRow(),
         ],
@@ -107,13 +111,29 @@ export class KaganeSettingsForm extends Form {
     const props: SelectRowProps = {
       title: "Content Rating",
       options: CONTENT_RATING_OPTIONS,
-      value: [getContentRatingSetting()],
+      value: getContentRatingSelections(),
       minItemCount: 1,
-      maxItemCount: 1,
+      maxItemCount: CONTENT_RATING_OPTIONS.length,
       onValueChange: Application.Selector(this as KaganeSettingsForm, "handleContentRating"),
     };
 
     return SelectRow("content-rating", props);
+  }
+
+  popularTimeSpanRow(): FormItemElement<unknown> {
+    const props: SelectRowProps = {
+      title: "Popular Time Span",
+      options: POPULAR_TIME_SPAN_OPTIONS.map((option) => ({
+        id: option.id,
+        title: option.title,
+      })),
+      value: [getPopularTimeSpan()],
+      minItemCount: 1,
+      maxItemCount: 1,
+      onValueChange: Application.Selector(this as KaganeSettingsForm, "handlePopularTimeSpan"),
+    };
+
+    return SelectRow("popular-time-span", props);
   }
 
   sourceDisplayModeRow(): FormItemElement<unknown> {
@@ -241,7 +261,13 @@ export class KaganeSettingsForm extends Form {
   }
 
   async handleContentRating(value: string[]): Promise<void> {
-    setContentRatingSetting(value[0] ?? "safe");
+    setContentRatingSelections(value);
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async handlePopularTimeSpan(value: string[]): Promise<void> {
+    setPopularTimeSpan(value[0] ?? "week");
     Application.invalidateDiscoverSections();
     this.reloadForm();
   }

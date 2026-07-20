@@ -3,7 +3,7 @@
 
 import { ContentRating, URL } from "@paperback/types";
 
-import { API_URL, CONTENT_RATING_VALUES, type KaganeContentRating } from "./models";
+import { API_URL } from "./models";
 
 // The reader fetches a page from the cache CDN as
 //   {cache_url}/api/v2/books/page/{chapterId}/{file}?token={token}
@@ -54,23 +54,6 @@ export function buildImageUrl(imageId?: string | null): string {
 
 export function titleCase(value: string): string {
   return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
-}
-
-export function normalizeContentRating(value: unknown): KaganeContentRating {
-  return typeof value === "string" && CONTENT_RATING_VALUES.includes(value as KaganeContentRating)
-    ? (value as KaganeContentRating)
-    : "safe";
-}
-
-export function getContentRatingValues(maxRating: KaganeContentRating): string[] {
-  const index = CONTENT_RATING_VALUES.indexOf(maxRating);
-  return CONTENT_RATING_VALUES.slice(0, Math.max(index, 0) + 1).map(titleCase);
-}
-
-export function getPaperbackContentRating(maxRating: KaganeContentRating): ContentRating {
-  if (maxRating === "pornographic") return ContentRating.ADULT;
-  if (maxRating === "erotica" || maxRating === "suggestive") return ContentRating.MATURE;
-  return ContentRating.EVERYONE;
 }
 
 // A single title's own rating string ("Safe" / "Suggestive" / …) → Paperback.

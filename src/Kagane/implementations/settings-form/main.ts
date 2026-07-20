@@ -17,7 +17,10 @@ import {
   HIDDEN_FORMATS_KEY,
   HIDDEN_TAG_CATEGORIES,
   HIDDEN_TAG_CATEGORIES_KEY,
+  CONTENT_RATING_VALUES,
   LANGUAGE_OPTIONS,
+  POPULAR_TIME_SPAN_KEY,
+  POPULAR_TIME_SPAN_OPTIONS,
   SHOW_EDITION_KEY,
   SHOW_SOURCE_KEY,
   SHOW_SPOILER_TAGS_KEY,
@@ -25,7 +28,6 @@ import {
   type KaganeContentRating,
 } from "../shared/models";
 import type { KaganeMetadata } from "../shared/models";
-import { normalizeContentRating } from "../shared/utils";
 import { KaganeSettingsForm } from "./forms";
 
 function toGenreOptions(metadata: KaganeMetadata): { id: string; title: string }[] {
@@ -57,12 +59,45 @@ function readStringArray(key: string, fallback: string[], validIds?: Set<string>
   return sanitized.length > 0 || fallback.length === 0 ? sanitized : fallback;
 }
 
-export function getContentRatingSetting(): KaganeContentRating {
-  return normalizeContentRating(Application.getState(CONTENT_RATING_KEY));
+const DEFAULT_CONTENT_RATINGS: KaganeContentRating[] = ["safe", "suggestive"];
+
+// Individually selectable content ratings, defaulting to Safe + Suggestive.
+export function getContentRatingSelections(): KaganeContentRating[] {
+  const value = Application.getState(CONTENT_RATING_KEY);
+  // Older builds stored the maximum rating as a single string; expand it to
+  // the ladder it implied (e.g. "erotica" meant safe + suggestive + erotica).
+  if (typeof value === "string" && CONTENT_RATING_VALUES.includes(value as KaganeContentRating)) {
+    const index = CONTENT_RATING_VALUES.indexOf(value as KaganeContentRating);
+    return CONTENT_RATING_VALUES.slice(0, index + 1);
+  }
+  const selections = readStringArray(
+    CONTENT_RATING_KEY,
+    DEFAULT_CONTENT_RATINGS,
+    new Set<string>(CONTENT_RATING_VALUES),
+  ) as KaganeContentRating[];
+  return selections.length > 0 ? selections : DEFAULT_CONTENT_RATINGS;
 }
 
-export function setContentRatingSetting(value: string): void {
-  Application.setState(normalizeContentRating(value), CONTENT_RATING_KEY);
+export function setContentRatingSelections(value: string[]): void {
+  const valid = value.filter((entry): entry is KaganeContentRating =>
+    CONTENT_RATING_VALUES.includes(entry as KaganeContentRating),
+  );
+  Application.setState(valid.length > 0 ? valid : DEFAULT_CONTENT_RATINGS, CONTENT_RATING_KEY);
+}
+
+export function getPopularTimeSpan(): string {
+  const value = Application.getState(POPULAR_TIME_SPAN_KEY);
+  return typeof value === "string" &&
+    POPULAR_TIME_SPAN_OPTIONS.some((option) => option.id === value)
+    ? value
+    : "week";
+}
+
+export function setPopularTimeSpan(value: string): void {
+  Application.setState(
+    POPULAR_TIME_SPAN_OPTIONS.some((option) => option.id === value) ? value : "week",
+    POPULAR_TIME_SPAN_KEY,
+  );
 }
 
 export function getSourceDisplayMode(): string {
