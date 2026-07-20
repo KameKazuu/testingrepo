@@ -246,21 +246,16 @@ function extractUploader($row: cheerio.Cheerio<any>): string {
   );
 }
 
-// The app rejects IDs containing anything outside alphanumerics and
-// `._-@()[]%?#+=/&:`. Title slugs occasionally contain other characters (an
-// apostrophe, e.g. .../the_exiled_saintess_is_loved_by_a_fluffy_duke'/), and
-// URL.pathname leaves those unencoded — one such title then errors the whole
-// carousel. Percent-encode the offenders: `%` is in the allowed set, and the
-// encoded path still fetches correctly. encodeURIComponent alone is not
-// enough — it deliberately leaves !'*~ untouched, so those are encoded by
-// hand.
-function sanitizeMangaId(path: string): string {
-  return path.replace(/[^A-Za-z0-9._\-@()[\]%?#+=/&:]/g, (char) =>
-    encodeURIComponent(char).replace(
-      /[!'*~]/g,
-      (raw) => `%${raw.charCodeAt(0).toString(16).toUpperCase()}`,
-    ),
-  );
+// Paperback only permits IDs matching alphanumerics + `._-@()[]%?#+=/&:`.
+// Mangago ids are full paths, so encode per character to keep the `/`
+// separators; encodeURIComponent leaves !'*~ untouched, so those are
+// encoded by hand.
+function encodeMangaId(path: string): string {
+  return path.replace(/[^A-Za-z0-9._\-@()[\]%?#+=/&:]/gu, (char) => {
+    const encoded = encodeURIComponent(char);
+    if (encoded !== char) return encoded;
+    return `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`;
+  });
 }
 
 function toPathname(href: string): string {
@@ -268,14 +263,14 @@ function toPathname(href: string): string {
   if (!normalizedHref) return "";
 
   try {
-    return sanitizeMangaId(new URL(normalizedHref, DOMAIN).pathname);
+    return encodeMangaId(new URL(normalizedHref, DOMAIN).pathname);
   } catch {
     const extracted = extractMangaId(normalizedHref);
 
     try {
-      return sanitizeMangaId(new URL(extracted, DOMAIN).pathname);
+      return encodeMangaId(new URL(extracted, DOMAIN).pathname);
     } catch {
-      return sanitizeMangaId(extracted);
+      return encodeMangaId(extracted);
     }
   }
 }
@@ -405,17 +400,19 @@ export function hasNextPage(html: string): boolean {
   );
 }
 
-// Undo sanitizeMangaId before fetching: the site's router does not decode
-// percent-escapes for these characters (the %27 form of an apostrophe slug
-// 404s while the raw form loads), so ids stay encoded for the app but the
-// request must carry the raw characters.
-function desanitizeMangaId(id: string): string {
-  return id.replace(/%(21|27|2A|7E)/g, (escape) => decodeURIComponent(escape));
+// Undo encodeMangaId before fetching: the site's router does not decode
+// percent-escapes (%27 404s while the raw apostrophe loads).
+function decodeMangaId(id: string): string {
+  try {
+    return decodeURIComponent(id);
+  } catch {
+    return id;
+  }
 }
 
 export function mangaUrlFromId(mangaId: string): string {
-  if (mangaId.startsWith("http")) return desanitizeMangaId(mangaId);
-  return `${DOMAIN}${desanitizeMangaId(mangaId)}`;
+  if (mangaId.startsWith("http")) return decodeMangaId(mangaId);
+  return `${DOMAIN}${decodeMangaId(mangaId)}`;
 }
 
 // The update list shows relative times ("5 minutes", "2 hours", "3 days").
@@ -546,7 +543,7 @@ export function parseFeaturedDetail(html: string): FeaturedDetail {
 }
 
 export function chapterUrlFromId(chapterId: string): string {
-  const rawChapterId = desanitizeMangaId(chapterId);
+  const rawChapterId = decodeMangaId(chapterId);
   if (rawChapterId.startsWith("http")) return normalizeReaderUrl(rawChapterId);
 
   return normalizeReaderUrl(
