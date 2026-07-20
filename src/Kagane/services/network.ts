@@ -403,6 +403,15 @@ export async function getKaganeTagEntries(): Promise<TagDto[]> {
   return entries;
 }
 
+// Fire-and-forget warm-up so the taxonomy is already in memory when the
+// filter sheet opens (mirrors the reference behavior of preloading tags
+// during the initial home load). Every failure is swallowed — a background
+// warm-up must never surface errors or raise the Cloudflare bypass; the
+// filter sheet fetches live if this didn't land.
+export function warmTagTaxonomy(): void {
+  void getKaganeTagEntries().catch(() => undefined);
+}
+
 // Lower-cased name → UUID map for resolving typed tag names to the ids the
 // search expects.
 export async function getKaganeTags(): Promise<Record<string, string>> {

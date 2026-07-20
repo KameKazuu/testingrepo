@@ -4,7 +4,7 @@
 import type { DiscoverSection, DiscoverSectionItem, PagedResults, Request } from "@paperback/types";
 import { CloudflareError, DiscoverSectionType, URL } from "@paperback/types";
 
-import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
+import { apiHeaders, fetchJSON, getKaganeMetadata, warmTagTaxonomy } from "../../services/network";
 import { buildSearchBody } from "../search-results/main";
 import {
   API_URL,
@@ -62,6 +62,9 @@ export class DiscoverProvider {
       const items = books.map((book) =>
         mapFeaturedItem(book, details.get(book.series_id), kaganeMetadata),
       );
+      // Home has loaded and Cloudflare is cleared — warm the tag taxonomy in
+      // the background so Advanced Search opens with tags already available.
+      warmTagTaxonomy();
       return { items, metadata: undefined };
     }
 
