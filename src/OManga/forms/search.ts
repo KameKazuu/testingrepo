@@ -7,6 +7,7 @@ import {
   Section,
   SelectRow,
   ToggleRow,
+  TriStateSelectRow,
   type SearchQuery,
   type Tag,
 } from "@paperback/types";
@@ -32,14 +33,27 @@ const AGE_RATING_TAGS = toTags(AGE_RATING_OPTIONS);
 const MIN_RATING_TAGS = toTags(MIN_RATING_OPTIONS);
 const YEAR_TAGS = toTags(YEAR_OPTIONS);
 
-// The site's filter drawer, one to one: Genres (with the strict-match toggle),
-// Type, Status, Age Rating, minimum Rating, Release Year, a chapter-count
-// range, excluded Genres, and a free-text tag.
+type TriState = Record<string, "included" | "excluded">;
+
+// Metadata keeps include/exclude as two id arrays (what discover chips pass
+// and the catalog query wants); the tri-state rows edit them as one record.
+const toTriState = (included?: string[], excluded?: string[]): TriState => {
+  const record: TriState = {};
+  for (const id of included ?? []) record[id] = "included";
+  for (const id of excluded ?? []) record[id] = "excluded";
+  return record;
+};
+
+const pickState = (record: TriState, state: "included" | "excluded"): string[] =>
+  Object.keys(record).filter((id) => record[id] === state);
+
+// The site's filter drawer, one to one: Genres and Type as tri-state rows
+// (tap once to require, again to exclude), Status, Age Rating, minimum
+// Rating, Release Year, a chapter-count range, and a free-text tag.
 export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
-  private genres: string[];
-  private excludeGenres: string[];
+  private genres: TriState;
   private genreStrict: boolean;
-  private types: string[];
+  private types: TriState;
   private statuses: string[];
   private ageRatings: string[];
   private minRating: string;
@@ -51,10 +65,9 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
   constructor(searchQuery: SearchQuery<SearchMetadata>) {
     super();
     const meta = searchQuery.metadata ?? {};
-    this.genres = meta.genres ?? [];
-    this.excludeGenres = meta.excludeGenres ?? [];
+    this.genres = toTriState(meta.genres, meta.excludeGenres);
     this.genreStrict = meta.genreStrict ?? false;
-    this.types = meta.types ?? [];
+    this.types = toTriState(meta.types, meta.excludeTypes);
     this.statuses = meta.statuses ?? [];
     this.ageRatings = meta.ageRatings ?? [];
     this.minRating = meta.minRating ?? "";
@@ -66,14 +79,14 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
 
   override getSections() {
     return [
-      Section("genres", [
-        SelectRow("genres", {
+      Section({ id: "genres", footer: "Tap once to require a genre, twice to exclude it." }, [
+        TriStateSelectRow("genres", {
           title: "Genres",
           layout: "flow",
           value: this.genres,
-          options: GENRE_TAGS,
-          minItemCount: 0,
-          maxItemCount: GENRE_TAGS.length,
+          items: GENRE_TAGS,
+          allowExclusion: true,
+          allowEmptySelection: true,
           onValueChange: Application.Selector(
             this as OMangaAdvancedSearchForm,
             "handleGenresChange",
@@ -88,28 +101,14 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
           ),
         }),
       ]),
-      Section("exclude_genres", [
-        SelectRow("exclude_genres", {
-          title: "Exclude Genres",
-          layout: "flow",
-          value: this.excludeGenres,
-          options: GENRE_TAGS,
-          minItemCount: 0,
-          maxItemCount: GENRE_TAGS.length,
-          onValueChange: Application.Selector(
-            this as OMangaAdvancedSearchForm,
-            "handleExcludeGenresChange",
-          ),
-        }),
-      ]),
-      Section("types", [
-        SelectRow("types", {
+      Section({ id: "types", footer: "Tap once to require a type, twice to exclude it." }, [
+        TriStateSelectRow("types", {
           title: "Type",
           layout: "flow",
           value: this.types,
-          options: TYPE_TAGS,
-          minItemCount: 0,
-          maxItemCount: TYPE_TAGS.length,
+          items: TYPE_TAGS,
+          allowExclusion: true,
+          allowEmptySelection: true,
           onValueChange: Application.Selector(
             this as OMangaAdvancedSearchForm,
             "handleTypesChange",
@@ -200,19 +199,15 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
     ];
   }
 
-  async handleGenresChange(value: string[]): Promise<void> {
+  async handleGenresChange(value: TriState): Promise<void> {
     this.genres = value;
-  }
-
-  async handleExcludeGenresChange(value: string[]): Promise<void> {
-    this.excludeGenres = value;
   }
 
   async handleGenreStrictChange(value: boolean): Promise<void> {
     this.genreStrict = value;
   }
 
-  async handleTypesChange(value: string[]): Promise<void> {
+  async handleTypesChange(value: TriState): Promise<void> {
     this.types = value;
   }
 
@@ -246,10 +241,16 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
 
   override getSearchQueryMetadata(): SearchMetadata {
     const result: SearchMetadata = {};
-    if (this.genres.length > 0) result.genres = this.genres;
-    if (this.excludeGenres.length > 0) result.excludeGenres = this.excludeGenres;
+    const genres = pickState(this.genres, "included");
+    const excludeGenres = pickState(this.genres, "excluded");
+    const types = pickState(this.types, "included");
+    const excludeTypes = pickState(this.types, "excluded");
+
+    if (genres.length > 0) result.genres = genres;
+    if (excludeGenres.length > 0) result.excludeGenres = excludeGenres;
     if (this.genreStrict) result.genreStrict = true;
-    if (this.types.length > 0) result.types = this.types;
+    if (types.length > 0) result.types = types;
+    if (excludeTypes.length > 0) result.excludeTypes = excludeTypes;
     if (this.statuses.length > 0) result.statuses = this.statuses;
     if (this.ageRatings.length > 0) result.ageRatings = this.ageRatings;
     if (this.minRating.length > 0) result.minRating = this.minRating;

@@ -138,6 +138,7 @@ export type SearchMetadata = {
   excludeGenres?: string[];
   genreStrict?: boolean;
   types?: string[];
+  excludeTypes?: string[];
   statuses?: string[];
   ageRatings?: string[];
   minRating?: string;

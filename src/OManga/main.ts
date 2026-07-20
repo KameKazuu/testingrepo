@@ -420,6 +420,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
         excludeGenre: optionValues(GENRE_OPTIONS, meta?.excludeGenres),
         genreStrict: meta?.genreStrict ? "true" : undefined,
         type: optionValues(TYPE_OPTIONS, meta?.types),
+        excludeType: optionValues(TYPE_OPTIONS, meta?.excludeTypes),
         status: meta?.statuses,
         ageRating: optionValues(AGE_RATING_OPTIONS, meta?.ageRatings),
         minRating: meta?.minRating,
