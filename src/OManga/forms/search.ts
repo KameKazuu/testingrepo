@@ -17,6 +17,7 @@ import {
   MIN_RATING_OPTIONS,
   STATUS_OPTIONS,
   TYPE_OPTIONS,
+  YEAR_OPTIONS,
   type OptionItem,
 } from "../models";
 import type { SearchMetadata } from "../models";
@@ -29,6 +30,7 @@ const TYPE_TAGS = toTags(TYPE_OPTIONS);
 const STATUS_TAGS = toTags(STATUS_OPTIONS);
 const AGE_RATING_TAGS = toTags(AGE_RATING_OPTIONS);
 const MIN_RATING_TAGS = toTags(MIN_RATING_OPTIONS);
+const YEAR_TAGS = toTags(YEAR_OPTIONS);
 
 // The site's filter drawer, one to one: Genres (with the strict-match toggle),
 // Type, Status, Age Rating, minimum Rating, Release Year, a chapter-count
@@ -41,7 +43,7 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
   private statuses: string[];
   private ageRatings: string[];
   private minRating: string;
-  private year: string;
+  private years: string[];
   private chaptersFrom: string;
   private chaptersTo: string;
   private tag: string;
@@ -56,7 +58,7 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
     this.statuses = meta.statuses ?? [];
     this.ageRatings = meta.ageRatings ?? [];
     this.minRating = meta.minRating ?? "";
-    this.year = meta.year ?? "";
+    this.years = meta.years ?? [];
     this.chaptersFrom = meta.chaptersFrom ?? "";
     this.chaptersTo = meta.chaptersTo ?? "";
     this.tag = meta.tag ?? "";
@@ -156,11 +158,18 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
           ),
         }),
       ]),
-      Section({ id: "year", footer: "Release year, e.g. 2019." }, [
-        InputRow("year", {
-          title: "Year",
-          value: this.year,
-          onValueChange: Application.Selector(this as OMangaAdvancedSearchForm, "handleYearChange"),
+      Section("years", [
+        SelectRow("years", {
+          title: "Release Year",
+          layout: "flow",
+          value: this.years,
+          options: YEAR_TAGS,
+          minItemCount: 0,
+          maxItemCount: YEAR_TAGS.length,
+          onValueChange: Application.Selector(
+            this as OMangaAdvancedSearchForm,
+            "handleYearsChange",
+          ),
         }),
       ]),
       Section({ id: "chapter_range", footer: "Number of chapters, e.g. 20 to 100." }, [
@@ -219,8 +228,8 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
     this.minRating = value[0] ?? "";
   }
 
-  async handleYearChange(value: string): Promise<void> {
-    this.year = value.trim();
+  async handleYearsChange(value: string[]): Promise<void> {
+    this.years = value;
   }
 
   async handleChaptersFromChange(value: string): Promise<void> {
@@ -244,7 +253,7 @@ export class OMangaAdvancedSearchForm extends AdvancedSearchForm {
     if (this.statuses.length > 0) result.statuses = this.statuses;
     if (this.ageRatings.length > 0) result.ageRatings = this.ageRatings;
     if (this.minRating.length > 0) result.minRating = this.minRating;
-    if (this.year.length > 0) result.year = this.year;
+    if (this.years.length > 0) result.years = this.years;
     if (this.chaptersFrom.length > 0) result.chaptersFrom = this.chaptersFrom;
     if (this.chaptersTo.length > 0) result.chaptersTo = this.chaptersTo;
     if (this.tag.length > 0) result.tag = this.tag;

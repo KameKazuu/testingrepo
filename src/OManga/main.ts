@@ -25,11 +25,14 @@ import {
 import { OMangaAdvancedSearchForm } from "./forms/search";
 import { OMangaSettingsForm } from "./forms/settings";
 import {
+  AGE_RATING_OPTIONS,
   CATALOG_PAGE_SIZE,
   GENRE_OPTIONS,
   getDomain,
+  optionValues,
   SORT_OPTIONS,
   TOP_SERIES_CHIPS,
+  TYPE_OPTIONS,
   type CatalogItem,
   type Metadata,
   type SearchMetadata,
@@ -407,17 +410,19 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       : "real_views";
     const sortId = picked === "real_views" && meta?.sort ? meta.sort : picked;
 
+    // Selections travel as underscore-safe option ids; the catalog wants the
+    // display values ("Gender_Bender" → "Gender Bender").
     const { items, nextMetadata } = await this.fetchCatalogPage(
       {
         q: title.length > 0 ? title : undefined,
-        genre: meta?.genres,
-        excludeGenre: meta?.excludeGenres,
+        genre: optionValues(GENRE_OPTIONS, meta?.genres),
+        excludeGenre: optionValues(GENRE_OPTIONS, meta?.excludeGenres),
         genreStrict: meta?.genreStrict ? "true" : undefined,
-        type: meta?.types,
+        type: optionValues(TYPE_OPTIONS, meta?.types),
         status: meta?.statuses,
-        ageRating: meta?.ageRatings,
+        ageRating: optionValues(AGE_RATING_OPTIONS, meta?.ageRatings),
         minRating: meta?.minRating,
-        year: meta?.year,
+        year: meta?.years,
         chaptersFrom: meta?.chaptersFrom,
         chaptersTo: meta?.chaptersTo,
         tag: meta?.tag,

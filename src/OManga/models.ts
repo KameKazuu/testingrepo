@@ -101,7 +101,7 @@ export interface Metadata extends JSONObject {
   firstId?: number;
 }
 
-/** Advanced-search selections carried through SearchQuery.metadata. */
+/** Advanced-search selections carried through SearchQuery.metadata (option ids). */
 export type SearchMetadata = {
   genres?: string[];
   excludeGenres?: string[];
@@ -110,7 +110,7 @@ export type SearchMetadata = {
   statuses?: string[];
   ageRatings?: string[];
   minRating?: string;
-  year?: string;
+  years?: string[];
   chaptersFrom?: string;
   chaptersTo?: string;
   tag?: string;
@@ -124,7 +124,19 @@ export type OptionItem = {
   value: string;
 };
 
-const toOptions = (values: string[]): OptionItem[] => values.map((value) => ({ id: value, value }));
+// The app rejects option ids containing spaces, so ids are the display value
+// with spaces collapsed to underscores; `optionValues` maps them back to the
+// exact strings the catalog expects.
+const toOptionId = (value: string): string => value.replace(/\s+/g, "_");
+
+const toOptions = (values: string[]): OptionItem[] =>
+  values.map((value) => ({ id: toOptionId(value), value }));
+
+/** Resolve selected option ids back to their site-facing values. */
+export function optionValues(options: OptionItem[], ids?: string[]): string[] | undefined {
+  if (!ids || ids.length === 0) return undefined;
+  return ids.map((id) => options.find((option) => option.id === id)?.value ?? id);
+}
 
 export const GENRE_OPTIONS: OptionItem[] = toOptions([
   "Action",
@@ -202,6 +214,12 @@ export const MIN_RATING_OPTIONS: OptionItem[] = [
   { id: "8", value: "8+ (Excellent)" },
   { id: "9", value: "9+ (Masterpiece)" },
 ];
+
+// The site's Release Year filter is a year grid; mirror its range.
+export const YEAR_OPTIONS: OptionItem[] = Array.from({ length: 2026 - 1950 + 1 }, (_, index) => {
+  const year = String(2026 - index);
+  return { id: year, value: year };
+});
 
 /** Catalog sort keys, in the order the sort picker offers them. */
 export const SORT_OPTIONS = [
