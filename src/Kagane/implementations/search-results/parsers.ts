@@ -64,7 +64,11 @@ export function parseTagInput(input: string): { included: string[]; excluded: st
 }
 
 export function getVisibleSources(sources: SourceDto[], displayMode: string): SourceDto[] {
-  return displayMode === "official"
-    ? sources.filter((source) => source.source_type.toLowerCase() === "official")
-    : sources;
+  if (displayMode === "official") {
+    return sources.filter((source) => source.source_type.toLowerCase() === "official");
+  }
+  if (displayMode === "scanlations") {
+    return sources.filter((source) => source.source_type.toLowerCase() !== "official");
+  }
+  return sources;
 }

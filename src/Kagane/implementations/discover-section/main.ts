@@ -158,7 +158,7 @@ function genreChips(metadata: KaganeMetadata): PagedResults<DiscoverSectionItem>
       ([id, name]): DiscoverSectionItem => ({
         type: "genresCarouselItem",
         name,
-        searchQuery: { title: "", metadata: [{ id: "genres", value: { [id]: "included" } }] },
+        searchQuery: { title: "", metadata: { genres: { [id]: "included" } } },
       }),
     );
   return { items };
@@ -170,7 +170,7 @@ function buildTrendingRangeItems(): PagedResults<DiscoverSectionItem> {
     (range): DiscoverSectionItem => ({
       type: "genresCarouselItem",
       name: range.title,
-      searchQuery: { title: "", metadata: [{ id: "range", value: range.id }] },
+      searchQuery: { title: "", metadata: { range: range.id } },
     }),
   );
   return { items };

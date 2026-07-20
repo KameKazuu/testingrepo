@@ -17,6 +17,7 @@ import {
   mapItemContentRating,
   mapPublicationStatus,
   parseKaganeDate,
+  pickRating,
   resolveGenreNames,
   starRating,
 } from "../shared/utils";
@@ -39,7 +40,7 @@ function statusLabel(book: KaganeSearchSeries): string | undefined {
 }
 
 function detailRating(detail: KaganeSeriesDetailsResponse | undefined): string | undefined {
-  return starRating(detail?.average_rating ?? detail?.bayesian_rating);
+  return starRating(pickRating(detail?.average_rating, detail?.bayesian_rating));
 }
 
 function authorNames(detail: KaganeSeriesDetailsResponse | undefined): string | undefined {

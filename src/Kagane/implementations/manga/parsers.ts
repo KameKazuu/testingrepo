@@ -9,6 +9,7 @@ import {
   joinUnique,
   mapItemContentRating,
   mapPublicationStatus,
+  pickRating,
   ratingFraction,
 } from "../shared/utils";
 
@@ -48,7 +49,7 @@ export function parseMangaDetails(
       author: joinUnique(authors),
       artist: joinUnique(artists),
       status: mapPublicationStatus(data.publication_status ?? data.upload_status),
-      rating: ratingFraction(data.average_rating ?? data.bayesian_rating),
+      rating: ratingFraction(pickRating(data.average_rating, data.bayesian_rating)),
       contentRating: mapItemContentRating(data.content_rating),
       tagGroups,
       shareUrl: `${BASE_URL}/series/${mangaId}`,

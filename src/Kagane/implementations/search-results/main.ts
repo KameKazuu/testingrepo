@@ -95,18 +95,6 @@ export class SearchProvider {
     }
 
     return [
-      // The Trending discover chips carry this filter to select their sort;
-      // it must be registered or query normalization would strip it.
-      {
-        type: "dropdown",
-        id: "range",
-        title: "Trending Window",
-        options: [
-          { id: "none", value: "None" },
-          ...RANGE_OPTIONS.map((range) => ({ id: range.id, value: range.title })),
-        ],
-        value: "none",
-      },
       {
         type: "multiselect",
         id: "formats",
@@ -233,7 +221,10 @@ export class SearchProvider {
   }
 
   getAdvancedSearchForm(query: SearchQuery<SearchFilterValue[]>) {
-    return new SearchFilterForm(query.metadata, this.getSearchFilters());
+    // Chip queries carry object metadata, which the 0.8-compat form can't
+    // iterate — hand it an empty selection instead.
+    const filterValues = Array.isArray(query.metadata) ? query.metadata : [];
+    return new SearchFilterForm(filterValues, this.getSearchFilters());
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {

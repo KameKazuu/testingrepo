@@ -57,16 +57,25 @@ export function titleCase(value: string): string {
 }
 
 // A single title's own rating string ("Safe" / "Suggestive" / …) → Paperback.
+// Anything missing or unrecognized is treated as MATURE — the safer fallback
+// for a catalog like this.
 export function mapItemContentRating(value?: string | null): ContentRating {
   switch ((value ?? "").toLowerCase()) {
+    case "safe":
+      return ContentRating.EVERYONE;
     case "pornographic":
       return ContentRating.ADULT;
-    case "erotica":
-    case "suggestive":
-      return ContentRating.MATURE;
     default:
-      return ContentRating.EVERYONE;
+      return ContentRating.MATURE;
   }
+}
+
+// Prefer the average rating, falling back to the bayesian one — a plain ??
+// would keep an average of 0 and never fall back.
+export function pickRating(average?: number | null, bayesian?: number | null): number | undefined {
+  if (typeof average === "number" && average > 0) return average;
+  if (typeof bayesian === "number" && bayesian > 0) return bayesian;
+  return undefined;
 }
 
 // Resolve a series' genre UUIDs to display names via the metadata map.
@@ -98,9 +107,10 @@ export function starRating(percent?: number | null): string | undefined {
 }
 
 // MangaInfo.rating is a 0–1 value the app renders as a percentage star on the
-// details page. The API rates out of 100, so scale and clamp it.
-export function ratingFraction(percent?: number | null): number {
-  if (typeof percent !== "number" || percent <= 0) return 0;
+// details page. The API rates out of 100, so scale and clamp it; a missing
+// rating is omitted rather than shown as 0%.
+export function ratingFraction(percent?: number | null): number | undefined {
+  if (typeof percent !== "number" || percent <= 0) return undefined;
   return Math.min(1, Math.max(0, percent / 100));
 }
 
