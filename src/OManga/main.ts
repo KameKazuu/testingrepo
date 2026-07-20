@@ -40,6 +40,7 @@ import {
   parseChapters,
   parseFeaturedDetail,
   parseHomeCarousel,
+  parseHomeLinkSection,
   parseHomeSection,
   parseHomeUpdates,
   parseMangaDetails,
@@ -202,6 +203,47 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       if (homeItems.length > 0) {
         return {
           items: homeItems.filter((item) => item.poster.length > 0).map(toHomeCard),
+          metadata: undefined,
+        };
+      }
+    }
+
+    // New Season and Best Ongoings are element-rendered rows — parsed off the
+    // front page so they carry the site's exact picks, with their catalog
+    // approximations only as fallback.
+    if (section.id === SECTION_NEW_SEASON) {
+      const cards = parseHomeLinkSection(await this.getHomepage(), "New Season", '"hl-col-items"');
+      if (cards.length > 0) {
+        return {
+          items: cards.map(
+            (card): DiscoverSectionItem => ({
+              type: "simpleCarouselItem",
+              mangaId: card.slug,
+              title: card.title,
+              imageUrl: card.cover,
+              subtitle: [card.type, card.year].filter(Boolean).join(" "),
+              metadata: undefined,
+            }),
+          ),
+          metadata: undefined,
+        };
+      }
+    }
+
+    if (section.id === SECTION_BEST_ONGOING) {
+      const cards = parseHomeLinkSection(await this.getHomepage(), "Best Ongoings", '"grid gap-2');
+      if (cards.length > 0) {
+        return {
+          items: cards.map(
+            (card, index): DiscoverSectionItem => ({
+              type: "prominentCarouselItem",
+              mangaId: card.slug,
+              title: card.title,
+              imageUrl: card.cover,
+              subtitle: `#${index + 1}`,
+              metadata: undefined,
+            }),
+          ),
           metadata: undefined,
         };
       }

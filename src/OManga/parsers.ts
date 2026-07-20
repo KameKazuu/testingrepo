@@ -203,6 +203,101 @@ export function toHomeCard(item: CatalogItem & { year?: number }): DiscoverSecti
 }
 
 // ----------------------------------------------------------------
+// Homepage element sections
+//
+// New Season and Best Ongoings aren't JSON rows — their cards are rendered
+// elements, and the stream defers some of them as "$L<id>" placeholders whose
+// rows arrive later in the payload. Parsing walks the section's container and
+// resolves those placeholders to get the complete list.
+// ----------------------------------------------------------------
+
+/** One rendered card link: slug, cover, title, and (when shown) type/year. */
+export interface HomeLinkCard {
+  slug: string;
+  title: string;
+  cover: string;
+  type?: string;
+  year?: string;
+}
+
+/** The payload row `<id>:[…]` a "$L<id>" placeholder points at. */
+function resolveLazyRow(payload: string, id: string): string | undefined {
+  const marker = payload.match(new RegExp(`(?:^|\\n)${id}:`));
+  if (marker?.index === undefined) return undefined;
+  const start = marker.index + marker[0].length;
+  if (payload[start] !== "[") return undefined;
+  return extractBalancedJson(payload, start);
+}
+
+function unescapeText(raw: string): string {
+  try {
+    return JSON.parse(`"${raw}"`) as string;
+  } catch {
+    return raw;
+  }
+}
+
+/** Every /manga/ card link in a rendered fragment, in document order. */
+function parseLinkCards(fragment: string): HomeLinkCard[] {
+  const cards: HomeLinkCard[] = [];
+  const anchors = [...fragment.matchAll(/"href":"\/manga\/([a-z0-9-]+)"/g)];
+
+  for (let i = 0; i < anchors.length; i++) {
+    const start = anchors[i].index ?? 0;
+    const end =
+      i + 1 < anchors.length ? (anchors[i + 1].index ?? fragment.length) : fragment.length;
+    const window = fragment.slice(start, end);
+
+    const cover = window.match(/"src":"(https:\/\/[^"]+)"/)?.[1];
+    const alt = window.match(/"alt":"((?:[^"\\]|\\.)*)"/)?.[1];
+    if (!cover || !alt) continue;
+
+    const sub = window.match(/"hl-card-sub","children":\["((?:[^"\\]|\\.)*)"," (\d{4})"\]/);
+    cards.push({
+      slug: anchors[i][1],
+      title: unescapeText(alt),
+      cover,
+      type: sub ? unescapeText(sub[1]) : undefined,
+      year: sub?.[2],
+    });
+  }
+  return cards;
+}
+
+/**
+ * The card list of a rendered homepage section, located by its heading and
+ * the class marker of its list container, with deferred rows resolved.
+ */
+export function parseHomeLinkSection(
+  html: string,
+  heading: string,
+  containerMarker: string,
+): HomeLinkCard[] {
+  const payload = decodeFlightPayload(html);
+  const headingIndex = payload.indexOf(`"children":"${heading}"`);
+  if (headingIndex < 0) return [];
+  const containerIndex = payload.indexOf(containerMarker, headingIndex);
+  if (containerIndex < 0) return [];
+  const arrayStart = payload.indexOf('"children":[', containerIndex);
+  if (arrayStart < 0) return [];
+  const blob = extractBalancedJson(payload, arrayStart + '"children":'.length);
+  if (!blob) return [];
+
+  const cards = parseLinkCards(blob);
+  for (const ref of blob.matchAll(/"\$L([0-9a-f]+)"/g)) {
+    const row = resolveLazyRow(payload, ref[1]);
+    if (row) cards.push(...parseLinkCards(row));
+  }
+
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    if (seen.has(card.slug)) return false;
+    seen.add(card.slug);
+    return true;
+  });
+}
+
+// ----------------------------------------------------------------
 // Featured-hero enrichment
 // ----------------------------------------------------------------
 
