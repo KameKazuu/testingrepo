@@ -12,7 +12,7 @@ import {
   type TagSection,
 } from "@paperback/types";
 
-import { DOMAIN } from "./models";
+import { getDomain, getShowAllVersions } from "./models";
 import type { CatalogItem, ChapterEntry, HomeUpdate, ReaderChapter, SeriesProps } from "./models";
 
 // ----------------------------------------------------------------
@@ -420,7 +420,7 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
       artist: props.artist ?? "",
       author: props.author ?? "",
       tagGroups,
-      shareUrl: `${DOMAIN}/manga/${mangaId}`,
+      shareUrl: `${getDomain()}/manga/${mangaId}`,
     },
   };
 }
@@ -433,36 +433,46 @@ function parsePayloadDate(value?: string | null): Date | undefined {
 }
 
 /**
- * The reader addresses chapters by number alone and serves one default upload
- * per number, so the list is deduped to one entry per number (first listed
- * wins — the site's own ordering) with the team name as the version label.
+ * The reader addresses a specific upload as `chapter/<number>?team=<slug>` —
+ * the same links the site's own chapter list uses — so every team's upload
+ * gets its own entry with the team name as the version label. With the
+ * all-versions setting off, the list keeps one entry per number (first listed
+ * wins — the site's own default).
  */
 export function parseChapters(html: string, sourceManga: SourceManga): Chapter[] {
   const props = parseSeriesProps(html, sourceManga.mangaId);
   const entries = (props.chapters ?? []).filter((entry) => entry.isLocked !== true);
+  const allVersions = getShowAllVersions();
 
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const chapters: Chapter[] = [];
   for (const entry of entries) {
-    if (typeof entry.number !== "number" || seen.has(entry.number)) continue;
-    seen.add(entry.number);
-    chapters.push(toChapter(entry, sourceManga));
+    if (typeof entry.number !== "number") continue;
+    const key = allVersions ? `${entry.number}|${entry.team?.slug ?? ""}` : String(entry.number);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    chapters.push(toChapter(entry, sourceManga, allVersions));
   }
   return chapters;
 }
 
-function toChapter(entry: ChapterEntry, sourceManga: SourceManga): Chapter {
+function toChapter(entry: ChapterEntry, sourceManga: SourceManga, allVersions: boolean): Chapter {
   const title = entry.title?.trim() ?? "";
-  const version = entry.team?.name ?? entry.translator ?? undefined;
-  const volume = typeof entry.volume === "number" && entry.volume > 1 ? entry.volume : undefined;
+  const teamName = entry.team?.name ?? entry.translator ?? undefined;
+  // The site labels its publisher-sourced uploads with the "official" team.
+  const version = teamName && entry.team?.slug === "official" ? `★ ${teamName}` : teamName;
+  const teamSuffix =
+    allVersions && entry.team?.slug ? `?team=${encodeURIComponent(entry.team.slug)}` : "";
 
   return {
-    chapterId: String(entry.number),
+    chapterId: `${entry.number}${teamSuffix}`,
     sourceManga,
     langCode: "en",
     chapNum: entry.number,
     title,
-    volume,
+    // The site tracks no real volumes — 0 keeps the app from showing a
+    // "Volume TBA" placeholder.
+    volume: 0,
     version,
     sortingIndex: entry.number,
     publishDate: parsePayloadDate(entry.createdAt),

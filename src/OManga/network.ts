@@ -8,7 +8,7 @@ import {
   type Response,
 } from "@paperback/types";
 
-import { DOMAIN } from "./models";
+import { getDomain } from "./models";
 
 const IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i;
 
@@ -22,7 +22,7 @@ export class OMangaInterceptor extends PaperbackInterceptor {
         ...request.headers,
         // Covers and pages live on a separate image host that checks the
         // Referer; site documents want a plain navigation accept.
-        referer: `${DOMAIN}/`,
+        referer: `${getDomain()}/`,
         "user-agent": await Application.getDefaultUserAgent(),
         accept: isImage
           ? "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
@@ -42,10 +42,10 @@ export class OMangaInterceptor extends PaperbackInterceptor {
     // counts for the site itself — the image host has its own failure modes.
     const challenged =
       response.headers?.["cf-mitigated"] === "challenge" ||
-      (response.status === 403 && request.url.startsWith(DOMAIN));
+      (response.status === 403 && request.url.startsWith(getDomain()));
     if (challenged) {
       throw new CloudflareError({
-        url: `${DOMAIN}/`,
+        url: `${getDomain()}/`,
         method: "GET",
         headers: { "user-agent": await Application.getDefaultUserAgent() },
       });

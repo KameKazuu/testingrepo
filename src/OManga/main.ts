@@ -13,6 +13,7 @@ import {
   type DiscoverSectionItem,
   type ExtensionImpl,
   type FeaturedCarouselItem,
+  type Form,
   type PagedResults,
   type Request,
   type SearchQuery,
@@ -22,10 +23,11 @@ import {
 } from "@paperback/types";
 
 import { OMangaAdvancedSearchForm } from "./forms/search";
+import { OMangaSettingsForm } from "./forms/settings";
 import {
   CATALOG_PAGE_SIZE,
-  DOMAIN,
   GENRE_OPTIONS,
+  getDomain,
   SORT_OPTIONS,
   TOP_SERIES_CHIPS,
   type CatalogItem,
@@ -59,6 +61,11 @@ const FEATURED_HERO_LIMIT = 8;
 // How long one fetched front page keeps feeding the homepage-driven sections.
 const HOMEPAGE_CACHE_TTL = 5 * 60 * 1000;
 
+// A title's details and chapter tabs are requested back to back off the same
+// page; a short cache makes that one fetch. The bound keeps memory in check.
+const SERIES_PAGE_CACHE_TTL = 60 * 1000;
+const SERIES_PAGE_CACHE_LIMIT = 12;
+
 const SECTION_POPULAR = "popular";
 const SECTION_RANDOM = "random";
 const SECTION_UPDATES = "updates";
@@ -80,7 +87,7 @@ function buildCatalogUrl(query: CatalogQuery): string {
       parts.push(`${key}=${encodeURIComponent(single)}`);
     }
   }
-  return parts.length > 0 ? `${DOMAIN}/catalog?${parts.join("&")}` : `${DOMAIN}/catalog`;
+  return parts.length > 0 ? `${getDomain()}/catalog?${parts.join("&")}` : `${getDomain()}/catalog`;
 }
 
 export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
@@ -96,6 +103,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
 
   private featuredInfoCache = new Map<string, FeaturedDetail>();
   private homepageCache: { html: string; fetchedAt: number } | undefined;
+  private seriesPageCache = new Map<string, { html: string; fetchedAt: number }>();
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -311,7 +319,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     if (this.homepageCache && now - this.homepageCache.fetchedAt < HOMEPAGE_CACHE_TTL) {
       return this.homepageCache.html;
     }
-    const html = await fetchHtml(`${DOMAIN}/`);
+    const html = await fetchHtml(`${getDomain()}/`);
     this.homepageCache = { html, fetchedAt: now };
     return html;
   }
@@ -322,7 +330,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     const cached = this.featuredInfoCache.get(slug);
     if (cached) return cached;
     try {
-      const info = parseFeaturedDetail(await fetchHtml(`${DOMAIN}/manga/${slug}`));
+      const info = parseFeaturedDetail(await this.getSeriesPage(slug));
       this.featuredInfoCache.set(slug, info);
       return info;
     } catch {
@@ -333,6 +341,10 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   // ----------------------------------------------------------------
   // Search
   // ----------------------------------------------------------------
+
+  async getSettingsForm(): Promise<Form> {
+    return new OMangaSettingsForm();
+  }
 
   async getSortingOptions(_query: SearchQuery<SearchMetadata>): Promise<SortingOption[]> {
     return SORT_OPTIONS.map((option) => ({ id: option.id, label: option.label }));
@@ -409,19 +421,35 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   // ----------------------------------------------------------------
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
-    const html = await fetchHtml(`${DOMAIN}/manga/${mangaId}`);
-    return parseMangaDetails(html, mangaId);
+    return parseMangaDetails(await this.getSeriesPage(mangaId), mangaId);
   }
 
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
-    // The series page embeds the complete chapter list — one request.
-    const html = await fetchHtml(`${DOMAIN}/manga/${sourceManga.mangaId}`);
-    return parseChapters(html, sourceManga);
+    // The series page embeds the complete chapter list; the cache means
+    // opening a title costs one request, not one per tab.
+    return parseChapters(await this.getSeriesPage(sourceManga.mangaId), sourceManga);
+  }
+
+  // Details and the chapter list live on the same heavy page, and the app
+  // requests them back to back — cache the page briefly so a title opens with
+  // a single fetch. Bounded so hero enrichment can't grow it unchecked.
+  private async getSeriesPage(slug: string): Promise<string> {
+    const cached = this.seriesPageCache.get(slug);
+    if (cached && Date.now() - cached.fetchedAt < SERIES_PAGE_CACHE_TTL) {
+      return cached.html;
+    }
+    const html = await fetchHtml(`${getDomain()}/manga/${slug}`);
+    if (this.seriesPageCache.size >= SERIES_PAGE_CACHE_LIMIT) {
+      const oldest = this.seriesPageCache.keys().next().value;
+      if (oldest !== undefined) this.seriesPageCache.delete(oldest);
+    }
+    this.seriesPageCache.set(slug, { html, fetchedAt: Date.now() });
+    return html;
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const html = await fetchHtml(
-      `${DOMAIN}/manga/${chapter.sourceManga.mangaId}/chapter/${chapter.chapterId}`,
+      `${getDomain()}/manga/${chapter.sourceManga.mangaId}/chapter/${chapter.chapterId}`,
     );
     return parseChapterDetails(html, chapter);
   }

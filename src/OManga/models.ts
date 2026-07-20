@@ -4,7 +4,33 @@
 import type { JSONObject } from "@paperback/types";
 
 /** Main website — HTML pages carry the data payloads and serve as Referer. */
-export const DOMAIN = "https://omanga.to";
+export const DEFAULT_DOMAIN = "https://omanga.to";
+
+const BASE_URL_KEY = "omanga_base_url";
+const ALL_VERSIONS_KEY = "omanga_all_versions";
+
+/** Live website origin — honours a reader's override, else the default. */
+export function getDomain(): string {
+  const value = Application.getState(BASE_URL_KEY);
+  if (typeof value === "string") {
+    const trimmed = value.trim().replace(/\/+$/, "");
+    if (trimmed.length > 0) return trimmed;
+  }
+  return DEFAULT_DOMAIN;
+}
+
+export function setDomainOverride(value: string): void {
+  Application.setState(value, BASE_URL_KEY);
+}
+
+/** Whether the chapter list shows every team's upload or one per chapter. */
+export function getShowAllVersions(): boolean {
+  return (Application.getState(ALL_VERSIONS_KEY) as boolean | undefined) ?? true;
+}
+
+export function setShowAllVersions(value: boolean): void {
+  Application.setState(value, ALL_VERSIONS_KEY);
+}
 
 /** Number of items a catalog page returns when full. */
 export const CATALOG_PAGE_SIZE = 36;
