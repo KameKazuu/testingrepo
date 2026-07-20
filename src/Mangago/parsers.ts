@@ -643,7 +643,9 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
     mangaInfo: {
       primaryTitle: title,
       secondaryTitles,
-      thumbnailUrl: imageUrl,
+      // thumbnailUrl is required and an empty string fails URL conversion —
+      // fall back to the site favicon when no cover could be extracted.
+      thumbnailUrl: imageUrl || `${DOMAIN}/favicon.ico`,
       synopsis: description,
       author,
       artist,
