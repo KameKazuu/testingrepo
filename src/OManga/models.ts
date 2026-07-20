@@ -77,10 +77,19 @@ export interface Metadata extends JSONObject {
 /** Advanced-search selections carried through SearchQuery.metadata. */
 export type SearchMetadata = {
   genres?: string[];
+  excludeGenres?: string[];
+  genreStrict?: boolean;
   types?: string[];
   statuses?: string[];
+  ageRatings?: string[];
+  minRating?: string;
   year?: string;
+  chaptersFrom?: string;
+  chaptersTo?: string;
   tag?: string;
+  // Default catalog sort for queries launched from discover chips; an explicit
+  // pick in the sort menu still wins.
+  sort?: string;
 };
 
 export type OptionItem = {
@@ -140,13 +149,32 @@ export const TYPE_OPTIONS: OptionItem[] = toOptions([
   "Other",
 ]);
 
-export const STATUS_OPTIONS: OptionItem[] = toOptions([
-  "Ongoing",
-  "Completed",
-  "Hiatus",
-  "Cancelled",
-  "Announced",
+// Ids are the catalog's stored values; labels match the site's filter drawer.
+export const STATUS_OPTIONS: OptionItem[] = [
+  { id: "Ongoing", value: "Ongoing" },
+  { id: "Completed", value: "Completed" },
+  { id: "Hiatus", value: "On Hiatus" },
+  { id: "Cancelled", value: "Axed" },
+  { id: "Announced", value: "Preview" },
+];
+
+export const AGE_RATING_OPTIONS: OptionItem[] = toOptions([
+  "For all",
+  "12+",
+  "15+",
+  "16+",
+  "18+",
+  "21+",
 ]);
+
+// Minimum community score, as the site's Rating filter offers it.
+export const MIN_RATING_OPTIONS: OptionItem[] = [
+  { id: "5", value: "5+ (Average)" },
+  { id: "6", value: "6+ (Good)" },
+  { id: "7", value: "7+ (Very Good)" },
+  { id: "8", value: "8+ (Excellent)" },
+  { id: "9", value: "9+ (Masterpiece)" },
+];
 
 /** Catalog sort keys, in the order the sort picker offers them. */
 export const SORT_OPTIONS = [
@@ -159,3 +187,25 @@ export const SORT_OPTIONS = [
   { id: "chapters", label: "Chapter Count" },
   { id: "by_views", label: "Views" },
 ] as const;
+
+/** "Top Series" chips — the site's country tabs, mapped to type filters. */
+export const TOP_SERIES_CHIPS = [
+  { title: "From Korea", type: "Manhwa" },
+  { title: "From Japan", type: "Manga" },
+  { title: "From China", type: "Manhua" },
+] as const;
+
+/** One row of the homepage Updates feed. */
+export interface HomeUpdate {
+  id: number;
+  number: number;
+  volume?: number | null;
+  createdAt?: string | null;
+  manga?: {
+    id: number;
+    title: string;
+    slug: string;
+    type?: string;
+    poster?: string;
+  };
+}

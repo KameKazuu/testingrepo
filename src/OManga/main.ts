@@ -26,6 +26,7 @@ import {
   DOMAIN,
   GENRE_OPTIONS,
   SORT_OPTIONS,
+  TOP_SERIES_CHIPS,
   type Metadata,
   type SearchMetadata,
 } from "./models";
@@ -35,6 +36,7 @@ import {
   parseCatalogItems,
   parseChapterDetails,
   parseChapters,
+  parseHomeUpdates,
   parseMangaDetails,
   toFeaturedItem,
   toProminentItem,
@@ -44,9 +46,12 @@ import {
 import type OMangaConfig from "./pbconfig";
 
 const SECTION_POPULAR = "popular";
-const SECTION_UPDATED = "updated";
-const SECTION_NEW = "new";
-const SECTION_TOP_RATED = "top_rated";
+const SECTION_UPDATES = "updates";
+const SECTION_POPULAR_WEEK = "popular_week";
+const SECTION_TOP_SERIES = "top_series";
+const SECTION_NEW_SEASON = "new_season";
+const SECTION_MOST_LIKED = "most_liked";
+const SECTION_BEST_ONGOING = "best_ongoing";
 const SECTION_GENRES = "genres";
 
 /** Catalog query values; repeated keys become repeated parameters. */
@@ -97,12 +102,26 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   // Discover
   // ----------------------------------------------------------------
 
+  // Mirrors the site's own front page: hero, Updates feed, Popular This Week,
+  // New Season, Most Liked, Best Ongoings, the Top Series country tabs (as
+  // tappable chips), and a genre grid.
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
       { id: SECTION_POPULAR, title: "Popular", type: DiscoverSectionType.featured },
-      { id: SECTION_UPDATED, title: "Recently Updated", type: DiscoverSectionType.simpleCarousel },
-      { id: SECTION_NEW, title: "Recently Added", type: DiscoverSectionType.simpleCarousel },
-      { id: SECTION_TOP_RATED, title: "Top Rated", type: DiscoverSectionType.prominentCarousel },
+      { id: SECTION_UPDATES, title: "Updates", type: DiscoverSectionType.chapterUpdates },
+      {
+        id: SECTION_POPULAR_WEEK,
+        title: "Popular This Week",
+        type: DiscoverSectionType.simpleCarousel,
+      },
+      { id: SECTION_TOP_SERIES, title: "Top Series", type: DiscoverSectionType.genres },
+      { id: SECTION_NEW_SEASON, title: "New Season", type: DiscoverSectionType.simpleCarousel },
+      { id: SECTION_MOST_LIKED, title: "Most Liked", type: DiscoverSectionType.simpleCarousel },
+      {
+        id: SECTION_BEST_ONGOING,
+        title: "Best Ongoings",
+        type: DiscoverSectionType.prominentCarousel,
+      },
       { id: SECTION_GENRES, title: "Genres", type: DiscoverSectionType.genres },
     ];
   }
@@ -111,6 +130,19 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     section: DiscoverSection,
     metadata: Metadata | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
+    if (section.id === SECTION_TOP_SERIES) {
+      const items: DiscoverSectionItem[] = TOP_SERIES_CHIPS.map((chip) => ({
+        type: "genresCarouselItem",
+        name: chip.title,
+        searchQuery: {
+          title: "",
+          metadata: { types: [chip.type], sort: "rating" } satisfies SearchMetadata,
+        },
+        metadata: undefined,
+      }));
+      return { items, metadata: undefined };
+    }
+
     if (section.id === SECTION_GENRES) {
       const items: DiscoverSectionItem[] = GENRE_OPTIONS.map((genre) => ({
         type: "genresCarouselItem",
@@ -125,21 +157,35 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       return { items, metadata: undefined };
     }
 
-    const sort =
-      section.id === SECTION_UPDATED
-        ? "updated_at"
-        : section.id === SECTION_NEW
-          ? "created_at"
-          : section.id === SECTION_TOP_RATED
-            ? "rating"
-            : "real_views";
+    // The Updates feed comes off the front page itself, chapter numbers and
+    // release times included — one fetch, one page.
+    if (section.id === SECTION_UPDATES) {
+      return { items: parseHomeUpdates(await fetchHtml(`${DOMAIN}/`)), metadata: undefined };
+    }
 
-    const { items, nextMetadata } = await this.fetchCatalogPage({ sort, order: "desc" }, metadata);
+    // The remaining rows are catalog queries — the same feeds the site's own
+    // "More" arrows point at, so each row paginates on scroll.
+    const query: CatalogQuery =
+      section.id === SECTION_BEST_ONGOING
+        ? { sort: "rating", order: "desc", status: "Ongoing" }
+        : {
+            sort:
+              section.id === SECTION_POPULAR_WEEK
+                ? "by_views"
+                : section.id === SECTION_NEW_SEASON
+                  ? "by_date"
+                  : section.id === SECTION_MOST_LIKED
+                    ? "votes"
+                    : "real_views",
+            order: "desc",
+          };
+
+    const { items, nextMetadata } = await this.fetchCatalogPage(query, metadata);
 
     const toItem =
       section.id === SECTION_POPULAR
         ? toFeaturedItem
-        : section.id === SECTION_TOP_RATED
+        : section.id === SECTION_BEST_ONGOING
           ? toProminentItem
           : toSimpleItem;
 
@@ -169,17 +215,27 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   ): Promise<PagedResults<SearchResultItem>> {
     const title = (query.title ?? "").trim();
     const meta = query.metadata;
-    const sortId = SORT_OPTIONS.some((option) => option.id === sortingOption?.id)
+
+    // An explicit sort pick wins; the untouched default ("Popularity") yields
+    // to a query's own default sort (the Top Series chips search by rating).
+    const picked = SORT_OPTIONS.some((option) => option.id === sortingOption?.id)
       ? (sortingOption?.id as string)
       : "real_views";
+    const sortId = picked === "real_views" && meta?.sort ? meta.sort : picked;
 
     const { items, nextMetadata } = await this.fetchCatalogPage(
       {
         q: title.length > 0 ? title : undefined,
         genre: meta?.genres,
+        excludeGenre: meta?.excludeGenres,
+        genreStrict: meta?.genreStrict ? "true" : undefined,
         type: meta?.types,
         status: meta?.statuses,
+        ageRating: meta?.ageRatings,
+        minRating: meta?.minRating,
         year: meta?.year,
+        chaptersFrom: meta?.chaptersFrom,
+        chaptersTo: meta?.chaptersTo,
         tag: meta?.tag,
         sort: sortId,
         order: "desc",

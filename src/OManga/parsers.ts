@@ -13,7 +13,7 @@ import {
 } from "@paperback/types";
 
 import { DOMAIN } from "./models";
-import type { CatalogItem, ChapterEntry, ReaderChapter, SeriesProps } from "./models";
+import type { CatalogItem, ChapterEntry, HomeUpdate, ReaderChapter, SeriesProps } from "./models";
 
 // ----------------------------------------------------------------
 // Payload extraction
@@ -174,6 +174,41 @@ export function toSimpleItem(item: CatalogItem): DiscoverSectionItem {
     contentRating: contentRatingForGenres(item.genres),
     metadata: undefined,
   };
+}
+
+// ----------------------------------------------------------------
+// Homepage Updates feed
+// ----------------------------------------------------------------
+
+/**
+ * The homepage embeds an Updates feed (`"updates":[…]`) of the latest chapter
+ * releases with their series attached — one entry per release, newest first.
+ * Kept to one card per series (its newest chapter) so the row isn't repetitive.
+ */
+export function parseHomeUpdates(html: string): DiscoverSectionItem[] {
+  const payload = decodeFlightPayload(html);
+  const updates = parseJsonAt<HomeUpdate[]>(payload, '"updates":[', '"updates":'.length) ?? [];
+
+  const seen = new Set<string>();
+  const items: DiscoverSectionItem[] = [];
+  for (const update of updates) {
+    const manga = update.manga;
+    if (!manga?.slug || !manga.poster || typeof update.number !== "number") continue;
+    if (seen.has(manga.slug)) continue;
+    seen.add(manga.slug);
+
+    items.push({
+      type: "chapterUpdatesCarouselItem",
+      mangaId: manga.slug,
+      chapterId: String(update.number),
+      title: manga.title,
+      imageUrl: manga.poster,
+      subtitle: `Ch. ${update.number}`,
+      publishDate: parsePayloadDate(update.createdAt),
+      metadata: undefined,
+    });
+  }
+  return items;
 }
 
 // ----------------------------------------------------------------
