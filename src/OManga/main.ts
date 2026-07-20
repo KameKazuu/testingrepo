@@ -66,6 +66,10 @@ const HOMEPAGE_CACHE_TTL = 5 * 60 * 1000;
 const SERIES_PAGE_CACHE_TTL = 60 * 1000;
 const SERIES_PAGE_CACHE_LIMIT = 12;
 
+// Persisted hero-enrichment entries (author/description/status/year per slug).
+const FEATURED_INFO_STATE_KEY = "omanga_featured_info";
+const FEATURED_INFO_CACHE_LIMIT = 40;
+
 const SECTION_POPULAR = "popular";
 const SECTION_RANDOM = "random";
 const SECTION_UPDATES = "updates";
@@ -92,7 +96,7 @@ function buildCatalogUrl(query: CatalogQuery): string {
 
 export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   globalRateLimiter = new BasicRateLimiter("rateLimiter", {
-    numberOfRequests: 5,
+    numberOfRequests: 10,
     bufferInterval: 1,
     ignoreImages: true,
   });
@@ -101,9 +105,9 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
   oMangaInterceptor = new OMangaInterceptor("main");
 
-  private featuredInfoCache = new Map<string, FeaturedDetail>();
-  private homepageCache: { html: string; fetchedAt: number } | undefined;
-  private seriesPageCache = new Map<string, { html: string; fetchedAt: number }>();
+  private featuredInfoCache: Map<string, FeaturedDetail> | undefined;
+  private homepageCache: { page: Promise<string>; fetchedAt: number } | undefined;
+  private seriesPageCache = new Map<string, { page: Promise<string>; fetchedAt: number }>();
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -312,29 +316,63 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     );
   }
 
-  // One homepage fetch feeds the hero, Updates, Popular This Week, and Most
-  // Liked; a short cache keeps a Discover refresh to a single page load.
-  private async getHomepage(): Promise<string> {
+  // One front-page fetch feeds every homepage-driven section. The cache holds
+  // the promise itself, so the sections loading concurrently on a cold start
+  // all share a single request instead of racing into their own downloads.
+  private getHomepage(): Promise<string> {
     const now = Date.now();
     if (this.homepageCache && now - this.homepageCache.fetchedAt < HOMEPAGE_CACHE_TTL) {
-      return this.homepageCache.html;
+      return this.homepageCache.page;
     }
-    const html = await fetchHtml(`${getDomain()}/`);
-    this.homepageCache = { html, fetchedAt: now };
-    return html;
+    const page = fetchHtml(`${getDomain()}/`).catch((error: unknown) => {
+      // A failed fetch must not get cached as the page for the next 5 minutes.
+      this.homepageCache = undefined;
+      throw error;
+    });
+    this.homepageCache = { page, fetchedAt: now };
+    return page;
   }
 
   // Detail-page lookups behind the hero, cached so reopening Discover doesn't
   // refetch; a failed lookup degrades to the plain catalog card.
   private async getFeaturedInfo(slug: string): Promise<FeaturedDetail> {
-    const cached = this.featuredInfoCache.get(slug);
+    const cache = this.loadFeaturedInfoCache();
+    const cached = cache.get(slug);
     if (cached) return cached;
     try {
       const info = parseFeaturedDetail(await this.getSeriesPage(slug));
-      this.featuredInfoCache.set(slug, info);
+      cache.set(slug, info);
+      this.persistFeaturedInfoCache(cache);
       return info;
     } catch {
       return {};
+    }
+  }
+
+  // The enrichment cache is persisted so the hero's detail lookups are paid
+  // once per title ever, not once per app launch. Insertion order doubles as
+  // recency, so pruning drops the oldest entries first.
+  private loadFeaturedInfoCache(): Map<string, FeaturedDetail> {
+    if (this.featuredInfoCache) return this.featuredInfoCache;
+    let stored: Record<string, FeaturedDetail> = {};
+    const raw = Application.getState(FEATURED_INFO_STATE_KEY);
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      stored = raw as Record<string, FeaturedDetail>;
+    }
+    this.featuredInfoCache = new Map(Object.entries(stored));
+    return this.featuredInfoCache;
+  }
+
+  private persistFeaturedInfoCache(cache: Map<string, FeaturedDetail>): void {
+    while (cache.size > FEATURED_INFO_CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+    try {
+      Application.setState(Object.fromEntries(cache), FEATURED_INFO_STATE_KEY);
+    } catch {
+      // Persistence is best effort — the in-memory cache still serves this run.
     }
   }
 
@@ -432,19 +470,23 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
 
   // Details and the chapter list live on the same heavy page, and the app
   // requests them back to back — cache the page briefly so a title opens with
-  // a single fetch. Bounded so hero enrichment can't grow it unchecked.
-  private async getSeriesPage(slug: string): Promise<string> {
+  // a single fetch. Caching the promise also collapses concurrent requests
+  // for the same slug. Bounded so hero enrichment can't grow it unchecked.
+  private getSeriesPage(slug: string): Promise<string> {
     const cached = this.seriesPageCache.get(slug);
     if (cached && Date.now() - cached.fetchedAt < SERIES_PAGE_CACHE_TTL) {
-      return cached.html;
+      return cached.page;
     }
-    const html = await fetchHtml(`${getDomain()}/manga/${slug}`);
+    const page = fetchHtml(`${getDomain()}/manga/${slug}`).catch((error: unknown) => {
+      this.seriesPageCache.delete(slug);
+      throw error;
+    });
     if (this.seriesPageCache.size >= SERIES_PAGE_CACHE_LIMIT) {
       const oldest = this.seriesPageCache.keys().next().value;
       if (oldest !== undefined) this.seriesPageCache.delete(oldest);
     }
-    this.seriesPageCache.set(slug, { html, fetchedAt: Date.now() });
-    return html;
+    this.seriesPageCache.set(slug, { page, fetchedAt: Date.now() });
+    return page;
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
