@@ -246,19 +246,36 @@ function extractUploader($row: cheerio.Cheerio<any>): string {
   );
 }
 
+// The app rejects IDs containing anything outside alphanumerics and
+// `._-@()[]%?#+=/&:`. Title slugs occasionally contain other characters (an
+// apostrophe, e.g. .../the_exiled_saintess_is_loved_by_a_fluffy_duke'/), and
+// URL.pathname leaves those unencoded — one such title then errors the whole
+// carousel. Percent-encode the offenders: `%` is in the allowed set, and the
+// encoded path still fetches correctly. encodeURIComponent alone is not
+// enough — it deliberately leaves !'*~ untouched, so those are encoded by
+// hand.
+function sanitizeMangaId(path: string): string {
+  return path.replace(/[^A-Za-z0-9._\-@()[\]%?#+=/&:]/g, (char) =>
+    encodeURIComponent(char).replace(
+      /[!'*~]/g,
+      (raw) => `%${raw.charCodeAt(0).toString(16).toUpperCase()}`,
+    ),
+  );
+}
+
 function toPathname(href: string): string {
   const normalizedHref = href.trim();
   if (!normalizedHref) return "";
 
   try {
-    return new URL(normalizedHref, DOMAIN).pathname;
+    return sanitizeMangaId(new URL(normalizedHref, DOMAIN).pathname);
   } catch {
     const extracted = extractMangaId(normalizedHref);
 
     try {
-      return new URL(extracted, DOMAIN).pathname;
+      return sanitizeMangaId(new URL(extracted, DOMAIN).pathname);
     } catch {
-      return extracted;
+      return sanitizeMangaId(extracted);
     }
   }
 }
