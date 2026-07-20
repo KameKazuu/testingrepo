@@ -12,7 +12,7 @@ import {
   type TagSection,
 } from "@paperback/types";
 
-import { getDomain, getShowAllVersions } from "./models";
+import { getDomain, getShowAllVersions, isOfficialTeam } from "./models";
 import type { CatalogItem, ChapterEntry, HomeUpdate, ReaderChapter, SeriesProps } from "./models";
 
 // ----------------------------------------------------------------
@@ -459,8 +459,9 @@ export function parseChapters(html: string, sourceManga: SourceManga): Chapter[]
 function toChapter(entry: ChapterEntry, sourceManga: SourceManga, allVersions: boolean): Chapter {
   const title = entry.title?.trim() ?? "";
   const teamName = entry.team?.name ?? entry.translator ?? undefined;
-  // The site labels its publisher-sourced uploads with the "official" team.
-  const version = teamName && entry.team?.slug === "official" ? `★ ${teamName}` : teamName;
+  // Known publisher/platform teams (Tapas, WebToon, VIZ, …) get the star.
+  const version =
+    teamName && isOfficialTeam(teamName, entry.team?.slug) ? `★ ${teamName}` : teamName;
   const teamSuffix =
     allVersions && entry.team?.slug ? `?team=${encodeURIComponent(entry.team.slug)}` : "";
 

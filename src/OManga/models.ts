@@ -23,6 +23,37 @@ export function setDomainOverride(value: string): void {
   Application.setState(value, BASE_URL_KEY);
 }
 
+// Official publisher/platform teams get a star in the chapter list, matched
+// on the team name/slug with spacing and punctuation ignored.
+const OFFICIAL_TEAMS = new Set([
+  "official",
+  "tapas",
+  "webtoon",
+  "manta",
+  "tappytoon",
+  "mangaplus",
+  "kodansha",
+  "coolmic",
+  "omoi",
+  "kmanga",
+  "toomics",
+  "pocketcomics",
+  "shonenjump",
+  "vizmanga",
+  "webcomics",
+  "mangaup",
+  "lezhin",
+  "lehzin",
+]);
+
+const normalizeTeamKey = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+export function isOfficialTeam(name?: string | null, slug?: string | null): boolean {
+  return [name, slug].some(
+    (value) => typeof value === "string" && OFFICIAL_TEAMS.has(normalizeTeamKey(value)),
+  );
+}
+
 /** Whether the chapter list shows every team's upload or one per chapter. */
 export function getShowAllVersions(): boolean {
   return (Application.getState(ALL_VERSIONS_KEY) as boolean | undefined) ?? true;

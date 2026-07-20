@@ -67,3 +67,22 @@ export async function fetchHtml(url: string): Promise<string> {
 
   return Application.arrayBufferToUTF8String(buffer);
 }
+
+/**
+ * GET a page's bare data payload — the same stream the site's own client-side
+ * navigation requests. A fraction of the full page's size, so it's the fast
+ * path; callers fall back to the full page if the payload comes up short.
+ */
+export async function fetchPayload(url: string): Promise<string> {
+  const [response, buffer] = await Application.scheduleRequest({
+    url,
+    method: "GET",
+    headers: { rsc: "1" },
+  });
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Payload request failed with status ${response.status}: ${url}`);
+  }
+
+  return Application.arrayBufferToUTF8String(buffer);
+}

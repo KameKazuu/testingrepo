@@ -3,6 +3,7 @@
 
 import {
   BasicRateLimiter,
+  CloudflareError,
   CookieStorageInterceptor,
   DiscoverSectionType,
   type AdvancedSearchForm,
@@ -37,7 +38,7 @@ import {
   type Metadata,
   type SearchMetadata,
 } from "./models";
-import { fetchHtml, OMangaInterceptor } from "./network";
+import { fetchHtml, fetchPayload, OMangaInterceptor } from "./network";
 import {
   contentRatingForGenres,
   parseCatalogItems,
@@ -495,10 +496,17 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
-    const html = await fetchHtml(
-      `${getDomain()}/manga/${chapter.sourceManga.mangaId}/chapter/${chapter.chapterId}`,
-    );
-    return parseChapterDetails(html, chapter);
+    const url = `${getDomain()}/manga/${chapter.sourceManga.mangaId}/chapter/${chapter.chapterId}`;
+
+    // The bare payload is a fraction of the full reader page, so try it
+    // first; any shortfall (blocked, reshaped, missing pages) falls back to
+    // the full page.
+    try {
+      return parseChapterDetails(await fetchPayload(url), chapter);
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+    }
+    return parseChapterDetails(await fetchHtml(url), chapter);
   }
 }
 
