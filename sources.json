@@ -37,6 +37,18 @@
       "repository": "https://github.com/PoppingMango/PoppingMango-Source"
     },
     {
+      "id": "OManga",
+      "name": "oManga",
+      "description": "Extension that pulls content from omanga.to.",
+      "website": "https://omanga.to",
+      "author": "PoppingMango",
+      "contentRating": "ADULT",
+      "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/OManga/static/icon.png",
+      "version": "1.0.0-alpha.1",
+      "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/OManga",
+      "repository": "https://github.com/PoppingMango/PoppingMango-Source"
+    },
+    {
       "id": "ScansGG",
       "name": "Scans.GG",
       "description": "Extension that pulls content from scans.gg.",
