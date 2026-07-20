@@ -355,25 +355,32 @@ export function readCachedMetadata(): KaganeMetadata | undefined {
   return undefined;
 }
 
-// The tag taxonomy is thousands of entries, so it is fetched lazily — when a
-// tag search runs or the filter sheet opens — and cached for a day.
+// The tag taxonomy is thousands of entries, fetched lazily — when a tag
+// search runs or the filter sheet opens. The primary cache is in-memory;
+// persisting ~700KB to state storage is strictly best-effort and must never
+// fail the caller (a failed setState after a successful fetch is exactly what
+// kept the Tags filter from ever appearing).
+let tagEntriesMemo: TagDto[] | undefined;
+
 export async function getKaganeTagEntries(): Promise<TagDto[]> {
+  if (tagEntriesMemo) {
+    return tagEntriesMemo;
+  }
+
   const cacheDate = Number(Application.getState(TAGS_CACHE_DATE_KEY) ?? 0);
   const cached = Application.getState(TAGS_CACHE_KEY);
-
   if (typeof cached === "string" && cacheDate + METADATA_CACHE_TTL_SECONDS > Date.now() / 1000) {
     try {
       const parsed: unknown = JSON.parse(cached);
       // Older builds cached a name→id object under this key — only an array
-      // of entries is valid now; anything else is refetched.
-      if (Array.isArray(parsed)) {
-        return parsed as TagDto[];
+      // of entries is valid; anything else is refetched.
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        tagEntriesMemo = parsed as TagDto[];
+        return tagEntriesMemo;
       }
     } catch {
       // Corrupt cache — refetch below.
     }
-    Application.setState("", TAGS_CACHE_KEY);
-    Application.setState("0", TAGS_CACHE_DATE_KEY);
   }
 
   const tags = await fetchJSON<TagDto[]>({
@@ -384,9 +391,14 @@ export async function getKaganeTagEntries(): Promise<TagDto[]> {
   const entries = tags
     .filter((tag) => Boolean(tag.id && tag.tag_name))
     .map((tag) => ({ id: tag.id, tag_name: tag.tag_name }));
+  tagEntriesMemo = entries;
 
-  Application.setState(JSON.stringify(entries), TAGS_CACHE_KEY);
-  Application.setState(String(Date.now() / 1000), TAGS_CACHE_DATE_KEY);
+  try {
+    Application.setState(JSON.stringify(entries), TAGS_CACHE_KEY);
+    Application.setState(String(Date.now() / 1000), TAGS_CACHE_DATE_KEY);
+  } catch (error) {
+    console.log(`[Kagane] tag cache persist failed (memory cache active): ${String(error)}`);
+  }
 
   return entries;
 }

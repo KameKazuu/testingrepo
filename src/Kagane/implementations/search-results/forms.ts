@@ -6,6 +6,7 @@ import {
   closureSelector,
   InputRow,
   Section,
+  SelectRow,
   SelectSection,
   TriStateSelectRow,
   type FormSectionElement,
@@ -132,13 +133,20 @@ export class KaganeAdvancedSearchForm extends AdvancedSearchForm {
       this.operatorSection("tagsMatchAll", "Match Tags", this.metadata.tagsMatchAll!),
       ...(this.sourceItems.length > 0
         ? [
-            this.multiSelectSection(
-              "sources",
-              "Sources",
-              this.metadata.sources!,
-              this.sourceItems,
-              "list",
-            ),
+            // A navigation row (not an inline list) — dozens of sources would
+            // otherwise dominate the form's scroll.
+            Section({ id: "sources_section", header: "Sources" }, [
+              SelectRow("sources", {
+                title: "Sources",
+                options: this.sourceItems,
+                value: this.metadata.sources!,
+                minItemCount: 0,
+                maxItemCount: this.sourceItems.length,
+                onValueChange: closureSelector(this, "sources", async (value: string[]) => {
+                  this.metadata.sources = value;
+                }),
+              }),
+            ]),
           ]
         : []),
       this.inputSection({
@@ -169,13 +177,12 @@ export class KaganeAdvancedSearchForm extends AdvancedSearchForm {
     header: string,
     value: string[],
     items: FilterItem[],
-    layout: "flow" | "list" = "flow",
   ): FormSectionElement<unknown> {
     // SelectSection mutates `value` in place, so no onValueChange is needed.
     return SelectSection(this, {
       id,
       header,
-      layout,
+      layout: "flow",
       value,
       items,
       minItemCount: 0,
