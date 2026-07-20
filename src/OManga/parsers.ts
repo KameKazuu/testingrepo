@@ -15,22 +15,11 @@ import {
 import { getDomain, getShowAllVersions, isOfficialTeam } from "./models";
 import type { CatalogItem, ChapterEntry, HomeUpdate, ReaderChapter, SeriesProps } from "./models";
 
-// ----------------------------------------------------------------
-// Payload extraction
-//
-// Pages are server-rendered with their data embedded as a streamed payload:
-// script tags push string fragments (`self.__next_f.push([1,"…"])`) that
-// concatenate into one text stream containing the JSON props we need.
-// ----------------------------------------------------------------
-
 const FLIGHT_CHUNK_REGEX = /self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g;
 
-/**
- * Concatenate a page's embedded payload fragments into one searchable string.
- * Each fragment is a JS string literal, so JSON.parse unescapes it. A response
- * without fragments (a raw payload response) is already the stream itself.
- */
-export function decodeFlightPayload(html: string): string {
+// Pages embed their data as a streamed payload of script-pushed string
+// fragments; a bare payload response (no fragments) is already the stream.
+export const decodeFlightPayload = (html: string): string => {
   const parts: string[] = [];
   let match: RegExpExecArray | null;
   FLIGHT_CHUNK_REGEX.lastIndex = 0;
@@ -38,17 +27,14 @@ export function decodeFlightPayload(html: string): string {
     try {
       parts.push(JSON.parse(`"${match[1]}"`) as string);
     } catch {
-      // A fragment that fails to unescape carries no JSON of ours; skip it.
+      // Fragments that fail to unescape carry no JSON of ours.
     }
   }
   return parts.length > 0 ? parts.join("") : html;
-}
+};
 
-/**
- * Extract the balanced JSON object/array beginning at `start` — a scanner that
- * tracks string state so braces inside values don't break the depth count.
- */
-function extractBalancedJson(text: string, start: number): string | undefined {
+// String-aware balanced scan, so braces inside values don't break the depth.
+const extractBalancedJson = (text: string, start: number): string | undefined => {
   const open = text[start];
   const close = open === "{" ? "}" : open === "[" ? "]" : undefined;
   if (!close) return undefined;
@@ -73,10 +59,9 @@ function extractBalancedJson(text: string, start: number): string | undefined {
     }
   }
   return undefined;
-}
+};
 
-/** Find `anchor` in the stream and parse the JSON value that starts there. */
-function parseJsonAt<T>(payload: string, anchor: string, offset = 0): T | undefined {
+const parseJsonAt = <T>(payload: string, anchor: string, offset = 0): T | undefined => {
   const index = payload.indexOf(anchor);
   if (index < 0) return undefined;
   const blob = extractBalancedJson(payload, index + offset);
@@ -86,21 +71,16 @@ function parseJsonAt<T>(payload: string, anchor: string, offset = 0): T | undefi
   } catch {
     return undefined;
   }
-}
+};
 
-// ----------------------------------------------------------------
-// Catalog
-// ----------------------------------------------------------------
+const withCards = (items: CatalogItem[] | undefined): CatalogItem[] =>
+  (items ?? []).filter((item) => Boolean(item.slug) && Boolean(item.title));
 
-/** Series cards from a catalog page (`"initialItems":[…]`). */
-export function parseCatalogItems(html: string): CatalogItem[] {
-  const payload = decodeFlightPayload(html);
-  const items = parseJsonAt<CatalogItem[]>(payload, '"initialItems":[', '"initialItems":'.length);
-  return (items ?? []).filter((item) => Boolean(item.slug) && Boolean(item.title));
-}
+export const parseCatalogItems = (html: string): CatalogItem[] =>
+  withCards(parseJsonAt(decodeFlightPayload(html), '"initialItems":[', '"initialItems":'.length));
 
 // Listing cards carry no age rating; genres are the only content signal.
-export function contentRatingForGenres(genres: string[] | undefined): ContentRating {
+export const contentRatingForGenres = (genres: string[] | undefined): ContentRating => {
   const lower = (genres ?? []).map((genre) => genre.toLowerCase());
   if (["hentai", "adult", "smut", "lolicon", "shotacon"].some((genre) => lower.includes(genre))) {
     return ContentRating.ADULT;
@@ -109,9 +89,9 @@ export function contentRatingForGenres(genres: string[] | undefined): ContentRat
     return ContentRating.MATURE;
   }
   return ContentRating.EVERYONE;
-}
+};
 
-export function toSearchResultItem(item: CatalogItem): SearchResultItem {
+export const toSearchResultItem = (item: CatalogItem): SearchResultItem => {
   const chapterCount = item._count?.chapters ?? 0;
   return {
     mangaId: item.slug,
@@ -120,31 +100,22 @@ export function toSearchResultItem(item: CatalogItem): SearchResultItem {
     contentRating: contentRatingForGenres(item.genres),
     subtitle: chapterCount > 0 ? `${chapterCount} chapters` : (item.type ?? ""),
   };
-}
+};
 
-// ----------------------------------------------------------------
-// Discover cards
-// ----------------------------------------------------------------
+export const toProminentItem = (item: CatalogItem): DiscoverSectionItem => ({
+  type: "prominentCarouselItem",
+  mangaId: item.slug,
+  title: item.title,
+  imageUrl: item.poster,
+  subtitle:
+    typeof item.rating === "number" && item.rating > 0
+      ? `★ ${item.rating.toFixed(1)}`
+      : (item.type ?? ""),
+  contentRating: contentRatingForGenres(item.genres),
+  metadata: undefined,
+});
 
-/** "★ 8.6" when the catalog card carries a score, else nothing. */
-function starRating(rating?: number): string | undefined {
-  if (typeof rating !== "number" || rating <= 0) return undefined;
-  return `★ ${rating.toFixed(1)}`;
-}
-
-export function toProminentItem(item: CatalogItem): DiscoverSectionItem {
-  return {
-    type: "prominentCarouselItem",
-    mangaId: item.slug,
-    title: item.title,
-    imageUrl: item.poster,
-    subtitle: starRating(item.rating) ?? item.type ?? "",
-    contentRating: contentRatingForGenres(item.genres),
-    metadata: undefined,
-  };
-}
-
-export function toSimpleItem(item: CatalogItem): DiscoverSectionItem {
+export const toSimpleItem = (item: CatalogItem): DiscoverSectionItem => {
   const chapterCount = item._count?.chapters ?? 0;
   return {
     type: "simpleCarouselItem",
@@ -155,24 +126,14 @@ export function toSimpleItem(item: CatalogItem): DiscoverSectionItem {
     contentRating: contentRatingForGenres(item.genres),
     metadata: undefined,
   };
-}
+};
 
-// ----------------------------------------------------------------
-// Homepage sections
-// ----------------------------------------------------------------
+// The front page's top strip — the first series array on the page.
+export const parseHomeCarousel = (html: string): CatalogItem[] =>
+  withCards(parseJsonAt(decodeFlightPayload(html), '"items":[{"id"', '"items":'.length));
 
-/**
- * The front page's own hero carousel — the first series array on the page.
- * Items carry year and rating on top of the usual card fields.
- */
-export function parseHomeCarousel(html: string): CatalogItem[] {
-  const payload = decodeFlightPayload(html);
-  const items = parseJsonAt<CatalogItem[]>(payload, '"items":[{"id"', '"items":'.length);
-  return (items ?? []).filter((item) => Boolean(item.slug) && Boolean(item.title));
-}
-
-/** A titled homepage row ("Popular This Week", "Most liked", …) by its heading. */
-export function parseHomeSection(html: string, title: string): CatalogItem[] {
+// A titled homepage data row ("Popular This Week", "Most liked") by heading.
+export const parseHomeSection = (html: string, title: string): CatalogItem[] => {
   const payload = decodeFlightPayload(html);
   const heading = payload.indexOf(`{"title":"${title}","moreHref"`);
   if (heading < 0) return [];
@@ -181,35 +142,22 @@ export function parseHomeSection(html: string, title: string): CatalogItem[] {
   const blob = extractBalancedJson(payload, arrayStart + '"items":'.length);
   if (!blob) return [];
   try {
-    const items = JSON.parse(blob) as CatalogItem[];
-    return items.filter((item) => Boolean(item.slug) && Boolean(item.title));
+    return withCards(JSON.parse(blob) as CatalogItem[]);
   } catch {
     return [];
   }
-}
+};
 
-/** Card subtitle the way the site writes it: "Manhwa 2023". */
-export function toHomeCard(item: CatalogItem & { year?: number }): DiscoverSectionItem {
-  const parts = [item.type, item.year ? String(item.year) : undefined].filter(Boolean);
-  return {
-    type: "simpleCarouselItem",
-    mangaId: item.slug,
-    title: item.title,
-    imageUrl: item.poster,
-    subtitle: parts.join(" "),
-    contentRating: contentRatingForGenres(item.genres),
-    metadata: undefined,
-  };
-}
-
-// ----------------------------------------------------------------
-// Homepage element sections
-//
-// New Season and Best Ongoings aren't JSON rows — their cards are rendered
-// elements, and the stream defers some of them as "$L<id>" placeholders whose
-// rows arrive later in the payload. Parsing walks the section's container and
-// resolves those placeholders to get the complete list.
-// ----------------------------------------------------------------
+// Card subtitle the way the site writes it: "Manhwa 2023".
+export const toHomeCard = (item: CatalogItem): DiscoverSectionItem => ({
+  type: "simpleCarouselItem",
+  mangaId: item.slug,
+  title: item.title,
+  imageUrl: item.poster,
+  subtitle: [item.type, item.year ? String(item.year) : undefined].filter(Boolean).join(" "),
+  contentRating: contentRatingForGenres(item.genres),
+  metadata: undefined,
+});
 
 /** One rendered card link: slug, cover, title, and (when shown) type/year. */
 export interface HomeLinkCard {
@@ -220,25 +168,24 @@ export interface HomeLinkCard {
   year?: string;
 }
 
-/** The payload row `<id>:[…]` a "$L<id>" placeholder points at. */
-function resolveLazyRow(payload: string, id: string): string | undefined {
+// The payload row `<id>:[…]` a "$L<id>" placeholder points at.
+const resolveLazyRow = (payload: string, id: string): string | undefined => {
   const marker = payload.match(new RegExp(`(?:^|\\n)${id}:`));
   if (marker?.index === undefined) return undefined;
   const start = marker.index + marker[0].length;
   if (payload[start] !== "[") return undefined;
   return extractBalancedJson(payload, start);
-}
+};
 
-function unescapeText(raw: string): string {
+const unescapeText = (raw: string): string => {
   try {
     return JSON.parse(`"${raw}"`) as string;
   } catch {
     return raw;
   }
-}
+};
 
-/** Every /manga/ card link in a rendered fragment, in document order. */
-function parseLinkCards(fragment: string): HomeLinkCard[] {
+const parseLinkCards = (fragment: string): HomeLinkCard[] => {
   const cards: HomeLinkCard[] = [];
   const anchors = [...fragment.matchAll(/"href":"\/manga\/([a-z0-9-]+)"/g)];
 
@@ -262,17 +209,16 @@ function parseLinkCards(fragment: string): HomeLinkCard[] {
     });
   }
   return cards;
-}
+};
 
-/**
- * The card list of a rendered homepage section, located by its heading and
- * the class marker of its list container, with deferred rows resolved.
- */
-export function parseHomeLinkSection(
+// Element-rendered rows (New Season, Best Ongoings): cards are streamed inline
+// or deferred as "$L<id>" placeholder rows. Walked in document order — these
+// rows are rankings, so resolved placeholders must keep their position.
+export const parseHomeLinkSection = (
   html: string,
   heading: string,
   containerMarker: string,
-): HomeLinkCard[] {
+): HomeLinkCard[] => {
   const payload = decodeFlightPayload(html);
   const headingIndex = payload.indexOf(`"children":"${heading}"`);
   if (headingIndex < 0) return [];
@@ -283,9 +229,6 @@ export function parseHomeLinkSection(
   const blob = extractBalancedJson(payload, arrayStart + '"children":'.length);
   if (!blob) return [];
 
-  // Walk inline cards and deferred placeholders in document order — these
-  // rows are rankings, so a resolved placeholder must keep its position, not
-  // get appended after the inline cards.
   const cards: HomeLinkCard[] = [];
   const tokens = [...blob.matchAll(/"href":"\/manga\/([a-z0-9-]+)"|"\$L([0-9a-f]+)"/g)];
   for (let i = 0; i < tokens.length; i++) {
@@ -295,8 +238,7 @@ export function parseHomeLinkSection(
       const end = i + 1 < tokens.length ? (tokens[i + 1].index ?? blob.length) : blob.length;
       cards.push(...parseLinkCards(blob.slice(start, end)));
     } else {
-      // A placeholder row is either a full card or just a card body (whose
-      // fragment has no link and contributes nothing).
+      // A placeholder row holding just a card body has no link and adds nothing.
       const row = resolveLazyRow(payload, token[2]);
       if (row) cards.push(...parseLinkCards(row));
     }
@@ -308,46 +250,17 @@ export function parseHomeLinkSection(
     seen.add(card.slug);
     return true;
   });
-}
+};
 
-// ----------------------------------------------------------------
-// Featured-hero enrichment
-// ----------------------------------------------------------------
+// "$D2026-07-14T02:23:00.772Z" → Date (the serializer prefixes dates with $D).
+const parsePayloadDate = (value?: string | null): Date | undefined => {
+  if (!value) return undefined;
+  const parsed = new Date(value.replace(/^\$D/, ""));
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+};
 
-/** The detail-page fields the featured hero shows that catalog cards lack. */
-export interface FeaturedDetail {
-  author?: string;
-  description?: string;
-  status?: string;
-  year?: string;
-}
-
-export function parseFeaturedDetail(html: string): FeaturedDetail {
-  let props: SeriesProps;
-  try {
-    props = parseSeriesProps(html, "featured");
-  } catch {
-    return {};
-  }
-  return {
-    author: props.author?.trim() || undefined,
-    description: props.description?.trim() || undefined,
-    status: props.status?.trim() || undefined,
-    // The release year only exists as the subtitle's catalog link.
-    year: html.match(/[?&]year=(\d{4})/)?.[1],
-  };
-}
-
-// ----------------------------------------------------------------
-// Homepage Updates feed
-// ----------------------------------------------------------------
-
-/**
- * The homepage embeds an Updates feed (`"updates":[…]`) of the latest chapter
- * releases with their series attached — one entry per release, newest first.
- * Kept to one card per series (its newest chapter) so the row isn't repetitive.
- */
-export function parseHomeUpdates(html: string): DiscoverSectionItem[] {
+// The homepage Updates feed, one card per series (its newest release).
+export const parseHomeUpdates = (html: string): DiscoverSectionItem[] => {
   const payload = decodeFlightPayload(html);
   const updates = parseJsonAt<HomeUpdate[]>(payload, '"updates":[', '"updates":'.length) ?? [];
 
@@ -371,49 +284,65 @@ export function parseHomeUpdates(html: string): DiscoverSectionItem[] {
     });
   }
   return items;
-}
+};
 
-// ----------------------------------------------------------------
-// Series details & chapters
-// ----------------------------------------------------------------
-
-/** The series client-component props (`{"initialTab":…}`) from a series page. */
-export function parseSeriesProps(html: string, slug: string): SeriesProps {
-  const payload = decodeFlightPayload(html);
-  const props = parseJsonAt<SeriesProps>(payload, '{"initialTab"');
+export const parseSeriesProps = (html: string, slug: string): SeriesProps => {
+  const props = parseJsonAt<SeriesProps>(decodeFlightPayload(html), '{"initialTab"');
   if (!props || !props.title) {
     throw new Error(`No series payload found for ${slug} — the page layout may have changed.`);
   }
   return props;
+};
+
+// Cover from the og:image meta — the series props carry no poster.
+export const parseCoverUrl = (html: string): string =>
+  html.match(/property="og:image"\s+content="([^"]+)"/)?.[1] ??
+  html.match(/"og:image","content":"([^"]+)"/)?.[1] ??
+  "";
+
+/** The detail-page fields the featured hero shows that catalog cards lack. */
+export interface FeaturedDetail {
+  author?: string;
+  description?: string;
+  status?: string;
+  year?: string;
 }
 
-/** Cover from the page's og:image meta — the payload itself has no poster. */
-export function parseCoverUrl(html: string): string {
-  const match =
-    html.match(/property="og:image"\s+content="([^"]+)"/) ??
-    html.match(/"og:image","content":"([^"]+)"/);
-  return match?.[1] ?? "";
-}
+export const parseFeaturedDetail = (html: string): FeaturedDetail => {
+  let props: SeriesProps;
+  try {
+    props = parseSeriesProps(html, "featured");
+  } catch {
+    return {};
+  }
+  return {
+    author: props.author?.trim() || undefined,
+    description: props.description?.trim() || undefined,
+    status: props.status?.trim() || undefined,
+    // The release year only exists as the subtitle's catalog link.
+    year: html.match(/[?&]year=(\d{4})/)?.[1],
+  };
+};
 
-function contentRatingForSeries(props: SeriesProps): ContentRating {
+const contentRatingForSeries = (props: SeriesProps): ContentRating => {
   const age = (props.ageRating ?? "").trim();
   if (age === "18+" || age === "21+") return ContentRating.ADULT;
   if (age === "15+" || age === "16+") return ContentRating.MATURE;
-  const fromGenres = contentRatingForGenres(props.genres);
   // "For all"/"12+" trusts the label unless an adult genre says otherwise.
+  const fromGenres = contentRatingForGenres(props.genres);
   return fromGenres === ContentRating.ADULT ? fromGenres : ContentRating.EVERYONE;
-}
+};
 
-function toTagSection(id: string, title: string, names: string[]): TagSection | undefined {
+const toTagSection = (id: string, title: string, names: string[]): TagSection | undefined => {
   if (names.length === 0) return undefined;
   const tags: Tag[] = names.map((name) => ({
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     title: name,
   }));
   return { id, title, tags };
-}
+};
 
-export function parseMangaDetails(html: string, mangaId: string): SourceManga {
+export const parseMangaDetails = (html: string, mangaId: string): SourceManga => {
   const props = parseSeriesProps(html, mangaId);
 
   const tagGroups = [
@@ -436,41 +365,13 @@ export function parseMangaDetails(html: string, mangaId: string): SourceManga {
       shareUrl: `${getDomain()}/manga/${mangaId}`,
     },
   };
-}
+};
 
-/** "$D2026-07-14T02:23:00.772Z" → Date (the serializer prefixes dates with $D). */
-function parsePayloadDate(value?: string | null): Date | undefined {
-  if (!value) return undefined;
-  const parsed = new Date(value.replace(/^\$D/, ""));
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
-}
-
-/**
- * The reader addresses a specific upload as `chapter/<number>?team=<slug>` —
- * the same links the site's own chapter list uses — so every team's upload
- * gets its own entry with the team name as the version label. With the
- * all-versions setting off, the list keeps one entry per number (first listed
- * wins — the site's own default).
- */
-export function parseChapters(html: string, sourceManga: SourceManga): Chapter[] {
-  const props = parseSeriesProps(html, sourceManga.mangaId);
-  const entries = (props.chapters ?? []).filter((entry) => entry.isLocked !== true);
-  const allVersions = getShowAllVersions();
-
-  const seen = new Set<string>();
-  const chapters: Chapter[] = [];
-  for (const entry of entries) {
-    if (typeof entry.number !== "number") continue;
-    const key = allVersions ? `${entry.number}|${entry.team?.slug ?? ""}` : String(entry.number);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    chapters.push(toChapter(entry, sourceManga, allVersions));
-  }
-  return chapters;
-}
-
-function toChapter(entry: ChapterEntry, sourceManga: SourceManga, allVersions: boolean): Chapter {
-  const title = entry.title?.trim() ?? "";
+const toChapter = (
+  entry: ChapterEntry,
+  sourceManga: SourceManga,
+  allVersions: boolean,
+): Chapter => {
   const teamName = entry.team?.name ?? entry.translator ?? undefined;
   // Known publisher/platform teams (Tapas, WebToon, VIZ, …) get the star.
   const version =
@@ -483,21 +384,35 @@ function toChapter(entry: ChapterEntry, sourceManga: SourceManga, allVersions: b
     sourceManga,
     langCode: "en",
     chapNum: entry.number,
-    title,
-    // The site tracks no real volumes — 0 keeps the app from showing a
-    // "Volume TBA" placeholder.
+    title: entry.title?.trim() ?? "",
+    // The site tracks no real volumes — 0 avoids the "Volume TBA" placeholder.
     volume: 0,
     version,
     sortingIndex: entry.number,
     publishDate: parsePayloadDate(entry.createdAt),
   };
-}
+};
 
-// ----------------------------------------------------------------
-// Reader
-// ----------------------------------------------------------------
+// The reader addresses uploads as `chapter/<number>?team=<slug>` (the site's
+// own links), so every team's upload gets its own entry; with the all-versions
+// setting off, first listed per number wins — the site's default.
+export const parseChapters = (html: string, sourceManga: SourceManga): Chapter[] => {
+  const props = parseSeriesProps(html, sourceManga.mangaId);
+  const allVersions = getShowAllVersions();
 
-export function parseChapterDetails(html: string, chapter: Chapter): ChapterDetails {
+  const seen = new Set<string>();
+  const chapters: Chapter[] = [];
+  for (const entry of props.chapters ?? []) {
+    if (entry.isLocked === true || typeof entry.number !== "number") continue;
+    const key = allVersions ? `${entry.number}|${entry.team?.slug ?? ""}` : String(entry.number);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    chapters.push(toChapter(entry, sourceManga, allVersions));
+  }
+  return chapters;
+};
+
+export const parseChapterDetails = (html: string, chapter: Chapter): ChapterDetails => {
   const payload = decodeFlightPayload(html);
   const reader = parseJsonAt<ReaderChapter>(payload, '"chapter":{"id":', '"chapter":'.length);
 
@@ -513,4 +428,4 @@ export function parseChapterDetails(html: string, chapter: Chapter): ChapterDeta
     mangaId: chapter.sourceManga.mangaId,
     pages,
   };
-}
+};

@@ -63,9 +63,6 @@ export function setShowAllVersions(value: boolean): void {
   Application.setState(value, ALL_VERSIONS_KEY);
 }
 
-/** Number of items a catalog page returns when full. */
-export const CATALOG_PAGE_SIZE = 36;
-
 /** Series card as embedded in catalog pages and homepage rows. */
 export interface CatalogItem {
   id: number;

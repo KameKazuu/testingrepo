@@ -27,7 +27,6 @@ import { OMangaAdvancedSearchForm } from "./forms/search";
 import { OMangaSettingsForm } from "./forms/settings";
 import {
   AGE_RATING_OPTIONS,
-  CATALOG_PAGE_SIZE,
   GENRE_OPTIONS,
   getDomain,
   optionValues,
@@ -130,11 +129,10 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
         this.cookieStorageInterceptor.setCookie(cookie);
       }
     }
+    // Drop memoized pages so post-bypass requests start fresh.
+    this.homepageCache = undefined;
+    this.seriesPageCache.clear();
   }
-
-  // ----------------------------------------------------------------
-  // Discover
-  // ----------------------------------------------------------------
 
   // Mirrors the site's own front page: a Popular hero built from its weekly
   // row, the Updates feed, New Season, Most Liked, Best Ongoings, the Top
@@ -330,7 +328,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       return this.homepageCache.page;
     }
     const page = fetchHtml(`${getDomain()}/`).catch((error: unknown) => {
-      // A failed fetch must not get cached as the page for the next 5 minutes.
+      // A failed fetch must not occupy the cache window.
       this.homepageCache = undefined;
       throw error;
     });
@@ -374,16 +372,8 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       if (oldest === undefined) break;
       cache.delete(oldest);
     }
-    try {
-      Application.setState(Object.fromEntries(cache), FEATURED_INFO_STATE_KEY);
-    } catch {
-      // Persistence is best effort — the in-memory cache still serves this run.
-    }
+    Application.setState(Object.fromEntries(cache), FEATURED_INFO_STATE_KEY);
   }
-
-  // ----------------------------------------------------------------
-  // Search
-  // ----------------------------------------------------------------
 
   async getSettingsForm(): Promise<Form> {
     return new OMangaSettingsForm();
@@ -458,13 +448,9 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     }
 
     const nextMetadata: Metadata | undefined =
-      items.length === CATALOG_PAGE_SIZE ? { page: page + 1, firstId } : undefined;
+      items.length === 36 ? { page: page + 1, firstId } : undefined; // full catalog page
     return { items, nextMetadata };
   }
-
-  // ----------------------------------------------------------------
-  // Manga details, chapters & pages
-  // ----------------------------------------------------------------
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
     return parseMangaDetails(await this.getSeriesPage(mangaId), mangaId);
