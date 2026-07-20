@@ -405,9 +405,17 @@ export function hasNextPage(html: string): boolean {
   );
 }
 
+// Undo sanitizeMangaId before fetching: the site's router does not decode
+// percent-escapes for these characters (the %27 form of an apostrophe slug
+// 404s while the raw form loads), so ids stay encoded for the app but the
+// request must carry the raw characters.
+function desanitizeMangaId(id: string): string {
+  return id.replace(/%(21|27|2A|7E)/g, (escape) => decodeURIComponent(escape));
+}
+
 export function mangaUrlFromId(mangaId: string): string {
-  if (mangaId.startsWith("http")) return mangaId;
-  return `${DOMAIN}${mangaId}`;
+  if (mangaId.startsWith("http")) return desanitizeMangaId(mangaId);
+  return `${DOMAIN}${desanitizeMangaId(mangaId)}`;
 }
 
 // The update list shows relative times ("5 minutes", "2 hours", "3 days").
@@ -538,9 +546,12 @@ export function parseFeaturedDetail(html: string): FeaturedDetail {
 }
 
 export function chapterUrlFromId(chapterId: string): string {
-  if (chapterId.startsWith("http")) return normalizeReaderUrl(chapterId);
+  const rawChapterId = desanitizeMangaId(chapterId);
+  if (rawChapterId.startsWith("http")) return normalizeReaderUrl(rawChapterId);
 
-  return normalizeReaderUrl(`${DOMAIN}${chapterId.startsWith("/") ? chapterId : `/${chapterId}`}`);
+  return normalizeReaderUrl(
+    `${DOMAIN}${rawChapterId.startsWith("/") ? rawChapterId : `/${rawChapterId}`}`,
+  );
 }
 
 export function parseMangaDetails(html: string, mangaId: string): SourceManga {
