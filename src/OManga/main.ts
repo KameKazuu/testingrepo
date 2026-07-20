@@ -485,7 +485,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     if (cached && Date.now() - cached.fetchedAt < SERIES_PAGE_CACHE_TTL) {
       return cached.page;
     }
-    const page = fetchHtml(`${getDomain()}/manga/${slug}`).catch((error: unknown) => {
+    const page = this.fetchSeriesPage(slug).catch((error: unknown) => {
       this.seriesPageCache.delete(slug);
       throw error;
     });
@@ -495,6 +495,20 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     }
     this.seriesPageCache.set(slug, { page, fetchedAt: Date.now() });
     return page;
+  }
+
+  // The bare payload is a fraction of the full page (the transfer, not the
+  // server, is what makes slow connections crawl). Accept it only when it
+  // carries the series props — a partial payload falls back to the full page.
+  private async fetchSeriesPage(slug: string): Promise<string> {
+    const url = `${getDomain()}/manga/${slug}`;
+    try {
+      const payload = await fetchPayload(url);
+      if (payload.includes('{"initialTab"')) return payload;
+    } catch (error) {
+      if (error instanceof CloudflareError) throw error;
+    }
+    return fetchHtml(url);
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
