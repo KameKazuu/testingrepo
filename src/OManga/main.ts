@@ -28,6 +28,7 @@ import {
   GENRE_OPTIONS,
   SORT_OPTIONS,
   TOP_SERIES_CHIPS,
+  type CatalogItem,
   type Metadata,
   type SearchMetadata,
 } from "./models";
@@ -38,8 +39,11 @@ import {
   parseChapterDetails,
   parseChapters,
   parseFeaturedDetail,
+  parseHomeCarousel,
+  parseHomeSection,
   parseHomeUpdates,
   parseMangaDetails,
+  toHomeCard,
   toProminentItem,
   toSearchResultItem,
   toSimpleItem,
@@ -50,6 +54,9 @@ import type OMangaConfig from "./pbconfig";
 // Rating/author/summary only exist on detail pages, so the hero is capped and
 // each per-title lookup is cached to keep this to a few requests.
 const FEATURED_HERO_LIMIT = 8;
+
+// How long one fetched front page keeps feeding the homepage-driven sections.
+const HOMEPAGE_CACHE_TTL = 5 * 60 * 1000;
 
 const SECTION_POPULAR = "popular";
 const SECTION_UPDATES = "updates";
@@ -87,6 +94,7 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   oMangaInterceptor = new OMangaInterceptor("main");
 
   private featuredInfoCache = new Map<string, FeaturedDetail>();
+  private homepageCache: { html: string; fetchedAt: number } | undefined;
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -166,9 +174,34 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
     }
 
     // The Updates feed comes off the front page itself, chapter numbers and
-    // release times included — one fetch, one page.
+    // release times included.
     if (section.id === SECTION_UPDATES) {
-      return { items: parseHomeUpdates(await fetchHtml(`${DOMAIN}/`)), metadata: undefined };
+      return { items: parseHomeUpdates(await this.getHomepage()), metadata: undefined };
+    }
+
+    // The hero is the site's own top carousel, enriched with detail-page info.
+    if (section.id === SECTION_POPULAR) {
+      let items = parseHomeCarousel(await this.getHomepage());
+      if (items.length === 0) {
+        // The embedded carousel is the source of truth; fall back to the
+        // popularity feed if the page ever stops carrying it.
+        items = (await this.fetchCatalogPage({ sort: "real_views", order: "desc" }, undefined))
+          .items;
+      }
+      return { items: await this.buildHeroItems(items), metadata: undefined };
+    }
+
+    // Popular This Week and Most Liked render the exact rows the homepage
+    // shows, falling through to their catalog feeds only if the row is absent.
+    if (section.id === SECTION_POPULAR_WEEK || section.id === SECTION_MOST_LIKED) {
+      const heading = section.id === SECTION_POPULAR_WEEK ? "Popular This Week" : "Most liked";
+      const homeItems = parseHomeSection(await this.getHomepage(), heading);
+      if (homeItems.length > 0) {
+        return {
+          items: homeItems.filter((item) => item.poster.length > 0).map(toHomeCard),
+          metadata: undefined,
+        };
+      }
     }
 
     // The remaining rows are catalog queries — the same feeds the site's own
@@ -189,44 +222,55 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
           };
 
     const { items, nextMetadata } = await this.fetchCatalogPage(query, metadata);
-
-    // The hero shows author, description, and year/status pills — fields only
-    // the detail pages carry — so its top entries get enriched (and cached).
-    if (section.id === SECTION_POPULAR) {
-      const heroItems = await Promise.all(
-        items
-          .filter((item) => item.poster.length > 0)
-          .slice(0, FEATURED_HERO_LIMIT)
-          .map(async (item): Promise<DiscoverSectionItem> => {
-            const info = await this.getFeaturedInfo(item.slug);
-            const pills: { symbol: string; text: string }[] = [];
-            if (info.year) pills.push({ symbol: "calendar", text: info.year });
-            if (info.status) pills.push({ symbol: "book.fill", text: info.status });
-
-            return {
-              type: "featuredCarouselItem",
-              mangaId: item.slug,
-              title: item.title,
-              imageUrl: item.poster,
-              supertitle: info.author ?? item.type ?? "",
-              summary: info.description ?? (item.genres ?? []).slice(0, 4).join(" · "),
-              infoItems: pills.length
-                ? (pills.slice(0, 2) as FeaturedCarouselItem["infoItems"])
-                : undefined,
-              contentRating: contentRatingForGenres(item.genres),
-              metadata: undefined,
-            };
-          }),
-      );
-      return { items: heroItems, metadata: undefined };
-    }
-
     const toItem = section.id === SECTION_BEST_ONGOING ? toProminentItem : toSimpleItem;
 
     return {
       items: items.map(toItem).filter((item) => "imageUrl" in item && item.imageUrl.length > 0),
       metadata: nextMetadata,
     };
+  }
+
+  // Hero cards: author above the title, the description as the summary, and
+  // year + status pills below it — fields only the detail pages carry.
+  private async buildHeroItems(items: CatalogItem[]): Promise<DiscoverSectionItem[]> {
+    return Promise.all(
+      items
+        .filter((item) => item.poster.length > 0)
+        .slice(0, FEATURED_HERO_LIMIT)
+        .map(async (item): Promise<DiscoverSectionItem> => {
+          const info = await this.getFeaturedInfo(item.slug);
+          const year = item.year ? String(item.year) : info.year;
+          const pills: { symbol: string; text: string }[] = [];
+          if (year) pills.push({ symbol: "calendar", text: year });
+          if (info.status) pills.push({ symbol: "book.fill", text: info.status });
+
+          return {
+            type: "featuredCarouselItem",
+            mangaId: item.slug,
+            title: item.title,
+            imageUrl: item.poster,
+            supertitle: info.author ?? item.type ?? "",
+            summary: info.description ?? (item.genres ?? []).slice(0, 4).join(" · "),
+            infoItems: pills.length
+              ? (pills.slice(0, 2) as FeaturedCarouselItem["infoItems"])
+              : undefined,
+            contentRating: contentRatingForGenres(item.genres),
+            metadata: undefined,
+          };
+        }),
+    );
+  }
+
+  // One homepage fetch feeds the hero, Updates, Popular This Week, and Most
+  // Liked; a short cache keeps a Discover refresh to a single page load.
+  private async getHomepage(): Promise<string> {
+    const now = Date.now();
+    if (this.homepageCache && now - this.homepageCache.fetchedAt < HOMEPAGE_CACHE_TTL) {
+      return this.homepageCache.html;
+    }
+    const html = await fetchHtml(`${DOMAIN}/`);
+    this.homepageCache = { html, fetchedAt: now };
+    return html;
   }
 
   // Detail-page lookups behind the hero, cached so reopening Discover doesn't

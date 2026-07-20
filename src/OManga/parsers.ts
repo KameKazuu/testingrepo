@@ -158,6 +158,51 @@ export function toSimpleItem(item: CatalogItem): DiscoverSectionItem {
 }
 
 // ----------------------------------------------------------------
+// Homepage sections
+// ----------------------------------------------------------------
+
+/**
+ * The front page's own hero carousel — the first series array on the page.
+ * Items carry year and rating on top of the usual card fields.
+ */
+export function parseHomeCarousel(html: string): CatalogItem[] {
+  const payload = decodeFlightPayload(html);
+  const items = parseJsonAt<CatalogItem[]>(payload, '"items":[{"id"', '"items":'.length);
+  return (items ?? []).filter((item) => Boolean(item.slug) && Boolean(item.title));
+}
+
+/** A titled homepage row ("Popular This Week", "Most liked", …) by its heading. */
+export function parseHomeSection(html: string, title: string): CatalogItem[] {
+  const payload = decodeFlightPayload(html);
+  const heading = payload.indexOf(`{"title":"${title}","moreHref"`);
+  if (heading < 0) return [];
+  const arrayStart = payload.indexOf('"items":[', heading);
+  if (arrayStart < 0) return [];
+  const blob = extractBalancedJson(payload, arrayStart + '"items":'.length);
+  if (!blob) return [];
+  try {
+    const items = JSON.parse(blob) as CatalogItem[];
+    return items.filter((item) => Boolean(item.slug) && Boolean(item.title));
+  } catch {
+    return [];
+  }
+}
+
+/** Card subtitle the way the site writes it: "Manhwa 2023". */
+export function toHomeCard(item: CatalogItem & { year?: number }): DiscoverSectionItem {
+  const parts = [item.type, item.year ? String(item.year) : undefined].filter(Boolean);
+  return {
+    type: "simpleCarouselItem",
+    mangaId: item.slug,
+    title: item.title,
+    imageUrl: item.poster,
+    subtitle: parts.join(" "),
+    contentRating: contentRatingForGenres(item.genres),
+    metadata: undefined,
+  };
+}
+
+// ----------------------------------------------------------------
 // Featured-hero enrichment
 // ----------------------------------------------------------------
 

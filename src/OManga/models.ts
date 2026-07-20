@@ -9,7 +9,7 @@ export const DOMAIN = "https://omanga.to";
 /** Number of items a catalog page returns when full. */
 export const CATALOG_PAGE_SIZE = 36;
 
-/** Series card as embedded in catalog pages. */
+/** Series card as embedded in catalog pages and homepage rows. */
 export interface CatalogItem {
   id: number;
   title: string;
@@ -20,6 +20,7 @@ export interface CatalogItem {
   rating?: number;
   views?: number;
   votes?: number;
+  year?: number; // homepage rows only
   _count?: { chapters?: number };
 }
 
