@@ -12,6 +12,7 @@ import {
   type DiscoverSection,
   type DiscoverSectionItem,
   type ExtensionImpl,
+  type FeaturedCarouselItem,
   type PagedResults,
   type Request,
   type SearchQuery,
@@ -36,14 +37,19 @@ import {
   parseCatalogItems,
   parseChapterDetails,
   parseChapters,
+  parseFeaturedDetail,
   parseHomeUpdates,
   parseMangaDetails,
-  toFeaturedItem,
   toProminentItem,
   toSearchResultItem,
   toSimpleItem,
+  type FeaturedDetail,
 } from "./parsers";
 import type OMangaConfig from "./pbconfig";
+
+// Rating/author/summary only exist on detail pages, so the hero is capped and
+// each per-title lookup is cached to keep this to a few requests.
+const FEATURED_HERO_LIMIT = 8;
 
 const SECTION_POPULAR = "popular";
 const SECTION_UPDATES = "updates";
@@ -79,6 +85,8 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   // Remembers the Cloudflare clearance cookies after a challenge is solved.
   cookieStorageInterceptor = new CookieStorageInterceptor({ storage: "stateManager" });
   oMangaInterceptor = new OMangaInterceptor("main");
+
+  private featuredInfoCache = new Map<string, FeaturedDetail>();
 
   async initialise(): Promise<void> {
     this.globalRateLimiter.registerInterceptor();
@@ -182,18 +190,57 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
 
     const { items, nextMetadata } = await this.fetchCatalogPage(query, metadata);
 
-    const toItem =
-      section.id === SECTION_POPULAR
-        ? toFeaturedItem
-        : section.id === SECTION_BEST_ONGOING
-          ? toProminentItem
-          : toSimpleItem;
+    // The hero shows author, description, and year/status pills — fields only
+    // the detail pages carry — so its top entries get enriched (and cached).
+    if (section.id === SECTION_POPULAR) {
+      const heroItems = await Promise.all(
+        items
+          .filter((item) => item.poster.length > 0)
+          .slice(0, FEATURED_HERO_LIMIT)
+          .map(async (item): Promise<DiscoverSectionItem> => {
+            const info = await this.getFeaturedInfo(item.slug);
+            const pills: { symbol: string; text: string }[] = [];
+            if (info.year) pills.push({ symbol: "calendar", text: info.year });
+            if (info.status) pills.push({ symbol: "book.fill", text: info.status });
+
+            return {
+              type: "featuredCarouselItem",
+              mangaId: item.slug,
+              title: item.title,
+              imageUrl: item.poster,
+              supertitle: info.author ?? item.type ?? "",
+              summary: info.description ?? (item.genres ?? []).slice(0, 4).join(" · "),
+              infoItems: pills.length
+                ? (pills.slice(0, 2) as FeaturedCarouselItem["infoItems"])
+                : undefined,
+              contentRating: contentRatingForGenres(item.genres),
+              metadata: undefined,
+            };
+          }),
+      );
+      return { items: heroItems, metadata: undefined };
+    }
+
+    const toItem = section.id === SECTION_BEST_ONGOING ? toProminentItem : toSimpleItem;
 
     return {
       items: items.map(toItem).filter((item) => "imageUrl" in item && item.imageUrl.length > 0),
-      // The hero carousel stays a single curated page; rows paginate on scroll.
-      metadata: section.id === SECTION_POPULAR ? undefined : nextMetadata,
+      metadata: nextMetadata,
     };
+  }
+
+  // Detail-page lookups behind the hero, cached so reopening Discover doesn't
+  // refetch; a failed lookup degrades to the plain catalog card.
+  private async getFeaturedInfo(slug: string): Promise<FeaturedDetail> {
+    const cached = this.featuredInfoCache.get(slug);
+    if (cached) return cached;
+    try {
+      const info = parseFeaturedDetail(await fetchHtml(`${DOMAIN}/manga/${slug}`));
+      this.featuredInfoCache.set(slug, info);
+      return info;
+    } catch {
+      return {};
+    }
   }
 
   // ----------------------------------------------------------------

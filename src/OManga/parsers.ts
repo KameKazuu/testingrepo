@@ -132,25 +132,6 @@ function starRating(rating?: number): string | undefined {
   return `★ ${rating.toFixed(1)}`;
 }
 
-export function toFeaturedItem(item: CatalogItem): DiscoverSectionItem {
-  const chapterCount = item._count?.chapters ?? 0;
-  const parts = [
-    chapterCount > 0 ? `Ch. ${chapterCount}` : undefined,
-    starRating(item.rating),
-  ].filter((part): part is string => Boolean(part));
-
-  return {
-    type: "featuredCarouselItem",
-    mangaId: item.slug,
-    title: item.title,
-    imageUrl: item.poster,
-    supertitle: parts.length > 0 ? parts.join(" | ") : (item.type ?? ""),
-    summary: (item.genres ?? []).slice(0, 4).join(" · "),
-    contentRating: contentRatingForGenres(item.genres),
-    metadata: undefined,
-  };
-}
-
 export function toProminentItem(item: CatalogItem): DiscoverSectionItem {
   return {
     type: "prominentCarouselItem",
@@ -173,6 +154,34 @@ export function toSimpleItem(item: CatalogItem): DiscoverSectionItem {
     subtitle: chapterCount > 0 ? `Ch. ${chapterCount}` : (item.type ?? ""),
     contentRating: contentRatingForGenres(item.genres),
     metadata: undefined,
+  };
+}
+
+// ----------------------------------------------------------------
+// Featured-hero enrichment
+// ----------------------------------------------------------------
+
+/** The detail-page fields the featured hero shows that catalog cards lack. */
+export interface FeaturedDetail {
+  author?: string;
+  description?: string;
+  status?: string;
+  year?: string;
+}
+
+export function parseFeaturedDetail(html: string): FeaturedDetail {
+  let props: SeriesProps;
+  try {
+    props = parseSeriesProps(html, "featured");
+  } catch {
+    return {};
+  }
+  return {
+    author: props.author?.trim() || undefined,
+    description: props.description?.trim() || undefined,
+    status: props.status?.trim() || undefined,
+    // The release year only exists as the subtitle's catalog link.
+    year: html.match(/[?&]year=(\d{4})/)?.[1],
   };
 }
 
