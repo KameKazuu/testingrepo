@@ -61,7 +61,6 @@ const HOMEPAGE_CACHE_TTL = 5 * 60 * 1000;
 const SECTION_POPULAR = "popular";
 const SECTION_RANDOM = "random";
 const SECTION_UPDATES = "updates";
-const SECTION_POPULAR_WEEK = "popular_week";
 const SECTION_TOP_SERIES = "top_series";
 const SECTION_NEW_SEASON = "new_season";
 const SECTION_MOST_LIKED = "most_liked";
@@ -119,18 +118,13 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
   // Discover
   // ----------------------------------------------------------------
 
-  // Mirrors the site's own front page: hero, Updates feed, Popular This Week,
-  // New Season, Most Liked, Best Ongoings, the Top Series country tabs (as
-  // tappable chips), and a genre grid.
+  // Mirrors the site's own front page: a Popular hero built from its weekly
+  // row, the Updates feed, New Season, Most Liked, Best Ongoings, the Top
+  // Series country tabs (as tappable chips), and a genre grid.
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return [
       { id: SECTION_POPULAR, title: "Popular", type: DiscoverSectionType.featured },
       { id: SECTION_UPDATES, title: "Updates", type: DiscoverSectionType.chapterUpdates },
-      {
-        id: SECTION_POPULAR_WEEK,
-        title: "Popular This Week",
-        type: DiscoverSectionType.simpleCarousel,
-      },
       { id: SECTION_TOP_SERIES, title: "Top Series", type: DiscoverSectionType.genres },
       { id: SECTION_NEW_SEASON, title: "New Season", type: DiscoverSectionType.simpleCarousel },
       { id: SECTION_MOST_LIKED, title: "Most Liked", type: DiscoverSectionType.simpleCarousel },
@@ -191,22 +185,20 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       };
     }
 
-    // The hero draws from the popularity feed rather than the front page's own
-    // top strip — that strip is a fresh random shuffle on every load, which
-    // would headline arbitrary titles and defeat the enrichment cache.
+    // The hero headlines the front page's Popular This Week row, enriched
+    // with detail-page info; its weekly feed fills in if the row is absent.
     if (section.id === SECTION_POPULAR) {
-      const { items } = await this.fetchCatalogPage(
-        { sort: "real_views", order: "desc" },
-        undefined,
-      );
+      let items = parseHomeSection(await this.getHomepage(), "Popular This Week");
+      if (items.length === 0) {
+        items = (await this.fetchCatalogPage({ sort: "by_views", order: "desc" }, undefined)).items;
+      }
       return { items: await this.buildHeroItems(items), metadata: undefined };
     }
 
-    // Popular This Week and Most Liked render the exact rows the homepage
-    // shows, falling through to their catalog feeds only if the row is absent.
-    if (section.id === SECTION_POPULAR_WEEK || section.id === SECTION_MOST_LIKED) {
-      const heading = section.id === SECTION_POPULAR_WEEK ? "Popular This Week" : "Most liked";
-      const homeItems = parseHomeSection(await this.getHomepage(), heading);
+    // Most Liked renders the exact row the homepage shows, falling through to
+    // its catalog feed only if the row is absent.
+    if (section.id === SECTION_MOST_LIKED) {
+      const homeItems = parseHomeSection(await this.getHomepage(), "Most liked");
       if (homeItems.length > 0) {
         return {
           items: homeItems.filter((item) => item.poster.length > 0).map(toHomeCard),
@@ -222,13 +214,11 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
         ? { sort: "rating", order: "desc", status: "Ongoing" }
         : {
             sort:
-              section.id === SECTION_POPULAR_WEEK
-                ? "by_views"
-                : section.id === SECTION_NEW_SEASON
-                  ? "by_date"
-                  : section.id === SECTION_MOST_LIKED
-                    ? "votes"
-                    : "real_views",
+              section.id === SECTION_NEW_SEASON
+                ? "by_date"
+                : section.id === SECTION_MOST_LIKED
+                  ? "votes"
+                  : "real_views",
             order: "desc",
           };
 
