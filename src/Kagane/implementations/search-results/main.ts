@@ -37,6 +37,7 @@ import {
   FORMAT_OPTIONS,
   LANGUAGE_OPTIONS,
   PAGE_SIZE,
+  POPULAR_TAG_NAMES,
   PUBLICATION_STATUS_OPTIONS,
   RANGE_OPTIONS,
   SORTING_OPTIONS,
@@ -76,12 +77,15 @@ export class SearchProvider {
   async getSearchFilters(): Promise<SearchFilter[]> {
     const metadata = await getKaganeMetadata();
 
-    // The full tag taxonomy renders as its own tri-state multiselect. If it
-    // can't be fetched, the sheet still opens — typed tags keep working. A
-    // Cloudflare challenge must surface so the app can raise the bypass.
+    // The tag multiselect shows the curated well-known set — rendering all
+    // ~8k taxonomy entries freezes the app — while the typed input reaches
+    // everything. If the taxonomy can't be fetched, the sheet still opens.
+    // A Cloudflare challenge must surface so the app can raise the bypass.
     let tagOptions: Array<{ id: string; value: string }> = [];
     try {
+      const popular = new Set(POPULAR_TAG_NAMES.map((name) => name.toLowerCase()));
       tagOptions = (await getKaganeTagEntries())
+        .filter((tag) => popular.has(tag.tag_name.toLowerCase()))
         .map((tag) => ({ id: tag.id, value: tag.tag_name }))
         .sort((left, right) => left.value.localeCompare(right.value));
     } catch (error) {
