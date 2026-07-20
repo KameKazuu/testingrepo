@@ -2,7 +2,6 @@
 /* Copyright © 2026 Inkdex */
 
 import type {
-  AdvancedSearchForm,
   PagedResults,
   Request,
   SearchQuery,
@@ -10,6 +9,11 @@ import type {
   SortingOption,
 } from "@paperback/types";
 import { CloudflareError, URL } from "@paperback/types";
+import {
+  SearchFilterForm,
+  type SearchFilter,
+  type SearchFilterValue,
+} from "@paperback/types/lib/compat/0.8";
 
 import {
   apiHeaders,
@@ -31,43 +35,201 @@ import {
 import {
   API_URL,
   FORMAT_OPTIONS,
+  LANGUAGE_OPTIONS,
   PAGE_SIZE,
+  PUBLICATION_STATUS_OPTIONS,
   RANGE_OPTIONS,
   SORTING_OPTIONS,
+  SOURCE_TYPE_OPTIONS,
   type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
 import { buildImageUrl, mapItemContentRating, titleCase } from "../shared/utils";
-import { KaganeAdvancedSearchForm, type FilterItem, type KaganeSearchMetadata } from "./forms";
-import { getVisibleSources, parseTagInput } from "./parsers";
+import {
+  getVisibleSources,
+  parseTagInput,
+  readDropdownFilter,
+  readInputFilter,
+  readMultiselectRecord,
+} from "./parsers";
+
+/** The internal, normalized shape a search request is built from. */
+export interface KaganeSearchMetadata {
+  /** Trending window id from the discover chips (today / week / month). */
+  range?: string;
+  formats?: string[];
+  statuses?: string[];
+  languages?: string[];
+  sourceTypes?: string[];
+  sources?: string[];
+  yearFrom?: string;
+  yearTo?: string;
+  genres?: Record<string, "included" | "excluded">;
+  genresMatchAll?: boolean;
+  tags?: Record<string, "included" | "excluded">;
+  tagsMatchAll?: boolean;
+  /** Comma-separated tag names; "-name" excludes ("romance, -gore"). */
+  typedTags?: string;
+}
 
 export class SearchProvider {
-  async getAdvancedSearchForm(
-    query: SearchQuery<KaganeSearchMetadata>,
-  ): Promise<AdvancedSearchForm> {
+  async getSearchFilters(): Promise<SearchFilter[]> {
     const metadata = await getKaganeMetadata();
-    const genreItems: FilterItem[] = Object.entries(metadata.genres)
-      .map(([id, title]) => ({ id, title }))
-      .sort((left, right) => left.title.localeCompare(right.title));
-    const sourceItems: FilterItem[] = getVisibleSources(metadata.sources, getSourceDisplayMode())
-      .map((source) => ({ id: source.source_id, title: source.title }))
-      .sort((left, right) => left.title.localeCompare(right.title));
 
-    // The full tag taxonomy renders as a browsable tri-state list. If it can't
-    // be fetched the form still opens — typed tags keep working. A Cloudflare
-    // challenge must surface so the app can raise the bypass.
-    let tagItems: FilterItem[] = [];
+    // The full tag taxonomy renders as its own tri-state multiselect. If it
+    // can't be fetched, the sheet still opens — typed tags keep working. A
+    // Cloudflare challenge must surface so the app can raise the bypass.
+    let tagOptions: Array<{ id: string; value: string }> = [];
     try {
-      tagItems = (await getKaganeTagEntries())
-        .map((tag) => ({ id: tag.id, title: tag.tag_name }))
-        .sort((left, right) => left.title.localeCompare(right.title));
+      tagOptions = (await getKaganeTagEntries())
+        .map((tag) => ({ id: tag.id, value: tag.tag_name }))
+        .sort((left, right) => left.value.localeCompare(right.value));
     } catch (error) {
       if (error instanceof CloudflareError) throw error;
       console.log(`[Kagane] tag taxonomy unavailable for filters: ${String(error)}`);
-      tagItems = [];
+      tagOptions = [];
     }
 
-    return new KaganeAdvancedSearchForm(query, genreItems, tagItems, sourceItems);
+    return [
+      // The Trending discover chips carry this filter to select their sort;
+      // it must be registered or query normalization would strip it.
+      {
+        type: "dropdown",
+        id: "range",
+        title: "Trending Window",
+        options: [
+          { id: "none", value: "None" },
+          ...RANGE_OPTIONS.map((range) => ({ id: range.id, value: range.title })),
+        ],
+        value: "none",
+      },
+      {
+        type: "multiselect",
+        id: "formats",
+        title: "Format",
+        options: FORMAT_OPTIONS.map((format) => ({ id: format, value: format })),
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "multiselect",
+        id: "statuses",
+        title: "Status",
+        options: PUBLICATION_STATUS_OPTIONS,
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "multiselect",
+        id: "languages",
+        title: "Language",
+        options: LANGUAGE_OPTIONS.map((language) => ({
+          id: language.id,
+          value: language.title,
+        })),
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "multiselect",
+        id: "source_types",
+        title: "Source Type",
+        options: SOURCE_TYPE_OPTIONS.map((type) => ({ id: type, value: type })),
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "multiselect",
+        id: "genres",
+        title: "Genres",
+        options: Object.entries(metadata.genres)
+          .sort(([, left], [, right]) => left.localeCompare(right))
+          .map(([id, value]) => ({ id, value })),
+        value: {},
+        allowExclusion: true,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "dropdown",
+        id: "genres_match_all",
+        title: "Genre Matching",
+        options: [
+          { id: "true", value: "Match All Selected Genres" },
+          { id: "false", value: "Match Any Selected Genre" },
+        ],
+        value: "true",
+      },
+      ...(tagOptions.length > 0
+        ? ([
+            {
+              type: "multiselect",
+              id: "tags",
+              title: "Tags",
+              options: tagOptions,
+              value: {},
+              allowExclusion: true,
+              allowEmptySelection: true,
+              maximum: undefined,
+            },
+          ] satisfies SearchFilter[])
+        : []),
+      {
+        type: "input",
+        id: "tags_text",
+        title: "Tags (typed)",
+        placeholder: "romance, -gore",
+        value: "",
+      },
+      {
+        type: "dropdown",
+        id: "tags_match_all",
+        title: "Tag Matching",
+        options: [
+          { id: "true", value: "Match All Selected Tags" },
+          { id: "false", value: "Match Any Selected Tag" },
+        ],
+        value: "true",
+      },
+      {
+        type: "multiselect",
+        id: "sources",
+        title: "Sources",
+        options: getVisibleSources(metadata.sources, getSourceDisplayMode())
+          .sort((left, right) => left.title.localeCompare(right.title))
+          .map((source) => ({ id: source.source_id, value: source.title })),
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "input",
+        id: "year_from",
+        title: "Release Year From",
+        placeholder: "e.g. 2018",
+        value: "",
+      },
+      {
+        type: "input",
+        id: "year_to",
+        title: "Release Year To",
+        placeholder: "e.g. 2024",
+        value: "",
+      },
+    ];
+  }
+
+  getAdvancedSearchForm(query: SearchQuery<SearchFilterValue[]>) {
+    return new SearchFilterForm(query.metadata, this.getSearchFilters());
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {
@@ -75,7 +237,7 @@ export class SearchProvider {
   }
 
   async getSearchResults(
-    query: SearchQuery<KaganeSearchMetadata>,
+    query: SearchQuery<SearchFilterValue[]>,
     metadata?: { page?: number },
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
@@ -122,23 +284,37 @@ export class SearchProvider {
   }
 }
 
-// Queries predating the native form (old discover chips, saved searches) carry
-// 0.8-style filter arrays; translate the ids we ever emitted into the object
-// shape so they keep working.
-function normalizeMetadata(raw: KaganeSearchMetadata | undefined): KaganeSearchMetadata {
+// Translate the 0.8-compat filter array (or an already-normalized object from
+// a saved query) into the internal metadata shape.
+function normalizeMetadata(
+  raw: SearchFilterValue[] | KaganeSearchMetadata | undefined,
+): KaganeSearchMetadata {
   if (Array.isArray(raw)) {
-    const meta: KaganeSearchMetadata = {};
-    for (const entry of raw as Array<{ id?: string; value?: unknown }>) {
-      if (entry.id === "range" && typeof entry.value === "string") {
-        meta.range = entry.value;
-      }
-      if (entry.id === "genres" && entry.value && typeof entry.value === "object") {
-        meta.genres = entry.value as Record<string, "included" | "excluded">;
-      }
-    }
-    return meta;
+    const filters = raw;
+    const range = readDropdownFilter(filters, "range", "none");
+    return {
+      range: range !== "none" ? range : undefined,
+      formats: readMultiselectIncluded(filters, "formats"),
+      statuses: readMultiselectIncluded(filters, "statuses"),
+      languages: readMultiselectIncluded(filters, "languages"),
+      sourceTypes: readMultiselectIncluded(filters, "source_types"),
+      sources: readMultiselectIncluded(filters, "sources"),
+      yearFrom: readInputFilter(filters, "year_from"),
+      yearTo: readInputFilter(filters, "year_to"),
+      genres: readMultiselectRecord(filters, "genres"),
+      genresMatchAll: readDropdownFilter(filters, "genres_match_all", "true") === "true",
+      tags: readMultiselectRecord(filters, "tags"),
+      tagsMatchAll: readDropdownFilter(filters, "tags_match_all", "true") === "true",
+      typedTags: readInputFilter(filters, "tags_text"),
+    };
   }
   return raw && typeof raw === "object" ? raw : {};
+}
+
+function readMultiselectIncluded(filters: SearchFilterValue[], filterId: string): string[] {
+  return Object.entries(readMultiselectRecord(filters, filterId) ?? {})
+    .filter(([, state]) => state === "included")
+    .map(([id]) => id);
 }
 
 function pickTriState(
@@ -208,17 +384,14 @@ export async function buildSearchBody(
   const includedGenres = pickTriState(meta.genres, "included");
   const excludedGenres = [...pickTriState(meta.genres, "excluded"), ...getExcludedGenres()];
   if (includedGenres.length > 0 || excludedGenres.length > 0) {
-    body.genres = buildCompoundFilter(
-      includedGenres,
-      excludedGenres,
-      (meta.genresMatchAll?.[0] ?? "AND") === "AND",
-    );
+    body.genres = buildCompoundFilter(includedGenres, excludedGenres, meta.genresMatchAll ?? true);
   }
 
-  // Tags come from several places: the tri-state list (UUIDs, both states),
-  // the typed input's "-tag" entries, the preset hide-categories (already
-  // UUIDs), and the custom hidden tag names. Names are resolved through the
-  // taxonomy (case-insensitive) — fetched lazily only when names are present.
+  // Tags come from several places: the tri-state multiselect (UUIDs, both
+  // states), the typed input's "-tag" entries, the preset hide-categories
+  // (already UUIDs), and the custom hidden tag names. Names are resolved
+  // through the taxonomy (case-insensitive) — fetched lazily only when names
+  // are present.
   const typedTags = parseTagInput(meta.typedTags ?? "");
   const customHiddenNames = getCustomHiddenTags();
   const includedTags = pickTriState(meta.tags, "included");
@@ -236,11 +409,7 @@ export async function buildSearchBody(
     );
   }
   if (includedTags.length > 0 || excludedTags.length > 0) {
-    body.tags = buildCompoundFilter(
-      includedTags,
-      excludedTags,
-      (meta.tagsMatchAll?.[0] ?? "AND") === "AND",
-    );
+    body.tags = buildCompoundFilter(includedTags, excludedTags, meta.tagsMatchAll ?? true);
   }
 
   return body;
