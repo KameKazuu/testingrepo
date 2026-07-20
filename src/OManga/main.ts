@@ -63,7 +63,8 @@ import type OMangaConfig from "./pbconfig";
 const FEATURED_HERO_LIMIT = 8;
 
 // How long one fetched front page keeps feeding the homepage-driven sections.
-const HOMEPAGE_CACHE_TTL = 5 * 60 * 1000;
+// Short enough that a pull-to-refresh tracks the site's rotating rankings.
+const HOMEPAGE_CACHE_TTL = 2 * 60 * 1000;
 
 // A title's details and chapter tabs are requested back to back off the same
 // page; a short cache makes that one fetch. The bound keeps memory in check.

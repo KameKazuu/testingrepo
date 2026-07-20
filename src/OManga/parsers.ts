@@ -283,10 +283,23 @@ export function parseHomeLinkSection(
   const blob = extractBalancedJson(payload, arrayStart + '"children":'.length);
   if (!blob) return [];
 
-  const cards = parseLinkCards(blob);
-  for (const ref of blob.matchAll(/"\$L([0-9a-f]+)"/g)) {
-    const row = resolveLazyRow(payload, ref[1]);
-    if (row) cards.push(...parseLinkCards(row));
+  // Walk inline cards and deferred placeholders in document order — these
+  // rows are rankings, so a resolved placeholder must keep its position, not
+  // get appended after the inline cards.
+  const cards: HomeLinkCard[] = [];
+  const tokens = [...blob.matchAll(/"href":"\/manga\/([a-z0-9-]+)"|"\$L([0-9a-f]+)"/g)];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token[1]) {
+      const start = token.index ?? 0;
+      const end = i + 1 < tokens.length ? (tokens[i + 1].index ?? blob.length) : blob.length;
+      cards.push(...parseLinkCards(blob.slice(start, end)));
+    } else {
+      // A placeholder row is either a full card or just a card body (whose
+      // fragment has no link and contributes nothing).
+      const row = resolveLazyRow(payload, token[2]);
+      if (row) cards.push(...parseLinkCards(row));
+    }
   }
 
   const seen = new Set<string>();

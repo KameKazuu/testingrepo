@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-07-20T15:59:39.020Z",
+  "buildTime": "2026-07-20T16:08:07.569Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -81,7 +81,7 @@
     {
       "name": "oManga",
       "description": "Extension that pulls content from omanga.to.",
-      "version": "1.0.0-alpha.13",
+      "version": "1.0.0-alpha.14",
       "icon": "omanga.png",
       "language": "en",
       "contentRating": "ADULT",
