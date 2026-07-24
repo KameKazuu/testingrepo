@@ -82,6 +82,15 @@ export class MainInterceptor extends PaperbackInterceptor {
       if (match && match[1] !== "mystery") setIgneous(match[1]);
     }
 
+    // A redirect that reaches here is the ExHentai access-denied bounce that the
+    // redirect handler cancelled (logged-out or ineligible account). Surface a
+    // clear message instead of an empty page.
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error(
+        "Access denied by ExHentai. Please check your account permissions or re-login.",
+      );
+    }
+
     const cfMitigated = response.headers?.["cf-mitigated"];
     if (cfMitigated === "challenge") {
       throw new CloudflareError({
