@@ -20,7 +20,7 @@ export class KaganeExtension implements Omit<Extension, keyof MangaProviding> {
     storage: "stateManager",
   });
   globalRateLimiter = new BasicRateLimiter("kagane-rate-limiter", {
-    numberOfRequests: 8,
+    numberOfRequests: 3,
     bufferInterval: 1,
     ignoreImages: true,
   });

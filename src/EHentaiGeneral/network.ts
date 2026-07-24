@@ -110,7 +110,9 @@ export class MainInterceptor extends PaperbackInterceptor {
         return ehData;
       }
       throw new Error(
-        "Access denied by ExHentai. Please check your account permissions or re-login.",
+        isLoggedIn()
+          ? "ExHentai denied access — your account may not be eligible yet (accounts need to be about a week old) or your session expired. Try logging in again."
+          : "Please log in to use ExHentai.",
       );
     }
 
