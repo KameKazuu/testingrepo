@@ -11,7 +11,7 @@ import {
   WebViewRow,
 } from "@paperback/types";
 
-import { mainRateLimiter } from "../network";
+import { loginWithCredentials, mainRateLimiter } from "../network";
 import {
   getAccountID,
   getDefaultArtist,
@@ -26,7 +26,6 @@ import {
   getDefLangStatus,
   getDomainPref,
   getIgneous,
-  getPassHash,
   languageFilterAll,
   isLoggedIn,
   setDomainPref,
@@ -60,20 +59,20 @@ export class SettingsForm extends Form {
             onComplete: Application.Selector(this as SettingsForm, "handleLogin"),
             onCancel: Application.Selector(this as SettingsForm, "handleLoginCancel"),
           }),
-          // Manual fallback: paste the cookie values straight from a browser
-          // when the login WebView isn't available.
-          InputRow("member_id_input", {
-            title: "ipb_member_id",
-            value: getAccountID(),
+          // Username/password login: entering the password submits the forum
+          // login, which returns the ipb_member_id + ipb_pass_hash cookies.
+          InputRow("username_input", {
+            title: "Username",
+            value: (Application.getState("eh_username") as string | undefined) ?? "",
             isHidden: isLoggedIn(),
-            onValueChange: Application.Selector(this as SettingsForm, "handleMemberIdChange"),
+            onValueChange: Application.Selector(this as SettingsForm, "handleUsernameChange"),
           }),
-          InputRow("pass_hash_input", {
-            title: "ipb_pass_hash",
-            value: getPassHash(),
+          InputRow("password_input", {
+            title: "Password",
+            value: "",
             isSecureEntry: true,
             isHidden: isLoggedIn(),
-            onValueChange: Application.Selector(this as SettingsForm, "handlePassHashChange"),
+            onValueChange: Application.Selector(this as SettingsForm, "handlePasswordChange"),
           }),
           InputRow("igneous_input", {
             title: "igneous (optional)",
@@ -264,12 +263,21 @@ export class SettingsForm extends Form {
     this.reloadForm();
   }
 
-  async handleMemberIdChange(value: string): Promise<void> {
-    Application.setSecureState(value.trim(), "ipb_member_id");
+  async handleUsernameChange(value: string): Promise<void> {
+    Application.setState(value.trim(), "eh_username");
   }
 
-  async handlePassHashChange(value: string): Promise<void> {
-    Application.setSecureState(value.trim(), "ipb_pass_hash");
+  async handlePasswordChange(value: string): Promise<void> {
+    const username = ((Application.getState("eh_username") as string | undefined) ?? "").trim();
+    const password = value.trim();
+    if (username.length === 0 || password.length === 0) return;
+
+    const ok = await loginWithCredentials(username, password);
+    if (!ok) {
+      throw new Error("Login failed — check your username and password.");
+    }
+    Application.setState(undefined, "eh_username");
+    this.reloadForm();
   }
 
   async handleIgneousChange(value: string): Promise<void> {

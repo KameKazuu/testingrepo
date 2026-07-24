@@ -132,6 +132,34 @@ export class ImageURLInterceptor extends PaperbackInterceptor {
   }
 }
 
+// Log in through the forum, which sets ipb_member_id + ipb_pass_hash in its
+// Set-Cookie response. Returns true when both were captured into secure state.
+export async function loginWithCredentials(username: string, password: string): Promise<boolean> {
+  const body =
+    `referer=${encodeURIComponent("https://forums.e-hentai.org/")}&b=d&bt=&` +
+    `UserName=${encodeURIComponent(username)}&PassWord=${encodeURIComponent(password)}&CookieDate=1`;
+
+  const [response] = await Application.scheduleRequest({
+    url: "https://forums.e-hentai.org/index.php?act=Login&CODE=01",
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": await Application.getDefaultUserAgent(),
+    },
+    body,
+  });
+
+  const setCookie = response.headers?.["set-cookie"] ?? "";
+  const memberId = setCookie.match(/ipb_member_id=([^;,\s]+)/)?.[1];
+  const passHash = setCookie.match(/ipb_pass_hash=([^;,\s]+)/)?.[1];
+  if (memberId && passHash) {
+    Application.setSecureState(memberId, "ipb_member_id");
+    Application.setSecureState(passHash, "ipb_pass_hash");
+    return true;
+  }
+  return false;
+}
+
 export class Network {
   buildFilter(query: string, filter: { id: string; value: string[] }) {
     filter.value.forEach((filterValue) => {
