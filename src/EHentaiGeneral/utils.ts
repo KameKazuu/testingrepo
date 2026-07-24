@@ -275,3 +275,17 @@ export function setIgneous(value: string) {
 export function isLoggedIn() {
   return getPassHash().length > 0 && getAccountID().length > 0;
 }
+
+// The two hosts share one source; a setting picks between them. ExHentai only
+// serves logged-in users, so it falls back to E-Hentai when not logged in.
+export function getDomainPref(): string {
+  return (Application.getState("domain") as string | undefined) ?? "e";
+}
+
+export function setDomainPref(value: string) {
+  Application.setState(value, "domain");
+}
+
+export function getSelectedDomain(): string {
+  return getDomainPref() === "ex" && isLoggedIn() ? "https://exhentai.org" : "https://e-hentai.org";
+}

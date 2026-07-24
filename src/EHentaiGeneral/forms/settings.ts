@@ -24,8 +24,10 @@ import {
   getDefaultOther,
   getDefaultParody,
   getDefLangStatus,
+  getDomainPref,
   languageFilterAll,
   isLoggedIn,
+  setDomainPref,
   typeFilter,
 } from "../utils";
 
@@ -65,6 +67,27 @@ export class SettingsForm extends Form {
             title: "Logout",
             isHidden: !isLoggedIn(),
             onSelect: Application.Selector(this as SettingsForm, "handleLogoutButton"),
+          }),
+        ],
+      ),
+      Section(
+        {
+          id: "domain",
+          header: "Source",
+          footer: "ExHentai requires a logged-in, eligible account.",
+        },
+        [
+          SelectRow("domain", {
+            title: "Domain",
+            value: [getDomainPref()],
+            layout: "list",
+            items: [
+              { id: "e", title: "E-Hentai" },
+              { id: "ex", title: "ExHentai" },
+            ],
+            minItemCount: 1,
+            maxItemCount: 1,
+            onValueChange: Application.Selector(this as SettingsForm, "handleDomainChange"),
           }),
         ],
       ),
@@ -210,6 +233,12 @@ export class SettingsForm extends Form {
 
   async handleLoginCancel(): Promise<void> {
     console.log("LoginCancel");
+    this.reloadForm();
+  }
+
+  async handleDomainChange(value: string[]): Promise<void> {
+    setDomainPref(value[0] ?? "e");
+    Application.invalidateDiscoverSections();
     this.reloadForm();
   }
 

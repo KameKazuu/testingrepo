@@ -56,14 +56,15 @@ export class MainInterceptor extends PaperbackInterceptor {
       "user-agent": await Application.getDefaultUserAgent(),
       ...request.headers,
     };
-    // Attach a stored igneous only when it is real — omitting it lets ExHentai
-    // mint a fresh valid one instead of looping on a stale/refused value.
-    const igneous = getIgneous();
+    // Set our cookies last so a stale "igneous=mystery" inherited on the
+    // request can't ride along. igneous is our stored real value, or empty
+    // when we have none — an empty one forces ExHentai to mint a fresh valid
+    // igneous instead of echoing the refused "mystery" forever.
     request.cookies = {
+      ...request.cookies,
       ipb_member_id: getAccountID(),
       ipb_pass_hash: getPassHash(),
-      ...(igneous ? { igneous } : {}),
-      ...request.cookies,
+      igneous: getIgneous(),
     };
     return request;
   }

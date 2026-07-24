@@ -27,6 +27,7 @@ import { Parser } from "./parser";
 import {
   getAccountID,
   getDefaultMetadata,
+  getSelectedDomain,
   isLoggedIn,
   type Metadata,
   type SearchMetadata,
@@ -36,12 +37,19 @@ const parser = new Parser();
 const network = new Network();
 export let BASE_URL = "";
 
+// One source serves both hosts; refresh the active host from the setting before
+// each operation so a domain change (or a login that unlocks ExHentai) applies.
+export function syncBaseUrl() {
+  BASE_URL = getSelectedDomain();
+}
+
 export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfig> {
   async getSettingsForm(): Promise<Form> {
     return new SettingsForm();
   }
 
   async getDiscoverSections(): Promise<DiscoverSection[]> {
+    syncBaseUrl();
     const discover_section: DiscoverSection[] = [];
     discover_section.push({
       id: "Popular",
@@ -69,6 +77,7 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
   async getDiscoverSectionItems(
     section: DiscoverSection,
   ): Promise<PagedResults<DiscoverSectionItem>> {
+    syncBaseUrl();
     switch (section.id) {
       case "Popular": {
         return parser.parseFeatured();
@@ -85,6 +94,7 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
   }
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
+    syncBaseUrl();
     return parser.parseMangaDetail(mangaId);
   }
 
@@ -110,6 +120,7 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
     query: SearchQuery<SearchMetadata>,
     metadata: Metadata,
   ): Promise<PagedResults<SearchResultItem>> {
+    syncBaseUrl();
     if (query.metadata === undefined) {
       query.metadata = getDefaultMetadata();
     }
@@ -117,10 +128,12 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
   }
 
   getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
+    syncBaseUrl();
     return parser.parseChapters(sourceManga);
   }
 
   getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
+    syncBaseUrl();
     return parser.scrapeAllChapterPages(chapter);
   }
 
@@ -130,11 +143,12 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
     storage: "stateManager",
   });
 
-  protected constructor(domain: string) {
-    BASE_URL = domain;
+  protected constructor() {
+    syncBaseUrl();
   }
 
   async getManagedLibraryCollections(): Promise<ManagedCollection[]> {
+    syncBaseUrl();
     if (!isLoggedIn()) {
       throw new Error("You need to be logged in");
     }
@@ -155,6 +169,7 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
   }
 
   getSourceMangaInManagedCollection(managedCollection: ManagedCollection): Promise<SourceManga[]> {
+    syncBaseUrl();
     if (!isLoggedIn()) {
       throw new Error("You need to be logged in");
     }

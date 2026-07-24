@@ -15,25 +15,13 @@
     {
       "id": "EHentai",
       "name": "EHentai",
-      "description": "Extension that pulls content from e-hentai.org.",
+      "description": "Extension that pulls content from e-hentai.org and exhentai.org.",
       "website": "https://e-hentai.org",
       "author": "PoppingMango",
       "contentRating": "ADULT",
       "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/EHentai/static/icon.png",
       "version": "1.1.1",
       "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/EHentai",
-      "repository": "https://github.com/PoppingMango/PoppingMango-Source"
-    },
-    {
-      "id": "ExHentai",
-      "name": "ExHentai",
-      "description": "Extension that pulls content from exhentai.org.",
-      "website": "https://exhentai.org",
-      "author": "PoppingMango",
-      "contentRating": "ADULT",
-      "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/ExHentai/static/icon.png",
-      "version": "1.1.1",
-      "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/ExHentai",
       "repository": "https://github.com/PoppingMango/PoppingMango-Source"
     },
     {
