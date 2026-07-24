@@ -59,8 +59,9 @@ export class SettingsForm extends Form {
             onComplete: Application.Selector(this as SettingsForm, "handleLogin"),
             onCancel: Application.Selector(this as SettingsForm, "handleLoginCancel"),
           }),
-          // Username/password login: entering the password submits the forum
-          // login, which returns the ipb_member_id + ipb_pass_hash cookies.
+          // Username/password login. The fields only store what is typed; the
+          // "Log In" button below runs the actual forum login, which returns
+          // the ipb_member_id + ipb_pass_hash cookies.
           InputRow("username_input", {
             title: "Username",
             value: (Application.getState("eh_username") as string | undefined) ?? "",
@@ -69,10 +70,21 @@ export class SettingsForm extends Form {
           }),
           InputRow("password_input", {
             title: "Password",
-            value: "",
+            value: (Application.getState("eh_password") as string | undefined) ?? "",
             isSecureEntry: true,
             isHidden: isLoggedIn(),
             onValueChange: Application.Selector(this as SettingsForm, "handlePasswordChange"),
+          }),
+          ButtonRow("login_button", {
+            title: "Log In",
+            isHidden: isLoggedIn(),
+            onSelect: Application.Selector(this as SettingsForm, "handleLoginButton"),
+          }),
+          LabelRow("login_error", {
+            title: "Login failed",
+            subtitle: "Check your username and password, then try again.",
+            isHidden:
+              isLoggedIn() || !(Application.getState("eh_login_error") as boolean | undefined),
           }),
           InputRow("igneous_input", {
             title: "igneous (optional)",
@@ -268,15 +280,26 @@ export class SettingsForm extends Form {
   }
 
   async handlePasswordChange(value: string): Promise<void> {
+    Application.setState(value, "eh_password");
+  }
+
+  async handleLoginButton(): Promise<void> {
     const username = ((Application.getState("eh_username") as string | undefined) ?? "").trim();
-    const password = value.trim();
-    if (username.length === 0 || password.length === 0) return;
+    const password = (Application.getState("eh_password") as string | undefined) ?? "";
+    if (username.length === 0 || password.length === 0) {
+      Application.setState(true, "eh_login_error");
+      this.reloadForm();
+      return;
+    }
 
     const ok = await loginWithCredentials(username, password);
-    if (!ok) {
-      throw new Error("Login failed — check your username and password.");
+    Application.setState(undefined, "eh_password");
+    if (ok) {
+      Application.setState(undefined, "eh_username");
+      Application.setState(undefined, "eh_login_error");
+    } else {
+      Application.setState(true, "eh_login_error");
     }
-    Application.setState(undefined, "eh_username");
     this.reloadForm();
   }
 
@@ -298,6 +321,9 @@ export class SettingsForm extends Form {
     Application.setSecureState(undefined, "ipb_pass_hash");
     Application.setSecureState(undefined, "ipb_member_id");
     Application.setSecureState(undefined, "igneous");
+    Application.setState(undefined, "eh_username");
+    Application.setState(undefined, "eh_password");
+    Application.setState(undefined, "eh_login_error");
     this.reloadForm();
   }
 
