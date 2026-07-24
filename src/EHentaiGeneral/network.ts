@@ -14,6 +14,8 @@ import {
   getAccountID,
   getIgneous,
   getPassHash,
+  getSpoofIP,
+  getWarpIP,
   setIgneous,
   type Metadata,
   type SearchMetadata,
@@ -56,6 +58,12 @@ export class MainInterceptor extends PaperbackInterceptor {
       "user-agent": await Application.getDefaultUserAgent(),
       ...request.headers,
     };
+    // ExHentai gates igneous minting by region. Presenting a WARP-range address
+    // makes the request look US-originated so the server issues a real igneous
+    // instead of the "mystery" placeholder.
+    if (request.url.includes("exhentai.org") && getSpoofIP()) {
+      request.headers["cf-connecting-ip"] = getWarpIP();
+    }
     // Set our cookies last so a stale "igneous=mystery" inherited on the
     // request can't ride along. igneous is our stored real value, or empty
     // when we have none — an empty one forces ExHentai to mint a fresh valid
@@ -158,6 +166,21 @@ export async function loginWithCredentials(username: string, password: string): 
     return true;
   }
   return false;
+}
+
+// Drop any stored igneous and hit ExHentai once so it mints a fresh one. The
+// request interceptor attaches the login cookies and region header; the
+// response interceptor stores a real igneous when the server returns one.
+// Returns true when a usable (non-"mystery") igneous came back.
+export async function refreshIgneous(): Promise<boolean> {
+  Application.setSecureState(undefined, "igneous");
+  const [response] = await Application.scheduleRequest({
+    url: "https://exhentai.org/",
+    method: "GET",
+  });
+  const setCookie = response.headers?.["set-cookie"] ?? "";
+  const match = setCookie.match(/igneous=([^;,\s]+)/);
+  return Boolean(match && match[1] !== "mystery");
 }
 
 export class Network {

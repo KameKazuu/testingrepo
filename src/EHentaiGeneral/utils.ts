@@ -272,6 +272,35 @@ export function setIgneous(value: string) {
   Application.setSecureState(value, "igneous");
 }
 
+// ExHentai only mints a real igneous for requests it treats as coming from an
+// allowed region; from elsewhere it returns the "mystery" placeholder even for
+// a valid, logged-in account. Presenting a stable WARP-range address in the
+// CF-Connecting-IP header lets the server issue a usable igneous.
+export function getSpoofIP(): boolean {
+  return (Application.getState("spoof_ip") as boolean | undefined) ?? true;
+}
+
+export function setSpoofIP(value: boolean) {
+  Application.setState(value, "spoof_ip");
+}
+
+export function getWarpIP(): string {
+  let ip = Application.getState("warp_ip") as string | undefined;
+  if (!ip) {
+    ip = generateWarpIP();
+    Application.setState(ip, "warp_ip");
+  }
+  return ip;
+}
+
+function generateWarpIP(): string {
+  const hex = "0123456789abcdef";
+  const h = () => hex.charAt(Math.floor(Math.random() * 16));
+  const block = "8ace".charAt(Math.floor(Math.random() * 4));
+  const digit = Math.floor(Math.random() * 10);
+  return `2a09:bac1:76${block}0:${digit}${h()}${h()}${h()}:0000:0000:0${h()}${h()}${h()}:0${h()}${h()}${h()}`;
+}
+
 export function isLoggedIn() {
   return getPassHash().length > 0 && getAccountID().length > 0;
 }

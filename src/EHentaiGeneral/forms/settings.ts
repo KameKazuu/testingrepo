@@ -8,10 +8,11 @@ import {
   Section,
   SelectRow,
   StepperRow,
+  ToggleRow,
   WebViewRow,
 } from "@paperback/types";
 
-import { loginWithCredentials, mainRateLimiter } from "../network";
+import { loginWithCredentials, mainRateLimiter, refreshIgneous } from "../network";
 import {
   getAccountID,
   getDefaultArtist,
@@ -26,9 +27,11 @@ import {
   getDefLangStatus,
   getDomainPref,
   getIgneous,
+  getSpoofIP,
   languageFilterAll,
   isLoggedIn,
   setDomainPref,
+  setSpoofIP,
   typeFilter,
 } from "../utils";
 
@@ -107,7 +110,9 @@ export class SettingsForm extends Form {
         {
           id: "domain",
           header: "Source",
-          footer: "ExHentai requires a logged-in, eligible account.",
+          footer:
+            "ExHentai needs a logged-in account. If it stays blank, keep " +
+            '"Improve ExHentai Access" on and tap "Refresh ExHentai Access".',
         },
         [
           SelectRow("domain", {
@@ -121,6 +126,15 @@ export class SettingsForm extends Form {
             minItemCount: 1,
             maxItemCount: 1,
             onValueChange: Application.Selector(this as SettingsForm, "handleDomainChange"),
+          }),
+          ToggleRow("spoof_ip", {
+            title: "Improve ExHentai Access",
+            value: getSpoofIP(),
+            onValueChange: Application.Selector(this as SettingsForm, "handleSpoofIPChange"),
+          }),
+          ButtonRow("refresh_igneous", {
+            title: "Refresh ExHentai Access",
+            onSelect: Application.Selector(this as SettingsForm, "handleRefreshIgneous"),
           }),
         ],
       ),
@@ -271,6 +285,16 @@ export class SettingsForm extends Form {
 
   async handleDomainChange(value: string[]): Promise<void> {
     setDomainPref(value[0] ?? "e");
+    Application.invalidateDiscoverSections();
+    this.reloadForm();
+  }
+
+  async handleSpoofIPChange(value: boolean): Promise<void> {
+    setSpoofIP(value);
+  }
+
+  async handleRefreshIgneous(): Promise<void> {
+    await refreshIgneous();
     Application.invalidateDiscoverSections();
     this.reloadForm();
   }
