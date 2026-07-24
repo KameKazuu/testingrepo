@@ -8,9 +8,11 @@ import {
   Section,
   SelectRow,
   StepperRow,
+  ToggleRow,
   WebViewRow,
 } from "@paperback/types";
 
+import { BASE_URL } from "../main";
 import { mainRateLimiter } from "../network";
 import {
   getAccountID,
@@ -24,8 +26,11 @@ import {
   getDefaultOther,
   getDefaultParody,
   getDefLangStatus,
+  getFallbackToEH,
   languageFilterAll,
   isLoggedIn,
+  setExhentaiDenied,
+  setFallbackToEH,
   typeFilter,
 } from "../utils";
 
@@ -65,6 +70,13 @@ export class SettingsForm extends Form {
             title: "Logout",
             isHidden: !isLoggedIn(),
             onSelect: Application.Selector(this as SettingsForm, "handleLogoutButton"),
+          }),
+          ToggleRow("fallback_eh", {
+            title: "Fall back to E-Hentai",
+            subtitle: "Show e-hentai.org content when ExHentai is unavailable",
+            value: getFallbackToEH(),
+            isHidden: !BASE_URL.includes("exhentai"),
+            onValueChange: Application.Selector(this as SettingsForm, "handleFallbackChange"),
           }),
         ],
       ),
@@ -205,6 +217,7 @@ export class SettingsForm extends Form {
         Application.setSecureState(cookie.value, "igneous");
       }
     });
+    setExhentaiDenied(false);
     this.reloadForm();
   }
 
@@ -224,6 +237,14 @@ export class SettingsForm extends Form {
     Application.setSecureState(undefined, "ipb_pass_hash");
     Application.setSecureState(undefined, "ipb_member_id");
     Application.setSecureState(undefined, "igneous");
+    setExhentaiDenied(false);
+    this.reloadForm();
+  }
+
+  async handleFallbackChange(value: boolean): Promise<void> {
+    setFallbackToEH(value);
+    setExhentaiDenied(false);
+    Application.invalidateDiscoverSections();
     this.reloadForm();
   }
 

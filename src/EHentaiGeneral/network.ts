@@ -12,8 +12,12 @@ import * as cheerio from "cheerio";
 import { BASE_URL } from "./main";
 import {
   getAccountID,
+  getExhentaiDenied,
+  getFallbackToEH,
   getIgneous,
   getPassHash,
+  isLoggedIn,
+  setExhentaiDenied,
   setIgneous,
   type Metadata,
   type SearchMetadata,
@@ -65,6 +69,16 @@ export class MainInterceptor extends PaperbackInterceptor {
       ...(igneous ? { igneous } : {}),
       ...request.cookies,
     };
+    // Serve the same gallery from E-Hentai when ExHentai can't be used — either
+    // logged out, or already denied this session. Same IDs and paths, so only
+    // the host changes.
+    if (
+      getFallbackToEH() &&
+      request.url.includes("exhentai.org") &&
+      (!isLoggedIn() || getExhentaiDenied())
+    ) {
+      request.url = request.url.replace("exhentai.org", "e-hentai.org");
+    }
     return request;
   }
 
@@ -83,9 +97,18 @@ export class MainInterceptor extends PaperbackInterceptor {
     }
 
     // A redirect that reaches here is the ExHentai access-denied bounce that the
-    // redirect handler cancelled (logged-out or ineligible account). Surface a
-    // clear message instead of an empty page.
+    // redirect handler cancelled (logged-out or ineligible account). Remember it
+    // so later requests skip the dead host, then either serve the same page from
+    // E-Hentai or surface a clear message.
     if (response.status >= 300 && response.status < 400) {
+      setExhentaiDenied(true);
+      if (getFallbackToEH() && request.url.includes("exhentai.org")) {
+        const [, ehData] = await Application.scheduleRequest({
+          url: request.url.replace("exhentai.org", "e-hentai.org"),
+          method: request.method ?? "GET",
+        });
+        return ehData;
+      }
       throw new Error(
         "Access denied by ExHentai. Please check your account permissions or re-login.",
       );

@@ -275,3 +275,24 @@ export function setIgneous(value: string) {
 export function isLoggedIn() {
   return getPassHash().length > 0 && getAccountID().length > 0;
 }
+
+// When ExHentai can't be reached (logged out or an ineligible account), fall
+// back to E-Hentai, which serves the same galleries under identical IDs and
+// paths. On by default so the source degrades gracefully instead of failing.
+export function getFallbackToEH(): boolean {
+  return (Application.getState("fallback_eh") as boolean | undefined) ?? true;
+}
+
+export function setFallbackToEH(value: boolean) {
+  Application.setState(value, "fallback_eh");
+}
+
+// Set once ExHentai answers with its access-denied bounce, so later requests
+// go straight to E-Hentai instead of retrying the dead host. Cleared on login.
+export function getExhentaiDenied(): boolean {
+  return (Application.getState("exhentai_denied") as boolean | undefined) ?? false;
+}
+
+export function setExhentaiDenied(value: boolean) {
+  Application.setState(value, "exhentai_denied");
+}
