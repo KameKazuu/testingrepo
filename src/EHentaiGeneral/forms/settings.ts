@@ -8,11 +8,10 @@ import {
   Section,
   SelectRow,
   StepperRow,
-  ToggleRow,
   WebViewRow,
 } from "@paperback/types";
 
-import { loginWithCredentials, mainRateLimiter, refreshIgneous } from "../network";
+import { mainRateLimiter } from "../network";
 import {
   getAccountID,
   getDefaultArtist,
@@ -25,13 +24,8 @@ import {
   getDefaultOther,
   getDefaultParody,
   getDefLangStatus,
-  getDomainPref,
-  getIgneous,
-  getSpoofIP,
   languageFilterAll,
   isLoggedIn,
-  setDomainPref,
-  setSpoofIP,
   typeFilter,
 } from "../utils";
 
@@ -62,38 +56,6 @@ export class SettingsForm extends Form {
             onComplete: Application.Selector(this as SettingsForm, "handleLogin"),
             onCancel: Application.Selector(this as SettingsForm, "handleLoginCancel"),
           }),
-          // Username/password login. The fields only store what is typed; the
-          // "Log In" button below runs the actual forum login, which returns
-          // the ipb_member_id + ipb_pass_hash cookies.
-          InputRow("username_input", {
-            title: "Username",
-            value: (Application.getState("eh_username") as string | undefined) ?? "",
-            isHidden: isLoggedIn(),
-            onValueChange: Application.Selector(this as SettingsForm, "handleUsernameChange"),
-          }),
-          InputRow("password_input", {
-            title: "Password",
-            value: (Application.getState("eh_password") as string | undefined) ?? "",
-            isSecureEntry: true,
-            isHidden: isLoggedIn(),
-            onValueChange: Application.Selector(this as SettingsForm, "handlePasswordChange"),
-          }),
-          ButtonRow("login_button", {
-            title: "Log In",
-            isHidden: isLoggedIn(),
-            onSelect: Application.Selector(this as SettingsForm, "handleLoginButton"),
-          }),
-          LabelRow("login_error", {
-            title: "Login failed",
-            subtitle: "Check your username and password, then try again.",
-            isHidden:
-              isLoggedIn() || !(Application.getState("eh_login_error") as boolean | undefined),
-          }),
-          InputRow("igneous_input", {
-            title: "igneous (optional)",
-            value: getIgneous(),
-            onValueChange: Application.Selector(this as SettingsForm, "handleIgneousChange"),
-          }),
           LabelRow("logged", {
             title: "Logged in as",
             subtitle: getAccountID(),
@@ -103,44 +65,6 @@ export class SettingsForm extends Form {
             title: "Logout",
             isHidden: !isLoggedIn(),
             onSelect: Application.Selector(this as SettingsForm, "handleLogoutButton"),
-          }),
-        ],
-      ),
-      Section(
-        {
-          id: "domain",
-          header: "Source",
-          footer:
-            "ExHentai needs a logged-in account. From some regions it only " +
-            'works over a US connection. "Improve ExHentai Access" is an ' +
-            "experimental workaround that Cloudflare may reject.",
-        },
-        [
-          SelectRow("domain", {
-            title: "Domain",
-            value: [getDomainPref()],
-            layout: "list",
-            items: [
-              { id: "e", title: "E-Hentai" },
-              { id: "ex", title: "ExHentai" },
-            ],
-            minItemCount: 1,
-            maxItemCount: 1,
-            onValueChange: Application.Selector(this as SettingsForm, "handleDomainChange"),
-          }),
-          ToggleRow("spoof_ip", {
-            title: "Improve ExHentai Access",
-            value: getSpoofIP(),
-            onValueChange: Application.Selector(this as SettingsForm, "handleSpoofIPChange"),
-          }),
-          ButtonRow("refresh_igneous", {
-            title: "Refresh ExHentai Access",
-            onSelect: Application.Selector(this as SettingsForm, "handleRefreshIgneous"),
-          }),
-          LabelRow("igneous_status", {
-            title: "ExHentai Access",
-            subtitle: (Application.getState("eh_igneous_status") as string | undefined) ?? "",
-            isHidden: !(Application.getState("eh_igneous_status") as string | undefined),
           }),
         ],
       ),
@@ -289,66 +213,6 @@ export class SettingsForm extends Form {
     this.reloadForm();
   }
 
-  async handleDomainChange(value: string[]): Promise<void> {
-    setDomainPref(value[0] ?? "e");
-    Application.invalidateDiscoverSections();
-    this.reloadForm();
-  }
-
-  async handleSpoofIPChange(value: boolean): Promise<void> {
-    setSpoofIP(value);
-  }
-
-  async handleRefreshIgneous(): Promise<void> {
-    let message: string;
-    try {
-      const ok = await refreshIgneous();
-      message = ok
-        ? "Access refreshed — open the source to browse ExHentai."
-        : "Still blocked — the server did not issue a valid token.";
-    } catch {
-      message = "Refresh failed — check your connection and try again.";
-    }
-    Application.setState(message, "eh_igneous_status");
-    Application.invalidateDiscoverSections();
-    this.reloadForm();
-  }
-
-  async handleUsernameChange(value: string): Promise<void> {
-    Application.setState(value.trim(), "eh_username");
-  }
-
-  async handlePasswordChange(value: string): Promise<void> {
-    Application.setState(value, "eh_password");
-  }
-
-  async handleLoginButton(): Promise<void> {
-    const username = ((Application.getState("eh_username") as string | undefined) ?? "").trim();
-    const password = (Application.getState("eh_password") as string | undefined) ?? "";
-    if (username.length === 0 || password.length === 0) {
-      Application.setState(true, "eh_login_error");
-      this.reloadForm();
-      return;
-    }
-
-    const ok = await loginWithCredentials(username, password);
-    Application.setState(undefined, "eh_password");
-    if (ok) {
-      Application.setState(undefined, "eh_username");
-      Application.setState(undefined, "eh_login_error");
-    } else {
-      Application.setState(true, "eh_login_error");
-    }
-    this.reloadForm();
-  }
-
-  async handleIgneousChange(value: string): Promise<void> {
-    const igneous = value.trim();
-    if (igneous.length > 0 && igneous !== "mystery") {
-      Application.setSecureState(igneous, "igneous");
-    }
-  }
-
   async handleLogoutButton(): Promise<void> {
     throw new FormConfirmationError(
       Application.Selector(this as SettingsForm, "handleLogoutConfirm"),
@@ -360,10 +224,6 @@ export class SettingsForm extends Form {
     Application.setSecureState(undefined, "ipb_pass_hash");
     Application.setSecureState(undefined, "ipb_member_id");
     Application.setSecureState(undefined, "igneous");
-    Application.setState(undefined, "eh_username");
-    Application.setState(undefined, "eh_password");
-    Application.setState(undefined, "eh_login_error");
-    Application.setState(undefined, "eh_igneous_status");
     this.reloadForm();
   }
 

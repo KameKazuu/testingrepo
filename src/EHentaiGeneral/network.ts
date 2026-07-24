@@ -14,8 +14,6 @@ import {
   getAccountID,
   getIgneous,
   getPassHash,
-  getSpoofIP,
-  getWarpIP,
   setIgneous,
   type Metadata,
   type SearchMetadata,
@@ -58,21 +56,14 @@ export class MainInterceptor extends PaperbackInterceptor {
       "user-agent": await Application.getDefaultUserAgent(),
       ...request.headers,
     };
-    // ExHentai gates igneous minting by region. Presenting a WARP-range address
-    // makes the request look US-originated so the server issues a real igneous
-    // instead of the "mystery" placeholder.
-    if (request.url.includes("exhentai.org") && getSpoofIP()) {
-      request.headers["cf-connecting-ip"] = getWarpIP();
-    }
-    // Set our cookies last so a stale "igneous=mystery" inherited on the
-    // request can't ride along. igneous is our stored real value, or empty
-    // when we have none — an empty one forces ExHentai to mint a fresh valid
-    // igneous instead of echoing the refused "mystery" forever.
+    // Attach a stored igneous only when it is real — omitting it lets ExHentai
+    // mint a fresh valid one instead of looping on a stale/refused value.
+    const igneous = getIgneous();
     request.cookies = {
-      ...request.cookies,
       ipb_member_id: getAccountID(),
       ipb_pass_hash: getPassHash(),
-      igneous: getIgneous(),
+      ...(igneous ? { igneous } : {}),
+      ...request.cookies,
     };
     return request;
   }
@@ -138,49 +129,6 @@ export class ImageURLInterceptor extends PaperbackInterceptor {
 
     return (await Application.scheduleRequest(request))[1];
   }
-}
-
-// Log in through the forum, which sets ipb_member_id + ipb_pass_hash in its
-// Set-Cookie response. Returns true when both were captured into secure state.
-export async function loginWithCredentials(username: string, password: string): Promise<boolean> {
-  const body =
-    `referer=${encodeURIComponent("https://forums.e-hentai.org/")}&b=d&bt=&` +
-    `UserName=${encodeURIComponent(username)}&PassWord=${encodeURIComponent(password)}&CookieDate=1`;
-
-  const [response] = await Application.scheduleRequest({
-    url: "https://forums.e-hentai.org/index.php?act=Login&CODE=01",
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      "user-agent": await Application.getDefaultUserAgent(),
-    },
-    body,
-  });
-
-  const setCookie = response.headers?.["set-cookie"] ?? "";
-  const memberId = setCookie.match(/ipb_member_id=([^;,\s]+)/)?.[1];
-  const passHash = setCookie.match(/ipb_pass_hash=([^;,\s]+)/)?.[1];
-  if (memberId && passHash) {
-    Application.setSecureState(memberId, "ipb_member_id");
-    Application.setSecureState(passHash, "ipb_pass_hash");
-    return true;
-  }
-  return false;
-}
-
-// Drop any stored igneous and hit ExHentai once so it mints a fresh one. The
-// request interceptor attaches the login cookies and region header; the
-// response interceptor stores a real igneous when the server returns one.
-// Returns true when a usable (non-"mystery") igneous came back.
-export async function refreshIgneous(): Promise<boolean> {
-  Application.setSecureState(undefined, "igneous");
-  const [response] = await Application.scheduleRequest({
-    url: "https://exhentai.org/",
-    method: "GET",
-  });
-  const setCookie = response.headers?.["set-cookie"] ?? "";
-  const match = setCookie.match(/igneous=([^;,\s]+)/);
-  return Boolean(match && match[1] !== "mystery");
 }
 
 export class Network {
