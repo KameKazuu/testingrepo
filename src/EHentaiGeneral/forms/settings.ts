@@ -25,6 +25,8 @@ import {
   getDefaultParody,
   getDefLangStatus,
   getDomainPref,
+  getIgneous,
+  getPassHash,
   languageFilterAll,
   isLoggedIn,
   setDomainPref,
@@ -57,6 +59,26 @@ export class SettingsForm extends Form {
             isHidden: isLoggedIn(),
             onComplete: Application.Selector(this as SettingsForm, "handleLogin"),
             onCancel: Application.Selector(this as SettingsForm, "handleLoginCancel"),
+          }),
+          // Manual fallback: paste the cookie values straight from a browser
+          // when the login WebView isn't available.
+          InputRow("member_id_input", {
+            title: "ipb_member_id",
+            value: getAccountID(),
+            isHidden: isLoggedIn(),
+            onValueChange: Application.Selector(this as SettingsForm, "handleMemberIdChange"),
+          }),
+          InputRow("pass_hash_input", {
+            title: "ipb_pass_hash",
+            value: getPassHash(),
+            isSecureEntry: true,
+            isHidden: isLoggedIn(),
+            onValueChange: Application.Selector(this as SettingsForm, "handlePassHashChange"),
+          }),
+          InputRow("igneous_input", {
+            title: "igneous (optional)",
+            value: getIgneous(),
+            onValueChange: Application.Selector(this as SettingsForm, "handleIgneousChange"),
           }),
           LabelRow("logged", {
             title: "Logged in as",
@@ -240,6 +262,21 @@ export class SettingsForm extends Form {
     setDomainPref(value[0] ?? "e");
     Application.invalidateDiscoverSections();
     this.reloadForm();
+  }
+
+  async handleMemberIdChange(value: string): Promise<void> {
+    Application.setSecureState(value.trim(), "ipb_member_id");
+  }
+
+  async handlePassHashChange(value: string): Promise<void> {
+    Application.setSecureState(value.trim(), "ipb_pass_hash");
+  }
+
+  async handleIgneousChange(value: string): Promise<void> {
+    const igneous = value.trim();
+    if (igneous.length > 0 && igneous !== "mystery") {
+      Application.setSecureState(igneous, "igneous");
+    }
   }
 
   async handleLogoutButton(): Promise<void> {
