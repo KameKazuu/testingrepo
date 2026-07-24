@@ -136,6 +136,11 @@ export class SettingsForm extends Form {
             title: "Refresh ExHentai Access",
             onSelect: Application.Selector(this as SettingsForm, "handleRefreshIgneous"),
           }),
+          LabelRow("igneous_status", {
+            title: "ExHentai Access",
+            subtitle: (Application.getState("eh_igneous_status") as string | undefined) ?? "",
+            isHidden: !(Application.getState("eh_igneous_status") as string | undefined),
+          }),
         ],
       ),
       Section(
@@ -294,7 +299,16 @@ export class SettingsForm extends Form {
   }
 
   async handleRefreshIgneous(): Promise<void> {
-    await refreshIgneous();
+    let message: string;
+    try {
+      const ok = await refreshIgneous();
+      message = ok
+        ? "Access refreshed — open the source to browse ExHentai."
+        : "Still blocked — the server did not issue a valid token.";
+    } catch {
+      message = "Refresh failed — check your connection and try again.";
+    }
+    Application.setState(message, "eh_igneous_status");
     Application.invalidateDiscoverSections();
     this.reloadForm();
   }
@@ -348,6 +362,7 @@ export class SettingsForm extends Form {
     Application.setState(undefined, "eh_username");
     Application.setState(undefined, "eh_password");
     Application.setState(undefined, "eh_login_error");
+    Application.setState(undefined, "eh_igneous_status");
     this.reloadForm();
   }
 
