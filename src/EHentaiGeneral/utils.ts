@@ -277,7 +277,7 @@ export function setIgneous(value: string) {
 // a valid, logged-in account. Presenting a stable WARP-range address in the
 // CF-Connecting-IP header lets the server issue a usable igneous.
 export function getSpoofIP(): boolean {
-  return (Application.getState("spoof_ip") as boolean | undefined) ?? true;
+  return (Application.getState("spoof_ip") as boolean | undefined) ?? false;
 }
 
 export function setSpoofIP(value: boolean) {

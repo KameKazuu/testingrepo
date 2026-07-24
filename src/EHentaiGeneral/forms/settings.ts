@@ -111,8 +111,9 @@ export class SettingsForm extends Form {
           id: "domain",
           header: "Source",
           footer:
-            "ExHentai needs a logged-in account. If it stays blank, keep " +
-            '"Improve ExHentai Access" on and tap "Refresh ExHentai Access".',
+            "ExHentai needs a logged-in account. From some regions it only " +
+            'works over a US connection. "Improve ExHentai Access" is an ' +
+            "experimental workaround that Cloudflare may reject.",
         },
         [
           SelectRow("domain", {
