@@ -4,6 +4,7 @@ import {
   DiscoverSectionType,
   type Form,
   type Request,
+  type Response,
   type Chapter,
   type ChapterDetails,
   type PagedResults,
@@ -161,10 +162,27 @@ export class EHentaiGeneralExtension implements ExtensionImpl<typeof basePbConfi
     return parser.parseFavoriteList(managedCollection.id);
   }
 
+  // ExHentai bounces logged-out or ineligible visitors to /?poni=no in an
+  // endless 302 loop, which otherwise fails the whole request with "too many
+  // HTTP redirects". Cancel the redirect once it turns into that self-loop so
+  // the request ends cleanly instead of crashing.
+  async handleRedirect(
+    proposedRequest: Request,
+    _redirectedResponse: Response,
+  ): Promise<Request | undefined> {
+    if (/exhentai\.org\/\?poni=/.test(proposedRequest.url)) {
+      return undefined;
+    }
+    return proposedRequest;
+  }
+
   async initialise(): Promise<void> {
     mainRateLimiter.registerInterceptor();
     this.mainInterceptor.registerInterceptor();
     this.imageInterceptor.registerInterceptor();
     this.cookieStorageInterceptor.registerInterceptor();
+    Application.setRedirectHandler(
+      Application.Selector(this as EHentaiGeneralExtension, "handleRedirect"),
+    );
   }
 }
