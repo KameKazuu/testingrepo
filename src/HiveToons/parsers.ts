@@ -218,7 +218,10 @@ export const parseChapterList = (
 ): Chapter[] => {
   const visible = chapters.filter((chapter) => {
     if (chapter.chapterStatus && chapter.chapterStatus !== "PUBLIC") return false;
-    const isLocked = chapter.isLocked === true || chapter.isPermanentlyLocked === true;
+    const isLocked =
+      chapter.isLocked === true ||
+      chapter.isPermanentlyLocked === true ||
+      chapter.isAccessible === false;
     return !isLocked || showLocked;
   });
 
