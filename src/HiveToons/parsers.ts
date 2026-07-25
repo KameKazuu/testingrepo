@@ -211,6 +211,17 @@ const chapterNumber = (chapter: HiveToonsChapter): number => {
     : parseFloat(String(chapter.number)) || 0;
 };
 
+// The list feed (/api/post) is inconsistent with the reader (/api/chapter): it
+// sometimes reports a coin-locked chapter as accessible, so no single flag is
+// reliable. Treat a chapter as locked if any lock signal is set, including a
+// non-zero, unpurchased price (the source of the "N coins" badge).
+const chapterIsLocked = (chapter: HiveToonsChapter): boolean =>
+  chapter.isLocked === true ||
+  chapter.isPermanentlyLocked === true ||
+  chapter.isLockedByCoins === true ||
+  chapter.isAccessible === false ||
+  (typeof chapter.price === "number" && chapter.price > 0 && chapter.isPurchased !== true);
+
 export const parseChapterList = (
   chapters: HiveToonsChapter[],
   sourceManga: SourceManga,
@@ -218,11 +229,7 @@ export const parseChapterList = (
 ): Chapter[] => {
   const visible = chapters.filter((chapter) => {
     if (chapter.chapterStatus && chapter.chapterStatus !== "PUBLIC") return false;
-    const isLocked =
-      chapter.isLocked === true ||
-      chapter.isPermanentlyLocked === true ||
-      chapter.isAccessible === false;
-    return !isLocked || showLocked;
+    return !chapterIsLocked(chapter) || showLocked;
   });
 
   const sorted = [...visible].sort((a, b) => {
@@ -233,7 +240,7 @@ export const parseChapterList = (
 
   return sorted.map((chapter, index) => {
     const realTitle = chapter.title?.trim() ?? "";
-    const title = chapter.isAccessible === true ? realTitle : `🔒 ${realTitle}`.trim();
+    const title = chapterIsLocked(chapter) ? `🔒 ${realTitle}`.trim() : realTitle;
 
     return {
       chapterId: chapter.id.toString(),
