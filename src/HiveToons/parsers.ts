@@ -212,11 +212,9 @@ const chapterNumber = (chapter: HiveToonsChapter): number => {
 };
 
 // The list feed can report a coin-locked chapter as isLocked=false, so its
-// price is the reliable signal: an unpurchased chapter with a price is locked.
+// price is the reliable signal: any chapter with a coin price is locked.
 const chapterIsLocked = (chapter: HiveToonsChapter): boolean =>
-  chapter.isLocked === true ||
-  chapter.isPermanentlyLocked === true ||
-  ((chapter.price ?? 0) > 0 && chapter.chapterPurchased !== true);
+  chapter.isLocked === true || chapter.isPermanentlyLocked === true || (chapter.price ?? 0) > 0;
 
 export const parseChapterList = (
   chapters: HiveToonsChapter[],
