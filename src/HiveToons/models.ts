@@ -82,6 +82,7 @@ export interface HiveToonsChapter {
   isPermanentlyLocked?: boolean;
   isLockedByCoins?: boolean;
   isPurchased?: boolean;
+  chapterPurchased?: boolean;
   price?: number | null;
 }
 
