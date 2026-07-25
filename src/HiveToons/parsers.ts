@@ -211,21 +211,12 @@ const chapterNumber = (chapter: HiveToonsChapter): number => {
     : parseFloat(String(chapter.number)) || 0;
 };
 
-// The list feed (/api/post) is inconsistent with the reader (/api/chapter): for
-// a coin-locked chapter it can still report isLocked=false and isAccessible=true,
-// so the booleans aren't reliable. The one honest field is the coin price, so
-// treat a chapter as locked when it has an unpurchased non-zero price (the
-// source of the "N coins" badge), on top of any explicit lock flag.
-const chapterIsLocked = (chapter: HiveToonsChapter): boolean => {
-  const purchased = chapter.chapterPurchased === true || chapter.isPurchased === true;
-  return (
-    chapter.isLocked === true ||
-    chapter.isPermanentlyLocked === true ||
-    chapter.isLockedByCoins === true ||
-    chapter.isAccessible === false ||
-    (typeof chapter.price === "number" && chapter.price > 0 && !purchased)
-  );
-};
+// The list feed can report a coin-locked chapter as isLocked=false, so its
+// price is the reliable signal: an unpurchased chapter with a price is locked.
+const chapterIsLocked = (chapter: HiveToonsChapter): boolean =>
+  chapter.isLocked === true ||
+  chapter.isPermanentlyLocked === true ||
+  ((chapter.price ?? 0) > 0 && chapter.chapterPurchased !== true);
 
 export const parseChapterList = (
   chapters: HiveToonsChapter[],
