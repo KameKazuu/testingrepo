@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-07-29T17:17:03.620Z",
+  "buildTime": "2026-07-29T17:38:05.811Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -12,7 +12,7 @@
     {
       "name": "AllManga",
       "description": "Extension that pulls content from allmanga.to.",
-      "version": "1.0.0-alpha.27",
+      "version": "1.0.0-alpha.28",
       "icon": "icon.png",
       "language": "en",
       "contentRating": "MATURE",
