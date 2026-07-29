@@ -26,6 +26,9 @@ import {
 import { buildPageUrl } from "../implementations/shared/utils";
 
 export class KaganeInterceptor extends PaperbackInterceptor {
+  // No user-agent is set here on purpose: Cloudflare binds cf_clearance to the
+  // user-agent that solved the challenge in the WebView, so overriding it
+  // invalidates the clearance and the bypass is raised again on every load.
   async interceptRequest(request: Request): Promise<Request> {
     return {
       ...request,
@@ -33,7 +36,6 @@ export class KaganeInterceptor extends PaperbackInterceptor {
         ...request.headers,
         origin: BASE_URL,
         referer: `${BASE_URL}/`,
-        "user-agent": await Application.getDefaultUserAgent(),
       },
     };
   }
@@ -51,9 +53,6 @@ export class KaganeInterceptor extends PaperbackInterceptor {
       throw new CloudflareError({
         url: `${BASE_URL}/`,
         method: "GET",
-        headers: {
-          "user-agent": await Application.getDefaultUserAgent(),
-        },
       });
     }
 
