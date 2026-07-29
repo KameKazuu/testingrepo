@@ -12,7 +12,6 @@ export const IMAGE_CDN = "https://wp.youtube-anime.com";
 export const DEFAULT_IMAGE_SERVER = "https://ytimgf.youtube-anime.com/";
 
 export const LIMIT = 20;
-export const PAGE_SOURCE_LIMIT = 10;
 
 export const IMAGE_QUALITY_KEY = "allmanga-image-quality";
 export const SHOW_ADULT_KEY = "allmanga-show-adult";
@@ -75,9 +74,7 @@ export const CHAPTERS_QUERY = `query($id: String!, $showId: String!) {
   episodeInfos(showId: $showId, episodeNumStart: 0, episodeNumEnd: 9999) { episodeIdNum notes uploadDates }
 }`;
 
-// $limit is required and `manga` must be selected: the resolver assigns
-// manga.countryOfOrigin but only builds that container when the field is asked
-// for, and returns null pages otherwise.
+// `manga` must be selected or chapterPages resolves to null.
 export const PAGES_QUERY = `query($mangaId: String!, $translationType: VaildTranslationTypeMangaEnumType!, $chapterString: String!, $limit: Int!, $offset: Int) {
   chapterPages(mangaId: $mangaId, translationType: $translationType, chapterString: $chapterString, limit: $limit, offset: $offset) {
     edges { pictureUrlHead pictureUrls }
@@ -175,7 +172,7 @@ export interface PagesData {
   chapterPages?: { edges: ChapterPageEdge[] } | null;
 }
 
-export interface Bootstrap {
+export interface SigningBootstrap {
   epoch: number;
   partB: string;
   switchAt: number;

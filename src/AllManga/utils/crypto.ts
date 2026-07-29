@@ -1,29 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-// The API gates chapterPages behind a rotating request signature (aaReq),
-// reversed from the site bundle (buildId 13):
-//   key     = partA XOR partB   (partB is inlined in the reader shell as window.__aaCrypto)
-//   iv      = SHA-256(`${epoch}:${buildId}:${queryHash}:${ts}`)[0:12]
-//   payload = { v: 1, ts, epoch, buildId, qh: queryHash }
-//   aaReq   = base64(0x01 | iv | AES-GCM(key, iv, payload))
-// aaReq travels inside the extensions object, and the response payload comes
-// back AES-GCM-encrypted in a `tobeparsed` field, decrypted with the same key.
-// partA and buildId are baked into the site build, so both change on a rebuild.
+// Update these build-specific values when the site rotates its reader bundle.
 export const BUILD_ID = "13";
 export const TS_BUCKET_MS = 5 * 60 * 1000;
 const PART_A_HEX = "f5dc46e6f42968c5ed0eab602d6ae8f2107991006f02876947e64fcb75d53da6";
 
-// key = partA XOR partB (both 32 bytes), imported for AES-GCM.
 export async function deriveSigningKey(partB: string): Promise<CryptoKey> {
-  const a = hexToBytes(PART_A_HEX);
-  const b = base64ToBytes(partB);
-  if (b.length < 32) throw new Error("part B too short");
+  const partABytes = hexToBytes(PART_A_HEX);
+  const partBBytes = base64ToBytes(partB);
+  if (partBBytes.length < 32) throw new Error("part B too short");
 
-  const raw = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) raw[i] = (b[i] ?? 0) ^ (a[i % a.length] ?? 0);
+  const keyBytes = new Uint8Array(32);
+  for (let i = 0; i < keyBytes.length; i++) {
+    keyBytes[i] = partABytes[i]! ^ partBBytes[i]!;
+  }
 
-  return crypto.subtle.importKey("raw", toBuffer(raw), { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", toBuffer(keyBytes), { name: "AES-GCM" }, false, [
     "encrypt",
     "decrypt",
   ]);
@@ -38,17 +31,10 @@ export async function buildAaReq(
   const payload = JSON.stringify({ v: 1, ts, epoch, buildId: BUILD_ID, qh: queryHash });
 
   const iv = new Uint8Array(
-    await crypto.subtle.digest(
-      "SHA-256",
-      stringToBuffer(`${epoch}:${BUILD_ID}:${queryHash}:${ts}`),
-    ),
+    await crypto.subtle.digest("SHA-256", asciiToBuffer(`${epoch}:${BUILD_ID}:${queryHash}:${ts}`)),
   ).slice(0, 12);
   const cipher = new Uint8Array(
-    await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: toBuffer(iv) },
-      key,
-      stringToBuffer(payload),
-    ),
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: toBuffer(iv) }, key, asciiToBuffer(payload)),
   );
 
   const out = new Uint8Array(13 + cipher.length);
@@ -68,7 +54,7 @@ export async function decryptTobeParsed(value: string, signingKey: CryptoKey): P
 }
 
 export async function sha256Hex(value: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", stringToBuffer(value)));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asciiToBuffer(value)));
   let hex = "";
   for (const byte of digest) hex += byte.toString(16).padStart(2, "0");
   return hex;
@@ -92,7 +78,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 function base64ToBytes(value: string): Uint8Array {
   const decoded = Application.base64Decode(value);
-  return typeof decoded === "string" ? stringToBytes(decoded) : new Uint8Array(decoded);
+  return typeof decoded === "string" ? asciiToBytes(decoded) : new Uint8Array(decoded);
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -101,17 +87,16 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-function stringToBytes(value: string): Uint8Array {
+function asciiToBytes(value: string): Uint8Array {
   const bytes = new Uint8Array(value.length);
   for (let i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i);
   return bytes;
 }
 
-function stringToBuffer(value: string): ArrayBuffer {
-  return toBuffer(stringToBytes(value));
+function asciiToBuffer(value: string): ArrayBuffer {
+  return toBuffer(asciiToBytes(value));
 }
 
-// WebCrypto wants a concrete ArrayBuffer, not a possibly-shared/offset view.
 function toBuffer(bytes: Uint8Array, start = 0, end = bytes.length): ArrayBuffer {
   const out = new Uint8Array(end - start);
   out.set(bytes.subarray(start, end));

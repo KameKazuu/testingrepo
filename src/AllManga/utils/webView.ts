@@ -6,8 +6,9 @@ import * as cheerio from "cheerio";
 
 import { DOMAIN, type PagesData } from "../models";
 
-// Captures chapterPages once the reader decodes it. Response.json() is native
-// and never calls the JSON.parse global, so both decode paths are hooked.
+// Proxies JSON.parse to capture chapterPages once the reader page decodes it.
+// Response.json() decodes natively without calling JSON.parse, so the reader's
+// fetch path is proxied as well or the capture never resolves.
 const BOOTSTRAP = `
   (function () {
     var doneResolve;
