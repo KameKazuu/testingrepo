@@ -1,7 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { ButtonRow, Form, InputRow, LabelRow, OAuthButtonRow, Section } from "@paperback/types";
+import {
+  ButtonRow,
+  Form,
+  InputRow,
+  LabelRow,
+  NavigationRow,
+  OAuthButtonRow,
+  Section,
+} from "@paperback/types";
 
 import {
   type Envelope,
@@ -22,21 +30,95 @@ import {
   swapAccessTokens,
 } from "../network";
 
-// @paperback/types annotates onSuccess as (refreshToken, accessToken) but the
-// iOS host delivers them the other way round. Both tokens are opaque strings,
-// so the order cannot be told apart by shape — the profile request below
-// decides, and the pair is swapped if the first choice is rejected.
-
 export class SettingsForm extends Form {
+  override getSections() {
+    return [
+      Section("account", [NavigationRow("account", { title: "Account", form: new AccountForm() })]),
+    ];
+  }
+}
+
+// Hosts the login row and nothing else: no lifecycle hook and no request runs
+// here, so the form is inert while the login WebView opens and closes over it.
+class AccountForm extends Form {
+  override getSections() {
+    if (!isAuthenticated()) {
+      return [
+        Section("login", [
+          OAuthButtonRow("oAuthButton", {
+            title: "Log in with MangaBaka",
+            clientId: OAUTH_CLIENT_ID,
+            authorizeEndpoint: OAUTH_AUTHORIZE_URL,
+            redirectUri: OAUTH_REDIRECT_URI,
+            scopes: OAUTH_SCOPES,
+            responseType: {
+              type: "pkce",
+              tokenEndpoint: OAUTH_TOKEN_URL,
+              pkceCodeLength: 64,
+              pkceCodeMethod: "S256",
+              formEncodeGrant: true,
+            },
+            onSuccess: Application.Selector(this as AccountForm, "handleOAuthSuccess"),
+          }),
+        ]),
+        Section(
+          {
+            id: "token",
+            header: "Access Token",
+            footer:
+              "Alternative to logging in: paste a personal access token from mangabaka.org. It starts with mb-.",
+          },
+          [
+            InputRow("token", {
+              title: "Access Token",
+              value: "",
+              isSecureEntry: true,
+              onValueChange: Application.Selector(this as AccountForm, "handleTokenChange"),
+            }),
+          ],
+        ),
+      ];
+    }
+
+    return [
+      Section("session", [
+        NavigationRow("profile", { title: "Account Info", form: new ProfileForm() }),
+        ButtonRow("logout", {
+          title: "Log Out",
+          onSelect: Application.Selector(this as AccountForm, "handleLogout"),
+        }),
+      ]),
+    ];
+  }
+
+  async handleOAuthSuccess(first: string, second: string): Promise<void> {
+    setAccessTokens(first, second);
+    this.reloadForm();
+  }
+
+  async handleTokenChange(value: string): Promise<void> {
+    const token = value.trim();
+    if (!token) return;
+
+    setToken(token);
+    this.reloadForm();
+  }
+
+  async handleLogout(): Promise<void> {
+    clearToken();
+    this.reloadForm();
+  }
+}
+
+class ProfileForm extends Form {
   private profile?: Profile;
   private error?: string;
 
   override formWillAppear(): void {
-    if (!isAuthenticated()) return;
-    void this.loadProfile();
+    void this.load();
   }
 
-  private async loadProfile(): Promise<void> {
+  private async load(): Promise<void> {
     try {
       await this.fetchProfile();
     } catch (error) {
@@ -63,87 +145,17 @@ export class SettingsForm extends Form {
   }
 
   override getSections() {
-    if (!isAuthenticated()) {
-      return [
-        Section({ id: "login", header: "Account" }, [
-          OAuthButtonRow("oauth", {
-            title: "Log in with MangaBaka",
-            subtitle: "Sync your library and reading progress.",
-            clientId: OAUTH_CLIENT_ID,
-            authorizeEndpoint: OAUTH_AUTHORIZE_URL,
-            redirectUri: OAUTH_REDIRECT_URI,
-            scopes: OAUTH_SCOPES,
-            responseType: {
-              type: "pkce",
-              tokenEndpoint: OAUTH_TOKEN_URL,
-              pkceCodeLength: 64,
-              pkceCodeMethod: "S256",
-              formEncodeGrant: true,
-            },
-            onSuccess: Application.Selector(this as SettingsForm, "handleOAuthSuccess"),
-          }),
-        ]),
-        Section(
-          {
-            id: "token",
-            header: "Access Token",
-            footer:
-              "Alternative to logging in: paste a personal access token from mangabaka.org. It starts with mb-.",
-          },
-          [
-            InputRow("token", {
-              title: "Access Token",
-              value: "",
-              isSecureEntry: true,
-              onValueChange: Application.Selector(this as SettingsForm, "handleTokenChange"),
-            }),
-          ],
-        ),
-      ];
+    if (this.error != undefined) {
+      return [Section("error", [LabelRow("error", { title: "Error", subtitle: this.error })])];
     }
 
     return [
-      Section({ id: "account", header: "Account" }, [
+      Section("profile", [
         LabelRow("user", {
           title: "Signed in as",
-          subtitle:
-            this.error ??
-            this.profile?.preferred_username ??
-            this.profile?.nickname ??
-            "Loading...",
-        }),
-        ButtonRow("logout", {
-          title: "Log Out",
-          onSelect: Application.Selector(this as SettingsForm, "handleLogout"),
+          subtitle: this.profile?.preferred_username ?? this.profile?.nickname ?? "Loading...",
         }),
       ]),
     ];
-  }
-
-  // Nothing may be awaited here: the callback runs while the login WebView is
-  // being dismissed, so it only stores the tokens. The profile is fetched from
-  // `loadProfile`, which also recovers if the pair arrived the other way round.
-  async handleOAuthSuccess(first: string, second: string): Promise<void> {
-    this.profile = undefined;
-    this.error = undefined;
-    setAccessTokens(first, second);
-    this.reloadForm();
-  }
-
-  async handleTokenChange(value: string): Promise<void> {
-    const token = value.trim();
-    if (!token) return;
-
-    setToken(token);
-    this.profile = undefined;
-    this.error = undefined;
-    await this.loadProfile();
-  }
-
-  async handleLogout(): Promise<void> {
-    clearToken();
-    this.profile = undefined;
-    this.error = undefined;
-    this.reloadForm();
   }
 }
