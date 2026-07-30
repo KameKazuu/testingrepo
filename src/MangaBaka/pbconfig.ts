@@ -7,7 +7,7 @@ export default {
   name: "MangaBaka",
   description:
     "Extension that integrates with mangabaka.org for tracking and collection management.",
-  version: "1.0.0-alpha.4",
+  version: "1.0.0-alpha.5",
   icon: "icon.png",
   language: "en",
   contentRating: ContentRating.EVERYONE,

@@ -58,7 +58,9 @@ export function isAuthenticated(): boolean {
 }
 
 // OAuth access tokens are bearer credentials; a personal access token is sent
-// in the header the API documents for it instead.
+// in the header the API documents for it instead. Only the `/my/` endpoints
+// take these: the rest of the API is public and cached in front of the
+// backend, where credentials are ignored and would only cost a backend hit.
 function authHeaders(): Record<string, string> {
   const accessToken = getAccessToken();
   if (accessToken) {
@@ -91,7 +93,9 @@ export async function makeRequest<T>(path: string, options: RequestOptions = {})
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  Object.assign(headers, needsAuth ? assertAuthenticated() : authHeaders());
+  if (needsAuth) {
+    Object.assign(headers, assertAuthenticated());
+  }
 
   const request: Request = {
     url: `${API_URL}${path}`,
