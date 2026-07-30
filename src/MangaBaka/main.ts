@@ -122,16 +122,15 @@ export class MangaBakaExtension
     _sortingOption: SortingOption | undefined,
   ): Promise<PagedResults<SearchResultItem>> {
     const page = typeof metadata === "number" ? metadata : 1;
-    const params = new URLSearchParams({
-      page: String(page),
-      limit: String(SEARCH_LIMIT),
-    });
+    // `URLSearchParams` is absent from the app's JavaScript runtime, so the
+    // query string is assembled by hand.
+    const params = [`page=${page}`, `limit=${SEARCH_LIMIT}`];
     if (query.title) {
-      params.set("q", query.title);
+      params.push(`q=${encodeURIComponent(query.title)}`);
     }
 
     const response = await makeRequest<PagedEnvelope<Series>>(
-      `/v2/series/search?${params.toString()}`,
+      `/v2/series/search?${params.join("&")}`,
     );
 
     return {
