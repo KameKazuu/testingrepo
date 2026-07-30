@@ -15,13 +15,9 @@ import {
 import { clearToken, isAuthenticated, makeRequest, setAccessTokens, setToken } from "../network";
 
 // @paperback/types annotates onSuccess as (refreshToken, accessToken) but the
-// iOS host delivers them the other way round; the JWT is the access token.
-function sortTokens(first: string, second: string): [string, string | undefined] {
-  if (second && second.split(".").length === 3 && first.split(".").length !== 3) {
-    return [second, first];
-  }
-  return [first, second];
-}
+// iOS host delivers them the other way round. Both tokens are opaque strings,
+// so the order cannot be told apart by shape — the profile request below
+// decides, and the pair is swapped if the first choice is rejected.
 
 export class SettingsForm extends Form {
   private profile?: Profile;
@@ -29,18 +25,18 @@ export class SettingsForm extends Form {
 
   override formWillAppear(): void {
     if (!isAuthenticated()) return;
+    void this.loadProfile();
+  }
 
-    makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true })
-      .then((response) => {
-        this.profile = response.data;
-        this.error = undefined;
-      })
-      .catch((error: Error) => {
-        this.error = error.message;
-      })
-      .finally(() => {
-        this.reloadForm();
-      });
+  private async loadProfile(): Promise<void> {
+    try {
+      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
+      this.profile = response.data;
+      this.error = undefined;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    }
+    this.reloadForm();
   }
 
   override getSections() {
@@ -102,11 +98,31 @@ export class SettingsForm extends Form {
   }
 
   async handleOAuthSuccess(first: string, second: string): Promise<void> {
-    const [accessToken, refreshToken] = sortTokens(first, second);
-    setAccessTokens(accessToken, refreshToken);
     this.profile = undefined;
     this.error = undefined;
-    this.formWillAppear();
+
+    setAccessTokens(first, second);
+    try {
+      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
+      this.profile = response.data;
+    } catch {
+      // The host's argument order is not guaranteed; retry with them swapped
+      // before treating the login as failed.
+      if (second) {
+        setAccessTokens(second, first);
+        try {
+          const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", {
+            needsAuth: true,
+          });
+          this.profile = response.data;
+        } catch (error) {
+          this.error = error instanceof Error ? error.message : String(error);
+        }
+      } else {
+        this.error = "Login failed, please try again.";
+      }
+    }
+
     this.reloadForm();
   }
 
@@ -117,8 +133,7 @@ export class SettingsForm extends Form {
     setToken(token);
     this.profile = undefined;
     this.error = undefined;
-    this.formWillAppear();
-    this.reloadForm();
+    await this.loadProfile();
   }
 
   async handleLogout(): Promise<void> {
