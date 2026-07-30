@@ -42,10 +42,10 @@ import {
   seriesTitle,
 } from "./parsers";
 
-// Only the dedicated discover endpoints are used. Search is limited to 30
-// requests a minute and that budget belongs to the user's own searches; the
-// discover endpoints are also cached — and cached requests are free — as long
-// as they are called with no query parameters.
+// Only the dedicated discover endpoints are used, and they are called without
+// query parameters so every extension shares one cache key. Search is kept out
+// of discover: its 30/min budget belongs to the user's own searches, and unlike
+// these endpoints it is not known to be cached.
 const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "rising", title: "Rising", type: DiscoverSectionType.featured },
   { id: "hidden-gems", title: "Hidden Gems", type: DiscoverSectionType.prominentCarousel },
@@ -93,10 +93,11 @@ export class MangaBakaExtension
     SearchResultsProviding,
     SettingsFormProviding
 {
-  // Search allows 30 requests a minute, the tightest limit the API documents.
+  // The documented 30/min search limit only counts cache misses, and most
+  // responses are served from cache, so the balanced preset is enough.
   mainRateLimiter = new BasicRateLimiter("main", {
-    numberOfRequests: 1,
-    bufferInterval: 2,
+    numberOfRequests: 3,
+    bufferInterval: 1,
     ignoreImages: true,
   });
   mainInterceptor = new MangaBakaInterceptor("main");
