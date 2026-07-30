@@ -44,6 +44,22 @@ class AccountForm extends Form {
   override getSections() {
     if (!isAuthenticated()) {
       return [
+        Section(
+          {
+            id: "token",
+            header: "Access Token",
+            footer:
+              "Create a personal access token on mangabaka.org and paste it here. It starts with mb-.",
+          },
+          [
+            InputRow("token", {
+              title: "Access Token",
+              value: "",
+              isSecureEntry: true,
+              onValueChange: Application.Selector(this as AccountForm, "handleTokenChange"),
+            }),
+          ],
+        ),
         Section("login", [
           OAuthButtonRow("oAuthButton", {
             title: "Log in with MangaBaka",
@@ -61,22 +77,6 @@ class AccountForm extends Form {
             onSuccess: Application.Selector(this as AccountForm, "handleOAuthSuccess"),
           }),
         ]),
-        Section(
-          {
-            id: "token",
-            header: "Access Token",
-            footer:
-              "Alternative to logging in: paste a personal access token from mangabaka.org. It starts with mb-.",
-          },
-          [
-            InputRow("token", {
-              title: "Access Token",
-              value: "",
-              isSecureEntry: true,
-              onValueChange: Application.Selector(this as AccountForm, "handleTokenChange"),
-            }),
-          ],
-        ),
       ];
     }
 
