@@ -8,7 +8,6 @@ import {
   OAUTH_AUTHORIZE_URL,
   OAUTH_CLIENT_ID,
   OAUTH_REDIRECT_URI,
-  OAUTH_SCOPES,
   OAUTH_TOKEN_URL,
   type Profile,
 } from "../models";
@@ -57,7 +56,6 @@ export class SettingsForm extends Form {
             clientId: OAUTH_CLIENT_ID,
             authorizeEndpoint: OAUTH_AUTHORIZE_URL,
             redirectUri: OAUTH_REDIRECT_URI,
-            scopes: OAUTH_SCOPES,
             responseType: {
               type: "pkce",
               tokenEndpoint: OAUTH_TOKEN_URL,
