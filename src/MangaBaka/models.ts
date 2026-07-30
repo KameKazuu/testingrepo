@@ -9,7 +9,6 @@ export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
 export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
 
 export const SEARCH_LIMIT = 20;
-export const DISCOVER_LIMIT = 20;
 
 // Endpoints come from https://mangabaka.org/.well-known/openid-configuration.
 export const OAUTH_AUTHORIZE_URL = "https://mangabaka.org/auth/oauth2/authorize";

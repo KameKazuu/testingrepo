@@ -27,7 +27,6 @@ import {
 import { ProgressForm } from "./forms/progress";
 import { SettingsForm } from "./forms/settings";
 import {
-  DISCOVER_LIMIT,
   type Envelope,
   type LibraryEntry,
   type PagedEnvelope,
@@ -43,11 +42,13 @@ import {
   seriesTitle,
 } from "./parsers";
 
+// Only the dedicated discover endpoints are used. Search is limited to 30
+// requests a minute and that budget belongs to the user's own searches; the
+// discover endpoints are also cached — and cached requests are free — as long
+// as they are called with no query parameters.
 const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "rising", title: "Rising", type: DiscoverSectionType.featured },
   { id: "hidden-gems", title: "Hidden Gems", type: DiscoverSectionType.prominentCarousel },
-  { id: "popular", title: "Most Popular", type: DiscoverSectionType.simpleCarousel },
-  { id: "latest", title: "Recently Updated", type: DiscoverSectionType.simpleCarousel },
 ];
 
 function toSearchResultItem(series: Series): SearchResultItem {
@@ -92,9 +93,10 @@ export class MangaBakaExtension
     SearchResultsProviding,
     SettingsFormProviding
 {
+  // Search allows 30 requests a minute, the tightest limit the API documents.
   mainRateLimiter = new BasicRateLimiter("main", {
-    numberOfRequests: 3,
-    bufferInterval: 1,
+    numberOfRequests: 1,
+    bufferInterval: 2,
     ignoreImages: true,
   });
   mainInterceptor = new MangaBakaInterceptor("main");
@@ -143,28 +145,13 @@ export class MangaBakaExtension
 
   async getDiscoverSectionItems(
     section: DiscoverSection,
-    metadata: Metadata | undefined,
   ): Promise<PagedResults<DiscoverSectionItem>> {
-    // The discover endpoints return a fixed-size list with no pagination, so
-    // only the search-backed sections continue past the first page.
-    if (section.id === "rising" || section.id === "hidden-gems") {
-      const response = await makeRequest<Envelope<Series[]>>(
-        `/v2/series/discover/${section.id}?limit=${DISCOVER_LIMIT}`,
-      );
-      return {
-        items: (response.data ?? []).map((series) => toDiscoverItem(series, section.type)),
-      };
-    }
-
-    const page = typeof metadata === "number" ? metadata : 1;
-    const sort = section.id === "latest" ? "latest" : "popularity_desc";
-    const response = await makeRequest<PagedEnvelope<Series>>(
-      `/v2/series/search?page=${page}&limit=${DISCOVER_LIMIT}&sort_by=${sort}`,
-    );
+    // Called without parameters so the response stays cacheable; these
+    // endpoints return a fixed-size list and do not paginate.
+    const response = await makeRequest<Envelope<Series[]>>(`/v2/series/discover/${section.id}`);
 
     return {
       items: (response.data ?? []).map((series) => toDiscoverItem(series, section.type)),
-      metadata: response.pagination?.next ? page + 1 : undefined,
     };
   }
 
