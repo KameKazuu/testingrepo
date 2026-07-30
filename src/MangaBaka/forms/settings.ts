@@ -12,7 +12,14 @@ import {
   OAUTH_TOKEN_URL,
   type Profile,
 } from "../models";
-import { clearToken, isAuthenticated, makeRequest, setAccessTokens, setToken } from "../network";
+import {
+  clearToken,
+  isAuthenticated,
+  makeRequest,
+  setAccessTokens,
+  setRatingSteps,
+  setToken,
+} from "../network";
 
 // @paperback/types annotates onSuccess as (refreshToken, accessToken) but the
 // iOS host delivers them the other way round. Both tokens are opaque strings,
@@ -32,6 +39,7 @@ export class SettingsForm extends Form {
     try {
       const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
       this.profile = response.data;
+      setRatingSteps(response.data.rating_steps);
       this.error = undefined;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -105,6 +113,7 @@ export class SettingsForm extends Form {
     try {
       const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
       this.profile = response.data;
+      setRatingSteps(response.data.rating_steps);
     } catch {
       // The host's argument order is not guaranteed; retry with them swapped
       // before treating the login as failed.
@@ -115,6 +124,7 @@ export class SettingsForm extends Form {
             needsAuth: true,
           });
           this.profile = response.data;
+          setRatingSteps(response.data.rating_steps);
         } catch (error) {
           this.error = error instanceof Error ? error.message : String(error);
         }

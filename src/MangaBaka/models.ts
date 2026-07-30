@@ -34,8 +34,12 @@ export const LIBRARY_STATES = [
   { id: "considering", title: "Considering" },
 ];
 
-// Ratings are stored 0-100 but presented on the usual 0-10 scale.
+// Ratings are stored 0-100 but presented on the usual 0-10 scale. How many
+// steps that scale is divided into is a per-account setting, so the score
+// picker has to match it or it offers values the account cannot store.
 export const RATING_SCALE = 10;
+export const RATING_STEPS_KEY = "mangabaka-rating-steps";
+export const DEFAULT_RATING_STEPS = 10;
 
 export interface Pagination {
   count?: number | null;
@@ -100,4 +104,5 @@ export interface Profile {
   id?: number | null;
   nickname?: string | null;
   preferred_username?: string | null;
+  rating_steps?: number | null;
 }

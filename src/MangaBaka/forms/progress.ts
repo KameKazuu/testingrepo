@@ -14,7 +14,7 @@ import {
 } from "@paperback/types";
 
 import { type Envelope, LIBRARY_STATES, type LibraryEntry, RATING_SCALE } from "../models";
-import { makeRequest } from "../network";
+import { getRatingSteps, makeRequest } from "../network";
 
 export class ProgressForm extends Form {
   private readonly seriesId: string;
@@ -107,8 +107,10 @@ export class ProgressForm extends Form {
           subtitle: "Set to 0 to leave the title unrated",
           value: (entry.rating ?? 0) / RATING_SCALE,
           minValue: 0,
-          maxValue: 10,
-          stepValue: 0.1,
+          maxValue: RATING_SCALE,
+          // The account decides how many steps the scale has; offering finer
+          // increments would store scores it cannot represent.
+          stepValue: RATING_SCALE / getRatingSteps(),
           loopOver: false,
           onValueChange: Application.Selector(this as ProgressForm, "handleRatingChange"),
         }),

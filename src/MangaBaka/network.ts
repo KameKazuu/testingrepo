@@ -3,7 +3,15 @@
 
 import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
 
-import { ACCESS_TOKEN_KEY, API_URL, DOMAIN, REFRESH_TOKEN_KEY, TOKEN_KEY } from "./models";
+import {
+  ACCESS_TOKEN_KEY,
+  API_URL,
+  DEFAULT_RATING_STEPS,
+  DOMAIN,
+  RATING_STEPS_KEY,
+  REFRESH_TOKEN_KEY,
+  TOKEN_KEY,
+} from "./models";
 
 export class MangaBakaInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
@@ -51,6 +59,17 @@ export function clearToken(): void {
   Application.setSecureState(null, TOKEN_KEY);
   Application.setSecureState(null, ACCESS_TOKEN_KEY);
   Application.setSecureState(null, REFRESH_TOKEN_KEY);
+}
+
+export function getRatingSteps(): number {
+  const steps = Application.getState(RATING_STEPS_KEY) as number | undefined;
+  return typeof steps === "number" && steps > 0 ? steps : DEFAULT_RATING_STEPS;
+}
+
+export function setRatingSteps(steps: number | null | undefined): void {
+  if (typeof steps === "number" && steps > 0) {
+    Application.setState(steps, RATING_STEPS_KEY);
+  }
 }
 
 export function isAuthenticated(): boolean {
