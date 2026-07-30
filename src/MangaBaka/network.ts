@@ -55,6 +55,17 @@ export function setAccessTokens(accessToken: string, refreshToken?: string): voi
   }
 }
 
+// Swap the stored OAuth pair. Returns false when there is nothing to swap.
+export function swapAccessTokens(): boolean {
+  const access = Application.getSecureState(ACCESS_TOKEN_KEY) as string | null;
+  const refresh = Application.getSecureState(REFRESH_TOKEN_KEY) as string | null;
+  if (!access || !refresh) return false;
+
+  Application.setSecureState(refresh, ACCESS_TOKEN_KEY);
+  Application.setSecureState(access, REFRESH_TOKEN_KEY);
+  return true;
+}
+
 export function clearToken(): void {
   Application.setSecureState(null, TOKEN_KEY);
   Application.setSecureState(null, ACCESS_TOKEN_KEY);

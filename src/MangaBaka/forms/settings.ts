@@ -8,6 +8,7 @@ import {
   OAUTH_AUTHORIZE_URL,
   OAUTH_CLIENT_ID,
   OAUTH_REDIRECT_URI,
+  OAUTH_SCOPES,
   OAUTH_TOKEN_URL,
   type Profile,
 } from "../models";
@@ -18,6 +19,7 @@ import {
   setAccessTokens,
   setRatingSteps,
   setToken,
+  swapAccessTokens,
 } from "../network";
 
 // @paperback/types annotates onSuccess as (refreshToken, accessToken) but the
@@ -36,14 +38,28 @@ export class SettingsForm extends Form {
 
   private async loadProfile(): Promise<void> {
     try {
-      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
-      this.profile = response.data;
-      setRatingSteps(response.data.rating_steps);
-      this.error = undefined;
+      await this.fetchProfile();
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      // The host does not guarantee which OAuth token arrives first, so a
+      // rejected pair is retried the other way round before giving up.
+      if (swapAccessTokens()) {
+        try {
+          await this.fetchProfile();
+        } catch (retryError) {
+          this.error = retryError instanceof Error ? retryError.message : String(retryError);
+        }
+      } else {
+        this.error = error instanceof Error ? error.message : String(error);
+      }
     }
     this.reloadForm();
+  }
+
+  private async fetchProfile(): Promise<void> {
+    const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
+    this.profile = response.data;
+    setRatingSteps(response.data.rating_steps);
+    this.error = undefined;
   }
 
   override getSections() {
@@ -56,6 +72,7 @@ export class SettingsForm extends Form {
             clientId: OAUTH_CLIENT_ID,
             authorizeEndpoint: OAUTH_AUTHORIZE_URL,
             redirectUri: OAUTH_REDIRECT_URI,
+            scopes: OAUTH_SCOPES,
             responseType: {
               type: "pkce",
               tokenEndpoint: OAUTH_TOKEN_URL,
@@ -103,34 +120,13 @@ export class SettingsForm extends Form {
     ];
   }
 
+  // Nothing may be awaited here: the callback runs while the login WebView is
+  // being dismissed, so it only stores the tokens. The profile is fetched from
+  // `loadProfile`, which also recovers if the pair arrived the other way round.
   async handleOAuthSuccess(first: string, second: string): Promise<void> {
     this.profile = undefined;
     this.error = undefined;
-
     setAccessTokens(first, second);
-    try {
-      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
-      this.profile = response.data;
-      setRatingSteps(response.data.rating_steps);
-    } catch {
-      // The host's argument order is not guaranteed; retry with them swapped
-      // before treating the login as failed.
-      if (second) {
-        setAccessTokens(second, first);
-        try {
-          const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", {
-            needsAuth: true,
-          });
-          this.profile = response.data;
-          setRatingSteps(response.data.rating_steps);
-        } catch (error) {
-          this.error = error instanceof Error ? error.message : String(error);
-        }
-      } else {
-        this.error = "Login failed, please try again.";
-      }
-    }
-
     this.reloadForm();
   }
 
