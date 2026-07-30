@@ -34,7 +34,7 @@ import {
   SEARCH_LIMIT,
   type Series,
 } from "./models";
-import { getToken, MangaBakaInterceptor, makeRequest } from "./network";
+import { isAuthenticated, MangaBakaInterceptor, makeRequest } from "./network";
 import {
   contentRatingFor,
   parseSourceManga,
@@ -173,7 +173,7 @@ export class MangaBakaExtension
   }
 
   async getMangaProgress(sourceManga: SourceManga): Promise<MangaProgress | undefined> {
-    if (!getToken()) return undefined;
+    if (!isAuthenticated()) return undefined;
 
     let entry: LibraryEntry;
     try {
@@ -211,7 +211,7 @@ export class MangaBakaExtension
       failedItems: [],
     };
 
-    if (!getToken()) {
+    if (!isAuthenticated()) {
       result.failedItems.push(...actions.map((action) => action.id));
       return result;
     }

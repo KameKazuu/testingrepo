@@ -3,7 +3,7 @@
 
 import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
 
-import { API_URL, DOMAIN, TOKEN_KEY } from "./models";
+import { ACCESS_TOKEN_KEY, API_URL, DOMAIN, REFRESH_TOKEN_KEY, TOKEN_KEY } from "./models";
 
 export class MangaBakaInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
@@ -35,18 +35,46 @@ export function setToken(token: string): void {
   Application.setSecureState(token, TOKEN_KEY);
 }
 
-export function clearToken(): void {
-  Application.setSecureState(null, TOKEN_KEY);
+export function getAccessToken(): string | undefined {
+  const token = Application.getSecureState(ACCESS_TOKEN_KEY) as string | null;
+  return token ? String(token) : undefined;
 }
 
-export function assertAuthenticated(): string {
-  const token = getToken();
-  if (!token) {
-    throw new Error(
-      "You are not authenticated, please add your access token in the MangaBaka settings",
-    );
+export function setAccessTokens(accessToken: string, refreshToken?: string): void {
+  Application.setSecureState(accessToken, ACCESS_TOKEN_KEY);
+  if (refreshToken) {
+    Application.setSecureState(refreshToken, REFRESH_TOKEN_KEY);
   }
-  return token;
+}
+
+export function clearToken(): void {
+  Application.setSecureState(null, TOKEN_KEY);
+  Application.setSecureState(null, ACCESS_TOKEN_KEY);
+  Application.setSecureState(null, REFRESH_TOKEN_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return getAccessToken() != undefined || getToken() != undefined;
+}
+
+// OAuth access tokens are bearer credentials; a personal access token is sent
+// in the header the API documents for it instead.
+function authHeaders(): Record<string, string> {
+  const accessToken = getAccessToken();
+  if (accessToken) {
+    return { authorization: `Bearer ${accessToken}` };
+  }
+
+  const token = getToken();
+  return token ? { "x-api-key": token } : {};
+}
+
+export function assertAuthenticated(): Record<string, string> {
+  const headers = authHeaders();
+  if (Object.keys(headers).length === 0) {
+    throw new Error("You are not authenticated, please log in through the MangaBaka settings");
+  }
+  return headers;
 }
 
 interface RequestOptions {
@@ -63,14 +91,7 @@ export async function makeRequest<T>(path: string, options: RequestOptions = {})
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  if (needsAuth) {
-    headers["x-api-key"] = assertAuthenticated();
-  } else {
-    const token = getToken();
-    if (token) {
-      headers["x-api-key"] = token;
-    }
-  }
+  Object.assign(headers, needsAuth ? assertAuthenticated() : authHeaders());
 
   const request: Request = {
     url: `${API_URL}${path}`,

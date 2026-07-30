@@ -5,8 +5,24 @@ export const DOMAIN = "https://mangabaka.org";
 export const API_URL = "https://api.mangabaka.org";
 
 export const TOKEN_KEY = "mangabaka-token";
+export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
+export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
+
 export const SEARCH_LIMIT = 20;
 export const DISCOVER_LIMIT = 20;
+
+// Endpoints come from https://mangabaka.org/.well-known/openid-configuration.
+export const OAUTH_AUTHORIZE_URL = "https://mangabaka.org/auth/oauth2/authorize";
+export const OAUTH_TOKEN_URL = "https://mangabaka.org/auth/oauth2/token";
+export const OAUTH_CLIENT_ID = "GErkDQIdfFFQiBRlNmxgcDNFrQtrcHiE";
+export const OAUTH_REDIRECT_URI = "paperback://mangabaka-login";
+export const OAUTH_SCOPES = [
+  "openid",
+  "profile",
+  "library.read",
+  "library.write",
+  "offline_access",
+];
 
 // The library `state` values the API accepts, in the order they are offered.
 export const LIBRARY_STATES = [
