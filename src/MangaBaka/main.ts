@@ -3,10 +3,10 @@
 
 import {
   BasicRateLimiter,
+  type Cookie,
   type Chapter,
   type ChapterReadActionQueueProcessingResult,
   type CloudflareBypassRequestProviding,
-  type Cookie,
   type DiscoverSection,
   type DiscoverSectionItem,
   DiscoverSectionType,
@@ -49,7 +49,7 @@ import {
   MangaBakaError,
   MangaBakaInterceptor,
   makeRequest,
-  setSessionCookies,
+  cookieStorage,
   shouldRetryLater,
 } from "./network";
 import {
@@ -211,6 +211,7 @@ export class MangaBakaExtension
 
   async initialise(): Promise<void> {
     this.mainRateLimiter.registerInterceptor();
+    cookieStorage.registerInterceptor();
     this.mainInterceptor.registerInterceptor();
   }
 
@@ -218,10 +219,12 @@ export class MangaBakaExtension
     return new SettingsForm();
   }
 
-  // Whatever the app's own web view collects is a signed-in session just as
-  // much as the sign-in row's is, so it is kept the same way.
   async cloudflareBypassCompleted(_request: Request, cookies: Cookie[]): Promise<void> {
-    setSessionCookies(cookies);
+    for (const cookie of cookies) {
+      if (cookie.domain.replace(/^\./, "").endsWith("mangabaka.org")) {
+        cookieStorage.setCookie(cookie);
+      }
+    }
   }
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
@@ -361,8 +364,7 @@ export class MangaBakaExtension
     // actions unreported keeps them queued for when they do.
     if (!isAuthenticated()) return result;
 
-    // Collapse the queue so each series is written once, at its furthest point.
-    const furthest = new Map<string, { chapter: number; volume: number }>();
+    const furthest = new Map<string, { chapter: number; volume: number; actionIds: string[] }>();
     for (const action of actions) {
       const seriesId = action.sourceManga.mangaId;
       const previous = furthest.get(seriesId);
@@ -374,54 +376,71 @@ export class MangaBakaExtension
           previous?.volume ?? -1,
           action.chapterVolume == undefined ? -1 : clampProgress(action.chapterVolume),
         ),
+        actionIds: [...(previous?.actionIds ?? []), action.id],
       });
     }
 
-    for (const [seriesId, progress] of furthest) {
-      const ids = actions
-        .filter((action) => action.sourceManga.mangaId === seriesId)
-        .map((action) => action.id);
-
+    const groups = [...furthest.entries()];
+    for (let offset = 0; offset < groups.length; offset += 100) {
+      const batch = groups.slice(offset, offset + 100);
+      const batchActionIds = batch.flatMap(([, progress]) => progress.actionIds);
+      let pendingActionIds = batchActionIds;
       try {
-        let exists = true;
-        let current = 0;
-        try {
-          const response = await makeRequest<Envelope<LibraryEntry>>(`/v1/my/library/${seriesId}`, {
+        const query = batch
+          .map(([seriesId]) => `series_id=${encodeURIComponent(seriesId)}`)
+          .join("&");
+        const response = await makeRequest<Envelope<LibraryEntry[]>>(
+          `/v1/my/library/batch?${query}`,
+          { needsAuth: true },
+        );
+        const currentBySeries = new Map(
+          response.data
+            .filter((entry) => entry.series_id != undefined)
+            .map((entry) => [String(entry.series_id), entry]),
+        );
+        const writes: Record<string, unknown>[] = [];
+
+        for (const [seriesId, progress] of batch) {
+          const current = currentBySeries.get(seriesId);
+          const currentChapter = current?.progress_chapter ?? 0;
+          const currentVolume = current?.progress_volume ?? 0;
+          const chapter = Math.max(currentChapter, progress.chapter);
+          const volume = Math.max(currentVolume, progress.volume);
+
+          if (current != undefined && chapter === currentChapter && volume === currentVolume) {
+            result.successfulItems.push(...progress.actionIds);
+            continue;
+          }
+
+          const body: Record<string, unknown> = {
+            series_id: Number(seriesId),
+            progress_chapter: chapter,
+          };
+          if (volume >= 0) body.progress_volume = volume;
+          if (current == undefined) body.state = "reading";
+          writes.push(body);
+        }
+
+        if (writes.length > 0) {
+          const writtenSeries = new Set(writes.map((write) => String(write.series_id)));
+          pendingActionIds = batch
+            .filter(([seriesId]) => writtenSeries.has(seriesId))
+            .flatMap(([, progress]) => progress.actionIds);
+          await makeRequest("/v1/my/library/batch", {
+            method: "POST",
             needsAuth: true,
+            body: writes,
           });
-          current = response.data.progress_chapter ?? 0;
-        } catch (error) {
-          if (!(error instanceof MangaBakaError) || error.status !== 404) throw error;
-          exists = false;
+          for (const [seriesId, progress] of batch) {
+            if (writtenSeries.has(seriesId)) result.successfulItems.push(...progress.actionIds);
+          }
         }
-
-        // Never move progress backwards.
-        if (exists && current >= progress.chapter) {
-          result.successfulItems.push(...ids);
-          continue;
-        }
-
-        const body: Record<string, unknown> = { progress_chapter: progress.chapter };
-        if (progress.volume >= 0) {
-          body.progress_volume = progress.volume;
-        }
-        if (!exists) {
-          body.state = "reading";
-        }
-
-        await makeRequest(`/v1/my/library/${seriesId}`, {
-          method: exists ? "PATCH" : "POST",
-          needsAuth: true,
-          body,
-        });
-
-        result.successfulItems.push(...ids);
       } catch (error) {
         // A rate limit, an outage or an expired credential is not a write that
         // failed, it is one that never happened. Reporting those would count
         // an error against actions that deserve another attempt.
         if (!shouldRetryLater(error)) {
-          result.failedItems.push(...ids);
+          result.failedItems.push(...pendingActionIds);
         }
       }
     }

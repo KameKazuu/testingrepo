@@ -7,12 +7,19 @@ import { DOMAIN, type Series } from "./models";
 
 export function seriesTitle(series: Series): string {
   const titles = series.titles ?? [];
-  const primary = titles.find((entry) => entry.is_primary === true && entry.title);
+  const englishPrimary = titles.find(
+    (entry) => entry.language === "en" && entry.is_primary === true && entry.title,
+  );
   const english = titles.find((entry) => entry.language === "en" && entry.title);
+  const primary = titles.find((entry) => entry.is_primary === true && entry.title);
   const first = titles.find((entry) => entry.title);
 
   return Application.decodeHTMLEntities(
-    primary?.title ?? english?.title ?? first?.title ?? `Series ${series.id}`,
+    englishPrimary?.title ??
+      english?.title ??
+      primary?.title ??
+      first?.title ??
+      `Series ${series.id}`,
   );
 }
 
@@ -71,7 +78,7 @@ export function volumesLabel(series: Series): string | undefined {
 export function ratingLabel(series: Series): string | undefined {
   const rating = series.rating;
   if (rating == undefined || !Number.isFinite(rating) || rating <= 0) return undefined;
-  return rating.toFixed(2);
+  return (rating / 10).toFixed(2);
 }
 
 export function statusLabel(series: Series): string {
@@ -126,11 +133,11 @@ export function parseSourceManga(series: Series): SourceManga {
       rating:
         series.rating == null || !Number.isFinite(series.rating)
           ? undefined
-          : Math.min(1, Math.max(0, series.rating / 10)),
+          : Math.min(1, Math.max(0, series.rating / 100)),
       contentRating: contentRatingFor(series),
       contentType: series.type === "novel" ? "novel" : "comic",
       tagGroups: tags.length > 0 ? [{ id: "tags", title: "Tags", tags }] : [],
-      shareUrl: `${DOMAIN}/series/${series.id}`,
+      shareUrl: `${DOMAIN}/${series.id}`,
     },
   };
 }

@@ -1,21 +1,32 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { type Cookie, PaperbackInterceptor, type Request, type Response } from "@paperback/types";
+import {
+  CookieStorageInterceptor,
+  PaperbackInterceptor,
+  type Request,
+  type Response,
+} from "@paperback/types";
 
 import {
   ACCESS_TOKEN_KEY,
   API_URL,
   DEFAULT_RATING_STEPS,
   DOMAIN,
+  type Envelope,
+  GENRES_CACHE_KEY,
+  OAUTH_CLIENT_ID,
+  OAUTH_REDIRECT_URI,
+  OAUTH_TOKEN_URL,
+  type OAuthTokenResponse,
   RATING_STEPS_KEY,
   REFRESH_TOKEN_KEY,
   SESSION_KEY,
   type TagDefinition,
-  GENRES_CACHE_KEY,
   TOKEN_KEY,
-  type Envelope,
 } from "./models";
+
+export const cookieStorage = new CookieStorageInterceptor({ storage: "stateManager" });
 
 export class MangaBakaInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
@@ -59,42 +70,29 @@ export function setAccessTokens(accessToken: string, refreshToken?: string): voi
   }
 }
 
-// Swap the stored OAuth pair. Returns false when there is nothing to swap.
-export function swapAccessTokens(): boolean {
-  const access = Application.getSecureState(ACCESS_TOKEN_KEY) as string | null;
-  const refresh = Application.getSecureState(REFRESH_TOKEN_KEY) as string | null;
-  if (!access || !refresh) return false;
+const clearAccessTokens = (): void => {
+  Application.setSecureState(null, ACCESS_TOKEN_KEY);
+  Application.setSecureState(null, REFRESH_TOKEN_KEY);
+};
 
-  Application.setSecureState(refresh, ACCESS_TOKEN_KEY);
-  Application.setSecureState(access, REFRESH_TOKEN_KEY);
-  return true;
+function getRefreshToken(): string | undefined {
+  const token = Application.getSecureState(REFRESH_TOKEN_KEY) as string | null;
+  return token ? String(token) : undefined;
 }
 
-// The API documents `session` alongside `oauth` and `pat` as a way to
-// authenticate, so the cookies a browser login leaves behind are kept and
-// replayed on the `/my/` endpoints.
-export function getSessionCookie(): string | undefined {
-  const cookie = Application.getSecureState(SESSION_KEY) as string | null;
-  return cookie ? String(cookie) : undefined;
+function hasSession(): boolean {
+  return Application.getSecureState(SESSION_KEY) === true;
 }
 
-export function setSessionCookies(cookies: Cookie[]): void {
-  const header = cookies
-    .filter((cookie) => cookie.domain.replace(/^\./, "").endsWith("mangabaka.org"))
-    .filter((cookie) => cookie.name && cookie.value)
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join("; ");
-
-  if (header) {
-    Application.setSecureState(header, SESSION_KEY);
-  }
+export function setSessionAuthenticated(): void {
+  Application.setSecureState(true, SESSION_KEY);
 }
 
 export function clearToken(): void {
   Application.setSecureState(null, TOKEN_KEY);
-  Application.setSecureState(null, ACCESS_TOKEN_KEY);
-  Application.setSecureState(null, REFRESH_TOKEN_KEY);
+  clearAccessTokens();
   Application.setSecureState(null, SESSION_KEY);
+  cookieStorage.cookies = [];
 }
 
 export function getRatingSteps(): number {
@@ -138,9 +136,7 @@ export function setRatingSteps(steps: number | null | undefined): void {
 }
 
 export function isAuthenticated(): boolean {
-  return (
-    getAccessToken() != undefined || getToken() != undefined || getSessionCookie() != undefined
-  );
+  return getAccessToken() != undefined || getToken() != undefined || hasSession();
 }
 
 // OAuth access tokens are bearer credentials; a personal access token is sent
@@ -158,15 +154,15 @@ function authHeaders(): Record<string, string> {
     return { "x-api-key": token };
   }
 
-  const session = getSessionCookie();
-  return session ? { cookie: session } : {};
+  return {};
 }
 
 export function assertAuthenticated(): Record<string, string> {
-  const headers = authHeaders();
-  if (Object.keys(headers).length === 0) {
+  if (!isAuthenticated()) {
     throw new Error("You are not authenticated, please log in through the MangaBaka settings");
   }
+
+  const headers = authHeaders();
   return headers;
 }
 
@@ -209,13 +205,21 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   needsAuth?: boolean;
+  headers?: Record<string, string>;
 }
 
-// Every endpoint answers `{ status, data }`; `data` is returned directly.
-export async function makeRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, needsAuth = false } = options;
+interface ScheduledResponse {
+  status: number;
+  text: string;
+}
 
-  const headers: Record<string, string> = { accept: "application/json" };
+const scheduleApiRequest = async (
+  path: string,
+  options: RequestOptions,
+): Promise<ScheduledResponse> => {
+  const { method = "GET", body, needsAuth = false, headers: suppliedHeaders } = options;
+
+  const headers: Record<string, string> = { accept: "application/json", ...suppliedHeaders };
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }
@@ -231,14 +235,85 @@ export async function makeRequest<T>(path: string, options: RequestOptions = {})
   };
 
   const [response, buffer] = await Application.scheduleRequest(request);
+  return { status: response.status, text: Application.arrayBufferToUTF8String(buffer) };
+};
+
+let refreshPromise: Promise<void> | undefined;
+
+const refreshAccessToken = async (): Promise<void> => {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    throw new MangaBakaError(401, "Your MangaBaka session expired, please sign in again");
+  }
+
+  const body = [
+    "grant_type=refresh_token",
+    `client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}`,
+    `refresh_token=${encodeURIComponent(refreshToken)}`,
+    `redirect_uri=${encodeURIComponent(OAUTH_REDIRECT_URI)}`,
+  ].join("&");
+  const [response, buffer] = await Application.scheduleRequest({
+    url: OAUTH_TOKEN_URL,
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
   const text = Application.arrayBufferToUTF8String(buffer);
 
   if (response.status < 200 || response.status >= 300) {
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      clearAccessTokens();
+      throw new MangaBakaError(401, "Your MangaBaka session expired, please sign in again");
+    }
     throw new MangaBakaError(response.status, errorMessage(response.status, text));
   }
-  if (!text) {
+
+  let tokens: OAuthTokenResponse;
+  try {
+    tokens = JSON.parse(text) as OAuthTokenResponse;
+  } catch {
+    clearAccessTokens();
+    throw new MangaBakaError(401, "MangaBaka did not return refreshed credentials");
+  }
+  if (!tokens.access_token) {
+    clearAccessTokens();
+    throw new MangaBakaError(401, "MangaBaka did not return a refreshed access token");
+  }
+  setAccessTokens(tokens.access_token, tokens.refresh_token ?? refreshToken);
+};
+
+const refreshOnce = async (): Promise<void> => {
+  if (refreshPromise == undefined) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = undefined;
+    });
+  }
+  await refreshPromise;
+};
+
+// Every API endpoint answers `{ status, data }`.
+export async function makeRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  let result = await scheduleApiRequest(path, options);
+
+  if (
+    options.needsAuth === true &&
+    (result.status === 401 || result.status === 403) &&
+    getAccessToken() != undefined &&
+    getRefreshToken() != undefined
+  ) {
+    await refreshOnce();
+    result = await scheduleApiRequest(path, options);
+  }
+
+  if (result.status < 200 || result.status >= 300) {
+    throw new MangaBakaError(result.status, errorMessage(result.status, result.text));
+  }
+  if (!result.text) {
     return undefined as T;
   }
 
-  return JSON.parse(text) as T;
+  return JSON.parse(result.text) as T;
 }

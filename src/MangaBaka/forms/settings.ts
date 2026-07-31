@@ -8,35 +8,27 @@ import {
   InputRow,
   LabelRow,
   NavigationRow,
-  OAuthButtonRow,
   Section,
   WebViewRow,
 } from "@paperback/types";
 
-import {
-  type Envelope,
-  LOGIN_URL,
-  OAUTH_AUTHORIZE_URL,
-  OAUTH_CLIENT_ID,
-  OAUTH_REDIRECT_URI,
-  OAUTH_SCOPES,
-  OAUTH_TOKEN_URL,
-  type Profile,
-} from "../models";
+import { type Envelope, LOGIN_URL, type Profile } from "../models";
 import {
   clearToken,
+  cookieStorage,
   isAuthenticated,
   makeRequest,
-  setAccessTokens,
   setRatingSteps,
-  setSessionCookies,
+  setSessionAuthenticated,
   setToken,
-  swapAccessTokens,
 } from "../network";
 
 // The web view row is hosted by the root form, which is the only place one is
 // known to work; pushed forms appear to render it inert.
 export class SettingsForm extends Form {
+  private token = "";
+  private error?: string;
+
   override getSections() {
     if (isAuthenticated()) {
       return [
@@ -51,6 +43,9 @@ export class SettingsForm extends Form {
     }
 
     return [
+      this.error == undefined
+        ? undefined
+        : Section("error", [LabelRow("error", { title: "Error", subtitle: this.error })]),
       Section(
         {
           id: "token",
@@ -61,9 +56,13 @@ export class SettingsForm extends Form {
         [
           InputRow("token", {
             title: "Access Token",
-            value: "",
+            value: this.token,
             isSecureEntry: true,
             onValueChange: Application.Selector(this as SettingsForm, "handleTokenChange"),
+          }),
+          ButtonRow("saveToken", {
+            title: "Save Access Token",
+            onSelect: Application.Selector(this as SettingsForm, "handleTokenSubmit"),
           }),
         ],
       ),
@@ -83,18 +82,24 @@ export class SettingsForm extends Form {
           }),
         ],
       ),
-      Section({ id: "oauth", footer: "Opens mangabaka.org to authorise this extension." }, [
-        NavigationRow("oauth", { title: "Log in with MangaBaka", form: new OAuthForm(this) }),
-      ]),
-    ];
-  }
-
-  reload(): void {
-    this.reloadForm();
+    ].filter((section) => section != undefined);
   }
 
   async handleWebViewLogin(cookies: Cookie[]): Promise<void> {
-    setSessionCookies(cookies);
+    for (const cookie of cookies) {
+      if (cookie.domain.replace(/^\./, "").endsWith("mangabaka.org")) {
+        cookieStorage.setCookie(cookie);
+      }
+    }
+
+    try {
+      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile");
+      setSessionAuthenticated();
+      setRatingSteps(response.data.rating_steps);
+      this.error = undefined;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    }
     this.reloadForm();
   }
 
@@ -103,54 +108,29 @@ export class SettingsForm extends Form {
   }
 
   async handleTokenChange(value: string): Promise<void> {
-    const token = value.trim();
+    this.token = value;
+  }
+
+  async handleTokenSubmit(): Promise<void> {
+    const token = this.token.trim();
     if (!token) return;
 
-    setToken(token);
+    try {
+      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", {
+        headers: { "x-api-key": token },
+      });
+      setToken(token);
+      setRatingSteps(response.data.rating_steps);
+      this.token = "";
+      this.error = undefined;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    }
     this.reloadForm();
   }
 
   async handleLogout(): Promise<void> {
     clearToken();
-    this.reloadForm();
-  }
-}
-
-// Hosts the login row and nothing else: no lifecycle hook and no request runs
-// here, so the form is inert while the login web view opens and closes over it.
-class OAuthForm extends Form {
-  private readonly parent: SettingsForm;
-
-  constructor(parent: SettingsForm) {
-    super();
-    this.parent = parent;
-  }
-
-  override getSections() {
-    return [
-      Section("login", [
-        OAuthButtonRow("oAuthButton", {
-          title: "Log in with MangaBaka",
-          clientId: OAUTH_CLIENT_ID,
-          authorizeEndpoint: OAUTH_AUTHORIZE_URL,
-          redirectUri: OAUTH_REDIRECT_URI,
-          scopes: OAUTH_SCOPES,
-          responseType: {
-            type: "pkce",
-            tokenEndpoint: OAUTH_TOKEN_URL,
-            pkceCodeLength: 64,
-            pkceCodeMethod: "S256",
-            formEncodeGrant: true,
-          },
-          onSuccess: Application.Selector(this as OAuthForm, "handleOAuthSuccess"),
-        }),
-      ]),
-    ];
-  }
-
-  async handleOAuthSuccess(first: string, second: string): Promise<void> {
-    setAccessTokens(first, second);
-    this.parent.reload();
     this.reloadForm();
   }
 }
@@ -167,17 +147,7 @@ class ProfileForm extends Form {
     try {
       await this.fetchProfile();
     } catch (error) {
-      // The host does not guarantee which OAuth token arrives first, so a
-      // rejected pair is retried the other way round before giving up.
-      if (swapAccessTokens()) {
-        try {
-          await this.fetchProfile();
-        } catch (retryError) {
-          this.error = retryError instanceof Error ? retryError.message : String(retryError);
-        }
-      } else {
-        this.error = error instanceof Error ? error.message : String(error);
-      }
+      this.error = error instanceof Error ? error.message : String(error);
     }
     this.reloadForm();
   }

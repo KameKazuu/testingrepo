@@ -21,20 +21,12 @@ export const PROGRESS_MAX = 10000;
 // asked for the same number so every row is the same length.
 export const DISCOVER_LIMIT = 20;
 
-// Endpoints come from https://mangabaka.org/.well-known/openid-configuration,
-// which advertises `code` as the only response type and `S256` as the only
-// code challenge method, so the authorization code flow below is the only one
-// on offer.
-export const OAUTH_AUTHORIZE_URL = "https://mangabaka.org/auth/oauth2/authorize";
+// Existing OAuth sessions reuse the registered public client when refreshing.
 export const OAUTH_TOKEN_URL = "https://mangabaka.org/auth/oauth2/token";
 export const OAUTH_CLIENT_ID = "GErkDQIdfFFQiBRlNmxgcDNFrQtrcHiE";
 export const OAUTH_REDIRECT_URI = "paperback://mangabaka-login";
-// `openid` is deliberately absent. Asking for it makes the token response
-// carry an identity token, and nothing here reads one: the library endpoints
-// authenticate with the access token alone.
-export const OAUTH_SCOPES = ["profile", "library.read", "library.write", "offline_access"];
 
-export const LOGIN_URL = `${DOMAIN}/login`;
+export const LOGIN_URL = `${DOMAIN}/auth`;
 
 // The library `state` values the API accepts, in the order they are offered.
 export const LIBRARY_STATES = [
@@ -217,4 +209,9 @@ export interface Profile {
   preferred_username?: string | null;
   auth_type?: string | null;
   rating_steps?: number | null;
+}
+
+export interface OAuthTokenResponse {
+  access_token: string;
+  refresh_token?: string | null;
 }

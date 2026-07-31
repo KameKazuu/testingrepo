@@ -7,12 +7,12 @@ export default {
   name: "MangaBaka",
   description:
     "Extension that integrates with mangabaka.org for tracking and collection management.",
-  version: "1.0.0-alpha.23",
+  version: "1.0.0-alpha.24",
   icon: "icon.png",
   language: "en",
   // The database covers every rating and the discover and search endpoints are
   // unfiltered by default, so suggestive and adult titles can appear.
-  contentRating: ContentRating.MATURE,
+  contentRating: ContentRating.ADULT,
   capabilities: [
     // Declared so the app will open a web view on this source's behalf; the
     // API sits behind the same edge as the site and the sign-in page is
