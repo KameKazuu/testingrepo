@@ -13,18 +13,18 @@ export const SESSION_KEY = "mangabaka-session";
 export const SEARCH_LIMIT = 20;
 export const SEARCH_MAX_PAGE = 100;
 
-// Endpoints come from https://mangabaka.org/.well-known/openid-configuration.
+// Endpoints come from https://mangabaka.org/.well-known/openid-configuration,
+// which advertises `code` as the only response type and `S256` as the only
+// code challenge method, so the authorization code flow below is the only one
+// on offer.
 export const OAUTH_AUTHORIZE_URL = "https://mangabaka.org/auth/oauth2/authorize";
 export const OAUTH_TOKEN_URL = "https://mangabaka.org/auth/oauth2/token";
 export const OAUTH_CLIENT_ID = "GErkDQIdfFFQiBRlNmxgcDNFrQtrcHiE";
 export const OAUTH_REDIRECT_URI = "paperback://mangabaka-login";
-export const OAUTH_SCOPES = [
-  "openid",
-  "profile",
-  "library.read",
-  "library.write",
-  "offline_access",
-];
+// `openid` is deliberately absent. Asking for it makes the token response
+// carry an identity token, and nothing here reads one: the library endpoints
+// authenticate with the access token alone.
+export const OAUTH_SCOPES = ["profile", "library.read", "library.write", "offline_access"];
 
 export const LOGIN_URL = `${DOMAIN}/login`;
 
