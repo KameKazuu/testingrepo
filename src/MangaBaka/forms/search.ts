@@ -5,11 +5,19 @@ import {
   AdvancedSearchForm,
   type Metadata,
   Section,
+  SelectRow,
   ToggleRow,
   TriStateSelectRow,
 } from "@paperback/types";
 
-import { CONTENT_RATINGS, type SearchFilters, SERIES_STATUSES, SERIES_TYPES } from "../models";
+import {
+  CONTENT_RATINGS,
+  type SearchFilters,
+  SERIES_STATUSES,
+  SERIES_TYPES,
+  TAG_MODES,
+  type TagOption,
+} from "../models";
 
 type TriState = Record<string, "included" | "excluded">;
 
@@ -27,13 +35,24 @@ const pickState = (record: TriState, state: "included" | "excluded"): string[] =
   Object.keys(record).filter((id) => record[id] === state);
 
 export class SearchFiltersForm extends AdvancedSearchForm {
+  private readonly genreItems: { id: string; title: string }[];
+  private readonly tagItems: { id: string; title: string }[];
+  private genres: TriState;
+  private tags: TriState;
+  private tagMode: string;
   private types: TriState;
   private statuses: TriState;
   private contentRatings: TriState;
   private licensedOnly: boolean;
 
-  constructor(filters: SearchFilters) {
+  constructor(filters: SearchFilters, tagOptions: TagOption[]) {
     super();
+    const strip = ({ id, title }: TagOption) => ({ id, title });
+    this.genreItems = tagOptions.filter((tag) => tag.isGenre).map(strip);
+    this.tagItems = tagOptions.filter((tag) => !tag.isGenre).map(strip);
+    this.genres = toTriState(filters.genres, filters.excludeGenres);
+    this.tags = toTriState(filters.tags, filters.excludeTags);
+    this.tagMode = filters.tagMode ?? "and";
     this.types = toTriState(filters.types, filters.excludeTypes);
     this.statuses = toTriState(filters.statuses, filters.excludeStatuses);
     this.contentRatings = toTriState(filters.contentRatings, filters.excludeContentRatings);
@@ -42,6 +61,43 @@ export class SearchFiltersForm extends AdvancedSearchForm {
 
   override getSections() {
     return [
+      // Both lists are empty when the tag vocabulary could not be fetched, and
+      // an empty row is worse than no row.
+      Section({ id: "genre", footer: "Tap once to require a genre, twice to exclude it." }, [
+        TriStateSelectRow("genres", {
+          title: "Genres",
+          layout: "flow",
+          value: this.genres,
+          items: this.genreItems,
+          allowExclusion: true,
+          allowEmptySelection: true,
+          isHidden: this.genreItems.length === 0,
+          onValueChange: Application.Selector(this as SearchFiltersForm, "handleGenresChange"),
+        }),
+      ]),
+      Section({ id: "tag", footer: "Tap once to require a tag, twice to exclude it." }, [
+        TriStateSelectRow("tags", {
+          title: "Tags",
+          layout: "list",
+          value: this.tags,
+          items: this.tagItems,
+          allowExclusion: true,
+          allowEmptySelection: true,
+          isHidden: this.tagItems.length === 0,
+          onValueChange: Application.Selector(this as SearchFiltersForm, "handleTagsChange"),
+        }),
+        SelectRow("tagMode", {
+          title: "Match",
+          subtitle: "How required genres and tags are combined",
+          value: [this.tagMode],
+          layout: "list",
+          items: TAG_MODES,
+          minItemCount: 1,
+          maxItemCount: 1,
+          isHidden: this.genreItems.length === 0 && this.tagItems.length === 0,
+          onValueChange: Application.Selector(this as SearchFiltersForm, "handleTagModeChange"),
+        }),
+      ]),
       Section({ id: "type", footer: "Tap once to require a type, twice to exclude it." }, [
         TriStateSelectRow("types", {
           title: "Type",
@@ -93,6 +149,21 @@ export class SearchFiltersForm extends AdvancedSearchForm {
 
   // A tri-state row renders its parent-side summary once, when the section is
   // built, so the form has to be rebuilt for the new selection to show.
+  async handleGenresChange(value: TriState): Promise<void> {
+    this.genres = value;
+    this.reloadForm();
+  }
+
+  async handleTagsChange(value: TriState): Promise<void> {
+    this.tags = value;
+    this.reloadForm();
+  }
+
+  async handleTagModeChange(value: string[]): Promise<void> {
+    this.tagMode = value[0] ?? "and";
+    this.reloadForm();
+  }
+
   async handleTypesChange(value: TriState): Promise<void> {
     this.types = value;
     this.reloadForm();
@@ -120,6 +191,11 @@ export class SearchFiltersForm extends AdvancedSearchForm {
       }
     };
 
+    assign("genres", pickState(this.genres, "included"));
+    assign("excludeGenres", pickState(this.genres, "excluded"));
+    assign("tags", pickState(this.tags, "included"));
+    assign("excludeTags", pickState(this.tags, "excluded"));
+    if (this.tagMode !== "and") filters.tagMode = this.tagMode;
     assign("types", pickState(this.types, "included"));
     assign("excludeTypes", pickState(this.types, "excluded"));
     assign("statuses", pickState(this.statuses, "included"));

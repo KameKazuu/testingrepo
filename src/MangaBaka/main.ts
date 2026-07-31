@@ -37,8 +37,10 @@ import {
   type SearchFilters,
   type Series,
   SORT_OPTIONS,
+  type TagOption,
 } from "./models";
 import {
+  getTagOptions,
   isAuthenticated,
   MangaBakaError,
   MangaBakaInterceptor,
@@ -154,7 +156,14 @@ export class MangaBakaExtension
   }
 
   async getAdvancedSearchForm(query: SearchQuery<Metadata>): Promise<SearchFiltersForm> {
-    return new SearchFiltersForm(readFilters(query));
+    let tagOptions: TagOption[] = [];
+    try {
+      tagOptions = await getTagOptions();
+    } catch {
+      // The rest of the filters are worth offering on their own.
+    }
+
+    return new SearchFiltersForm(readFilters(query), tagOptions);
   }
 
   async getSearchResults(
@@ -174,6 +183,17 @@ export class MangaBakaExtension
     }
     if (sortingOption) {
       params.push(`sort_by=${sortingOption.id}`);
+    }
+    // Genres and tags are the same thing to the endpoint, so the two rows
+    // collapse back into one pair of parameters here.
+    const includedTags = [...(filters.genres ?? []), ...(filters.tags ?? [])];
+    appendAll(params, "tag", includedTags);
+    appendAll(params, "tag_not", [
+      ...(filters.excludeGenres ?? []),
+      ...(filters.excludeTags ?? []),
+    ]);
+    if (filters.tagMode && includedTags.length > 1) {
+      params.push(`tag_mode=${filters.tagMode}`);
     }
     appendAll(params, "type", filters.types);
     appendAll(params, "type_not", filters.excludeTypes);

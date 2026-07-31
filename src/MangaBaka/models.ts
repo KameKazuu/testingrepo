@@ -8,6 +8,7 @@ export const TOKEN_KEY = "mangabaka-token";
 export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
 export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
 export const SESSION_KEY = "mangabaka-session";
+export const TAGS_CACHE_KEY = "mangabaka-tags";
 
 // The search endpoint caps `limit` at 100 and `page` at 100.
 export const SEARCH_LIMIT = 20;
@@ -68,6 +69,11 @@ export const SERIES_STATUSES = [
   { id: "unknown", title: "Unknown" },
 ];
 
+export const TAG_MODES = [
+  { id: "and", title: "Match All" },
+  { id: "or", title: "Match Any" },
+];
+
 export const CONTENT_RATINGS = [
   { id: "safe", title: "Safe" },
   { id: "suggestive", title: "Suggestive" },
@@ -102,6 +108,14 @@ export const SORT_OPTIONS = [
 // filter the endpoint takes has a matching negative form, so each one is kept
 // as an included and an excluded list.
 export type SearchFilters = {
+  // Genres are tags carrying `is_genre`, and both are filtered through the
+  // same pair of parameters; they are kept apart only so the form can offer
+  // them as two lists.
+  genres?: string[];
+  excludeGenres?: string[];
+  tags?: string[];
+  excludeTags?: string[];
+  tagMode?: string;
   types?: string[];
   excludeTypes?: string[];
   statuses?: string[];
@@ -140,6 +154,22 @@ export interface SeriesCover {
   x150?: string | null;
   x250?: string | null;
   x350?: string | null;
+}
+
+// A row of `/v1/tags`. Names are documented as unstable, so the numeric id is
+// what the search parameters are given.
+export interface TagDefinition {
+  id: number;
+  name: string;
+  is_genre?: boolean | null;
+  merged_with?: number | null;
+  series_count?: number | null;
+}
+
+export interface TagOption {
+  id: string;
+  title: string;
+  isGenre: boolean;
 }
 
 export interface SeriesTag {
