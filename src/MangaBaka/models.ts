@@ -95,11 +95,16 @@ export const SORT_OPTIONS = [
   { id: "random", label: "Random" },
 ];
 
-// Carried in `SearchQuery.metadata`, so it has to stay plain JSON.
+// Carried in `SearchQuery.metadata`, so it has to stay plain JSON. Every
+// filter the endpoint takes has a matching negative form, so each one is kept
+// as an included and an excluded list.
 export type SearchFilters = {
   types?: string[];
+  excludeTypes?: string[];
   statuses?: string[];
+  excludeStatuses?: string[];
   contentRatings?: string[];
+  excludeContentRatings?: string[];
   licensedOnly?: boolean;
 };
 

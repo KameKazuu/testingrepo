@@ -163,8 +163,12 @@ export class MangaBakaExtension
       params.push(`sort_by=${sortingOption.id}`);
     }
     appendAll(params, "type", filters.types);
+    appendAll(params, "type_not", filters.excludeTypes);
     appendAll(params, "status", filters.statuses);
+    appendAll(params, "status_not", filters.excludeStatuses);
     appendAll(params, "content_rating", filters.contentRatings);
+    // The negative form of this one is spelled the other way round.
+    appendAll(params, "not_content_rating", filters.excludeContentRatings);
     if (filters.licensedOnly) {
       params.push("is_licensed=true");
     }

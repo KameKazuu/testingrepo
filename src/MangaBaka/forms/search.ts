@@ -1,52 +1,77 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { AdvancedSearchForm, type Metadata, Section, SelectRow, ToggleRow } from "@paperback/types";
+import {
+  AdvancedSearchForm,
+  type Metadata,
+  Section,
+  ToggleRow,
+  TriStateSelectRow,
+} from "@paperback/types";
 
 import { CONTENT_RATINGS, type SearchFilters, SERIES_STATUSES, SERIES_TYPES } from "../models";
 
+type TriState = Record<string, "included" | "excluded">;
+
+// Metadata keeps include/exclude as two id arrays, which is the shape the
+// search endpoint's paired parameters want; the tri-state rows edit them as
+// one record.
+const toTriState = (included?: string[], excluded?: string[]): TriState => {
+  const record: TriState = {};
+  for (const id of included ?? []) record[id] = "included";
+  for (const id of excluded ?? []) record[id] = "excluded";
+  return record;
+};
+
+const pickState = (record: TriState, state: "included" | "excluded"): string[] =>
+  Object.keys(record).filter((id) => record[id] === state);
+
 export class SearchFiltersForm extends AdvancedSearchForm {
-  private types: string[];
-  private statuses: string[];
-  private contentRatings: string[];
+  private types: TriState;
+  private statuses: TriState;
+  private contentRatings: TriState;
   private licensedOnly: boolean;
 
   constructor(filters: SearchFilters) {
     super();
-    this.types = filters.types ?? [];
-    this.statuses = filters.statuses ?? [];
-    this.contentRatings = filters.contentRatings ?? [];
+    this.types = toTriState(filters.types, filters.excludeTypes);
+    this.statuses = toTriState(filters.statuses, filters.excludeStatuses);
+    this.contentRatings = toTriState(filters.contentRatings, filters.excludeContentRatings);
     this.licensedOnly = filters.licensedOnly ?? false;
   }
 
   override getSections() {
     return [
-      Section({ id: "type", footer: "Leave a filter empty to include everything" }, [
-        SelectRow("types", {
+      Section({ id: "type", footer: "Tap once to require a type, twice to exclude it." }, [
+        TriStateSelectRow("types", {
           title: "Type",
-          value: this.types,
           layout: "flow",
+          value: this.types,
           items: SERIES_TYPES,
-          minItemCount: 0,
-          maxItemCount: SERIES_TYPES.length,
+          allowExclusion: true,
+          allowEmptySelection: true,
           onValueChange: Application.Selector(this as SearchFiltersForm, "handleTypesChange"),
         }),
-        SelectRow("statuses", {
+      ]),
+      Section({ id: "status", footer: "Tap once to require a status, twice to exclude it." }, [
+        TriStateSelectRow("statuses", {
           title: "Status",
-          value: this.statuses,
           layout: "flow",
+          value: this.statuses,
           items: SERIES_STATUSES,
-          minItemCount: 0,
-          maxItemCount: SERIES_STATUSES.length,
+          allowExclusion: true,
+          allowEmptySelection: true,
           onValueChange: Application.Selector(this as SearchFiltersForm, "handleStatusesChange"),
         }),
-        SelectRow("contentRatings", {
+      ]),
+      Section({ id: "rating", footer: "Tap once to require a rating, twice to exclude it." }, [
+        TriStateSelectRow("contentRatings", {
           title: "Content Rating",
-          value: this.contentRatings,
           layout: "flow",
+          value: this.contentRatings,
           items: CONTENT_RATINGS,
-          minItemCount: 0,
-          maxItemCount: CONTENT_RATINGS.length,
+          allowExclusion: true,
+          allowEmptySelection: true,
           onValueChange: Application.Selector(
             this as SearchFiltersForm,
             "handleContentRatingsChange",
@@ -66,19 +91,19 @@ export class SearchFiltersForm extends AdvancedSearchForm {
     ];
   }
 
-  // A select row renders its parent-side summary once, when the section is
+  // A tri-state row renders its parent-side summary once, when the section is
   // built, so the form has to be rebuilt for the new selection to show.
-  async handleTypesChange(value: string[]): Promise<void> {
+  async handleTypesChange(value: TriState): Promise<void> {
     this.types = value;
     this.reloadForm();
   }
 
-  async handleStatusesChange(value: string[]): Promise<void> {
+  async handleStatusesChange(value: TriState): Promise<void> {
     this.statuses = value;
     this.reloadForm();
   }
 
-  async handleContentRatingsChange(value: string[]): Promise<void> {
+  async handleContentRatingsChange(value: TriState): Promise<void> {
     this.contentRatings = value;
     this.reloadForm();
   }
@@ -89,9 +114,18 @@ export class SearchFiltersForm extends AdvancedSearchForm {
 
   override getSearchQueryMetadata(): Metadata {
     const filters: SearchFilters = {};
-    if (this.types.length > 0) filters.types = this.types;
-    if (this.statuses.length > 0) filters.statuses = this.statuses;
-    if (this.contentRatings.length > 0) filters.contentRatings = this.contentRatings;
+    const assign = (key: keyof SearchFilters, ids: string[]): void => {
+      if (ids.length > 0) {
+        (filters[key] as string[]) = ids;
+      }
+    };
+
+    assign("types", pickState(this.types, "included"));
+    assign("excludeTypes", pickState(this.types, "excluded"));
+    assign("statuses", pickState(this.statuses, "included"));
+    assign("excludeStatuses", pickState(this.statuses, "excluded"));
+    assign("contentRatings", pickState(this.contentRatings, "included"));
+    assign("excludeContentRatings", pickState(this.contentRatings, "excluded"));
     if (this.licensedOnly) filters.licensedOnly = true;
 
     return filters;
