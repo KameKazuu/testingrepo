@@ -149,6 +149,7 @@ export class ProgressForm extends Form {
 
   async handleStateChange(value: string[]): Promise<void> {
     this.entry!.state = value[0] ?? "reading";
+    this.reloadForm();
   }
 
   async handleChapterChange(value: number): Promise<void> {

@@ -66,16 +66,21 @@ export class SearchFiltersForm extends AdvancedSearchForm {
     ];
   }
 
+  // A select row renders its parent-side summary once, when the section is
+  // built, so the form has to be rebuilt for the new selection to show.
   async handleTypesChange(value: string[]): Promise<void> {
     this.types = value;
+    this.reloadForm();
   }
 
   async handleStatusesChange(value: string[]): Promise<void> {
     this.statuses = value;
+    this.reloadForm();
   }
 
   async handleContentRatingsChange(value: string[]): Promise<void> {
     this.contentRatings = value;
+    this.reloadForm();
   }
 
   async handleLicensedOnlyChange(value: boolean): Promise<void> {
