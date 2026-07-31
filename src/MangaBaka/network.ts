@@ -1,12 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import {
-  CookieStorageInterceptor,
-  PaperbackInterceptor,
-  type Request,
-  type Response,
-} from "@paperback/types";
+import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
 
 import {
   ACCESS_TOKEN_KEY,
@@ -21,12 +16,9 @@ import {
   type OAuthTokenResponse,
   RATING_STEPS_KEY,
   REFRESH_TOKEN_KEY,
-  SESSION_KEY,
   type TagDefinition,
   TOKEN_KEY,
 } from "./models";
-
-export const cookieStorage = new CookieStorageInterceptor({ storage: "stateManager" });
 
 export class MangaBakaInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
@@ -80,19 +72,9 @@ function getRefreshToken(): string | undefined {
   return token ? String(token) : undefined;
 }
 
-function hasSession(): boolean {
-  return Application.getSecureState(SESSION_KEY) === true;
-}
-
-export function setSessionAuthenticated(): void {
-  Application.setSecureState(true, SESSION_KEY);
-}
-
 export function clearToken(): void {
   Application.setSecureState(null, TOKEN_KEY);
   clearAccessTokens();
-  Application.setSecureState(null, SESSION_KEY);
-  cookieStorage.cookies = [];
 }
 
 export function getRatingSteps(): number {
@@ -136,7 +118,7 @@ export function setRatingSteps(steps: number | null | undefined): void {
 }
 
 export function isAuthenticated(): boolean {
-  return getAccessToken() != undefined || getToken() != undefined || hasSession();
+  return getAccessToken() != undefined || getToken() != undefined;
 }
 
 // OAuth access tokens are bearer credentials; a personal access token is sent

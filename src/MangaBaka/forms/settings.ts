@@ -3,28 +3,32 @@
 
 import {
   ButtonRow,
-  type Cookie,
   Form,
   InputRow,
   LabelRow,
   NavigationRow,
+  OAuthButtonRow,
   Section,
-  WebViewRow,
 } from "@paperback/types";
 
-import { type Envelope, LOGIN_URL, type Profile } from "../models";
+import {
+  type Envelope,
+  OAUTH_AUTHORIZE_URL,
+  OAUTH_CLIENT_ID,
+  OAUTH_REDIRECT_URI,
+  OAUTH_SCOPES,
+  OAUTH_TOKEN_URL,
+  type Profile,
+} from "../models";
 import {
   clearToken,
-  cookieStorage,
   isAuthenticated,
   makeRequest,
+  setAccessTokens,
   setRatingSteps,
-  setSessionAuthenticated,
   setToken,
 } from "../network";
 
-// The web view row is hosted by the root form, which is the only place one is
-// known to work; pushed forms appear to render it inert.
 export class SettingsForm extends Form {
   private token = "";
   private error?: string;
@@ -68,42 +72,34 @@ export class SettingsForm extends Form {
       ),
       Section(
         {
-          id: "browser",
-          header: "Browser Login",
-          footer: "Sign in on mangabaka.org and the session is reused for your library.",
+          id: "oauth",
+          header: "MangaBaka Login",
+          footer: "Sign in on mangabaka.org and allow Paperback to update your library.",
         },
         [
-          WebViewRow("webViewLogin", {
+          OAuthButtonRow("oauthLogin", {
             title: "Log In",
-            request: { url: LOGIN_URL, method: "GET" },
-            isHidden: false,
-            onComplete: Application.Selector(this as SettingsForm, "handleWebViewLogin"),
-            onCancel: Application.Selector(this as SettingsForm, "handleWebViewCancel"),
+            authorizeEndpoint: OAUTH_AUTHORIZE_URL,
+            clientId: OAUTH_CLIENT_ID,
+            redirectUri: OAUTH_REDIRECT_URI,
+            scopes: OAUTH_SCOPES,
+            responseType: {
+              type: "pkce",
+              tokenEndpoint: OAUTH_TOKEN_URL,
+              pkceCodeLength: 64,
+              pkceCodeMethod: "S256",
+              formEncodeGrant: true,
+            },
+            onSuccess: Application.Selector(this as SettingsForm, "handleOAuthSuccess"),
           }),
         ],
       ),
     ].filter((section) => section != undefined);
   }
 
-  async handleWebViewLogin(cookies: Cookie[]): Promise<void> {
-    for (const cookie of cookies) {
-      if (cookie.domain.replace(/^\./, "").endsWith("mangabaka.org")) {
-        cookieStorage.setCookie(cookie);
-      }
-    }
-
-    try {
-      const response = await makeRequest<Envelope<Profile>>("/v1/my/profile");
-      setSessionAuthenticated();
-      setRatingSteps(response.data.rating_steps);
-      this.error = undefined;
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-    }
-    this.reloadForm();
-  }
-
-  async handleWebViewCancel(): Promise<void> {
+  async handleOAuthSuccess(accessToken: string, refreshToken: string): Promise<void> {
+    setAccessTokens(accessToken, refreshToken);
+    this.error = undefined;
     this.reloadForm();
   }
 

@@ -66,9 +66,9 @@
       "description": "Extension that integrates with mangabaka.org for tracking and collection management.",
       "website": "https://mangabaka.org",
       "author": "PoppingMango",
-      "contentRating": "MATURE",
+      "contentRating": "ADULT",
       "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/MangaBaka/static/icon.png",
-      "version": "1.0.0-alpha.23",
+      "version": "1.0.0-alpha.25",
       "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/MangaBaka",
       "repository": "https://github.com/PoppingMango/PoppingMango-Source"
     },

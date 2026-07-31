@@ -7,7 +7,6 @@ export const API_URL = "https://api.mangabaka.org";
 export const TOKEN_KEY = "mangabaka-token";
 export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
 export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
-export const SESSION_KEY = "mangabaka-session";
 export const GENRES_CACHE_KEY = "mangabaka-genres";
 
 // The search endpoint caps `limit` at 100 and `page` at 100.
@@ -21,12 +20,17 @@ export const PROGRESS_MAX = 10000;
 // asked for the same number so every row is the same length.
 export const DISCOVER_LIMIT = 20;
 
-// Existing OAuth sessions reuse the registered public client when refreshing.
+export const OAUTH_AUTHORIZE_URL = "https://mangabaka.org/auth/oauth2/authorize";
 export const OAUTH_TOKEN_URL = "https://mangabaka.org/auth/oauth2/token";
 export const OAUTH_CLIENT_ID = "GErkDQIdfFFQiBRlNmxgcDNFrQtrcHiE";
 export const OAUTH_REDIRECT_URI = "paperback://mangabaka-login";
-
-export const LOGIN_URL = `${DOMAIN}/auth`;
+export const OAUTH_SCOPES = [
+  "openid",
+  "profile",
+  "library.read",
+  "library.write",
+  "offline_access",
+];
 
 // The library `state` values the API accepts, in the order they are offered.
 export const LIBRARY_STATES = [

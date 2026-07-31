@@ -3,10 +3,8 @@
 
 import {
   BasicRateLimiter,
-  type Cookie,
   type Chapter,
   type ChapterReadActionQueueProcessingResult,
-  type CloudflareBypassRequestProviding,
   type DiscoverSection,
   type DiscoverSectionItem,
   DiscoverSectionType,
@@ -18,7 +16,6 @@ import {
   type MangaProgressProviding,
   type Metadata,
   type PagedResults,
-  type Request,
   type SearchQuery,
   type SearchResultItem,
   type SearchResultsProviding,
@@ -49,7 +46,6 @@ import {
   MangaBakaError,
   MangaBakaInterceptor,
   makeRequest,
-  cookieStorage,
   shouldRetryLater,
 } from "./network";
 import {
@@ -194,7 +190,6 @@ function toDiscoverItem(series: Series, section: DiscoverSection): DiscoverSecti
 export class MangaBakaExtension
   implements
     Extension,
-    CloudflareBypassRequestProviding,
     DiscoverSectionProviding,
     MangaProgressProviding,
     SearchResultsProviding,
@@ -211,20 +206,11 @@ export class MangaBakaExtension
 
   async initialise(): Promise<void> {
     this.mainRateLimiter.registerInterceptor();
-    cookieStorage.registerInterceptor();
     this.mainInterceptor.registerInterceptor();
   }
 
   async getSettingsForm(): Promise<Form> {
     return new SettingsForm();
-  }
-
-  async cloudflareBypassCompleted(_request: Request, cookies: Cookie[]): Promise<void> {
-    for (const cookie of cookies) {
-      if (cookie.domain.replace(/^\./, "").endsWith("mangabaka.org")) {
-        cookieStorage.setCookie(cookie);
-      }
-    }
   }
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
