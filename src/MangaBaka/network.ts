@@ -12,8 +12,7 @@ import {
   REFRESH_TOKEN_KEY,
   SESSION_KEY,
   type TagDefinition,
-  type TagOption,
-  TAGS_CACHE_KEY,
+  GENRES_CACHE_KEY,
   TOKEN_KEY,
   type Envelope,
 } from "./models";
@@ -107,38 +106,28 @@ export function hasRatingSteps(): boolean {
   return typeof Application.getState(RATING_STEPS_KEY) === "number";
 }
 
-function byTitle(left: string, right: string): number {
-  const a = left.toLowerCase();
-  const b = right.toLowerCase();
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-// The whole tag vocabulary, kept between searches because it is a public,
-// cached list that changes about as often as the catalog schema does.
-export async function getTagOptions(): Promise<TagOption[]> {
-  const cached = Application.getState(TAGS_CACHE_KEY) as TagOption[] | undefined;
+// Genres are the tags carrying `is_genre`. The list is public, cached, and
+// changes about as often as the catalog schema does, so it is kept.
+export async function getGenreOptions(): Promise<{ id: string; title: string }[]> {
+  const cached = Application.getState(GENRES_CACHE_KEY) as
+    | { id: string; title: string }[]
+    | undefined;
   if (cached != undefined && cached.length > 0) return cached;
 
   const response = await makeRequest<Envelope<TagDefinition[]>>("/v1/tags");
   const options = (response.data ?? [])
     // A merged tag's id no longer matches anything.
-    .filter((tag) => tag.merged_with == undefined && tag.name)
-    .map((tag) => ({
-      id: String(tag.id),
-      title: tag.name,
-      isGenre: tag.is_genre === true,
-      count: tag.series_count ?? 0,
-    }))
-    // Genres read best alphabetically; the long tag tail is most useful with
-    // the widely used ones first. Compared directly rather than through
-    // `localeCompare`, which leans on a collator the runtime may not carry.
+    .filter((tag) => tag.is_genre === true && tag.merged_with == undefined && tag.name)
+    .map((tag) => ({ id: String(tag.id), title: tag.name }))
+    // Compared directly rather than through `localeCompare`, which leans on a
+    // collator the runtime may not carry.
     .sort((left, right) => {
-      if (left.isGenre && right.isGenre) return byTitle(left.title, right.title);
-      return right.count - left.count || byTitle(left.title, right.title);
-    })
-    .map(({ id, title, isGenre }) => ({ id, title, isGenre }));
+      const a = left.title.toLowerCase();
+      const b = right.title.toLowerCase();
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
 
-  Application.setState(options, TAGS_CACHE_KEY);
+  Application.setState(options, GENRES_CACHE_KEY);
   return options;
 }
 

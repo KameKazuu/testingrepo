@@ -10,6 +10,7 @@ import {
   DiscoverSectionType,
   type DiscoverSectionProviding,
   type Extension,
+  type FeaturedCarouselItem,
   type Form,
   type MangaProgress,
   type MangaProgressProviding,
@@ -28,6 +29,7 @@ import { ProgressForm } from "./forms/progress";
 import { SearchFiltersForm } from "./forms/search";
 import { SettingsForm } from "./forms/settings";
 import {
+  DISCOVER_LIMIT,
   type Envelope,
   type LibraryEntry,
   type PagedEnvelope,
@@ -37,10 +39,9 @@ import {
   type SearchFilters,
   type Series,
   SORT_OPTIONS,
-  type TagOption,
 } from "./models";
 import {
-  getTagOptions,
+  getGenreOptions,
   isAuthenticated,
   MangaBakaError,
   MangaBakaInterceptor,
@@ -48,21 +49,48 @@ import {
   shouldRetryLater,
 } from "./network";
 import {
+  chaptersLabel,
   contentRatingFor,
   parseSourceManga,
+  ratingLabel,
   seriesSubtitle,
   seriesThumbnail,
   seriesTitle,
+  statusLabel,
+  typeLabel,
+  volumesLabel,
 } from "./parsers";
 
-// Only the dedicated discover endpoints are used, and they are called without
-// query parameters so every extension shares one cache key. Search is kept out
-// of discover: its 30/min budget belongs to the user's own searches, and unlike
-// these endpoints it is not known to be cached.
 const DISCOVER_SECTIONS: DiscoverSection[] = [
-  { id: "rising", title: "Rising", type: DiscoverSectionType.featured },
+  { id: "popular", title: "Popular", type: DiscoverSectionType.featured },
+  { id: "trending", title: "Trending", type: DiscoverSectionType.prominentCarousel },
+  { id: "rising", title: "Rising", type: DiscoverSectionType.simpleCarousel },
+  { id: "latest", title: "Latest", type: DiscoverSectionType.simpleCarousel },
+  { id: "new-releases", title: "New Releases", type: DiscoverSectionType.simpleCarousel },
   { id: "hidden-gems", title: "Hidden Gems", type: DiscoverSectionType.prominentCarousel },
 ];
+
+// Two rows come from endpoints dedicated to them; the rest are fixed searches.
+// Every one of these is a constant URL, so they all share a cache key across
+// installs rather than spending anyone's search budget.
+const DISCOVER_PATHS: Record<string, string> = {
+  // Popularity is a rank where one is the most popular.
+  popular: `/v2/series/search?sort_by=popularity_asc&limit=${DISCOVER_LIMIT}`,
+  trending: `/v2/series/search?sort_by=trending_7d&limit=${DISCOVER_LIMIT}`,
+  rising: "/v2/series/discover/rising",
+  latest: `/v2/series/search?sort_by=latest&limit=${DISCOVER_LIMIT}`,
+  "new-releases": `/v2/series/search?sort_by=published_start_date_desc&limit=${DISCOVER_LIMIT}`,
+  "hidden-gems": "/v2/series/discover/hidden-gems",
+};
+
+// What each row shows beneath the title.
+const DISCOVER_DETAILS: Record<string, "volumes" | "status"> = {
+  trending: "volumes",
+  rising: "volumes",
+  latest: "status",
+  "new-releases": "volumes",
+  "hidden-gems": "volumes",
+};
 
 // The filter form hands its selection back through the query metadata, which
 // the app carries across pages for us.
@@ -95,7 +123,31 @@ function toSearchResultItem(series: Series): SearchResultItem {
   };
 }
 
-function toDiscoverItem(series: Series, sectionType: DiscoverSectionType): DiscoverSectionItem {
+// At most two facts fit on a featured card, so it gets the chapter count and
+// the rating.
+function featuredInfoItems(series: Series): FeaturedCarouselItem["infoItems"] {
+  const pills: { symbol: string; text: string }[] = [];
+
+  const chapters = chaptersLabel(series);
+  if (chapters) pills.push({ symbol: "book.fill", text: chapters });
+
+  const rating = ratingLabel(series);
+  if (rating) pills.push({ symbol: "star.fill", text: rating });
+
+  if (pills.length === 0) return undefined;
+  return pills.length === 1 ? [pills[0]!] : [pills[0]!, pills[1]!];
+}
+
+function detailSubtitle(series: Series, detail: "volumes" | "status"): string | undefined {
+  const parts = [
+    chaptersLabel(series),
+    detail === "volumes" ? volumesLabel(series) : statusLabel(series),
+  ].filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? parts.join(" • ") : undefined;
+}
+
+function toDiscoverItem(series: Series, section: DiscoverSection): DiscoverSectionItem {
   const base = {
     mangaId: String(series.id),
     title: seriesTitle(series),
@@ -103,20 +155,23 @@ function toDiscoverItem(series: Series, sectionType: DiscoverSectionType): Disco
     contentRating: contentRatingFor(series),
   };
 
-  if (sectionType === DiscoverSectionType.featured) {
+  if (section.type === DiscoverSectionType.featured) {
     return {
       ...base,
       type: "featuredCarouselItem",
-      supertitle: seriesSubtitle(series),
+      supertitle: typeLabel(series),
       summary: series.description ?? undefined,
+      infoItems: featuredInfoItems(series),
     };
   }
 
-  if (sectionType === DiscoverSectionType.prominentCarousel) {
-    return { ...base, type: "prominentCarouselItem", subtitle: seriesSubtitle(series) };
+  const subtitle = detailSubtitle(series, DISCOVER_DETAILS[section.id] ?? "volumes");
+
+  if (section.type === DiscoverSectionType.prominentCarousel) {
+    return { ...base, type: "prominentCarouselItem", subtitle };
   }
 
-  return { ...base, type: "simpleCarouselItem", subtitle: seriesSubtitle(series) };
+  return { ...base, type: "simpleCarouselItem", subtitle };
 }
 
 export class MangaBakaExtension
@@ -156,14 +211,14 @@ export class MangaBakaExtension
   }
 
   async getAdvancedSearchForm(query: SearchQuery<Metadata>): Promise<SearchFiltersForm> {
-    let tagOptions: TagOption[] = [];
+    let genreOptions: { id: string; title: string }[] = [];
     try {
-      tagOptions = await getTagOptions();
+      genreOptions = await getGenreOptions();
     } catch {
       // The rest of the filters are worth offering on their own.
     }
 
-    return new SearchFiltersForm(readFilters(query), tagOptions);
+    return new SearchFiltersForm(readFilters(query), genreOptions);
   }
 
   async getSearchResults(
@@ -184,15 +239,11 @@ export class MangaBakaExtension
     if (sortingOption) {
       params.push(`sort_by=${sortingOption.id}`);
     }
-    // Genres and tags are the same thing to the endpoint, so the two rows
-    // collapse back into one pair of parameters here.
-    const includedTags = [...(filters.genres ?? []), ...(filters.tags ?? [])];
-    appendAll(params, "tag", includedTags);
-    appendAll(params, "tag_not", [
-      ...(filters.excludeGenres ?? []),
-      ...(filters.excludeTags ?? []),
-    ]);
-    if (filters.tagMode && includedTags.length > 1) {
+    // Genres are tags to the endpoint.
+    const includedGenres = filters.genres ?? [];
+    appendAll(params, "tag", includedGenres);
+    appendAll(params, "tag_not", filters.excludeGenres);
+    if (filters.tagMode && includedGenres.length > 1) {
       params.push(`tag_mode=${filters.tagMode}`);
     }
     appendAll(params, "type", filters.types);
@@ -223,12 +274,13 @@ export class MangaBakaExtension
   async getDiscoverSectionItems(
     section: DiscoverSection,
   ): Promise<PagedResults<DiscoverSectionItem>> {
-    // Called without parameters so the response stays cacheable; these
-    // endpoints return a fixed-size list and do not paginate.
-    const response = await makeRequest<Envelope<Series[]>>(`/v2/series/discover/${section.id}`);
+    const path = DISCOVER_PATHS[section.id];
+    if (path == undefined) return { items: [] };
+
+    const response = await makeRequest<PagedEnvelope<Series>>(path);
 
     return {
-      items: (response.data ?? []).map((series) => toDiscoverItem(series, section.type)),
+      items: (response.data ?? []).map((series) => toDiscoverItem(series, section)),
     };
   }
 

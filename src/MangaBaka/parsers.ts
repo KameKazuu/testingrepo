@@ -24,7 +24,7 @@ export function seriesThumbnail(series: Series): string {
 export function seriesSubtitle(series: Series): string | undefined {
   const parts = [series.type, series.status]
     .filter((value): value is string => Boolean(value))
-    .map((value) => value.charAt(0).toUpperCase() + value.slice(1));
+    .map(capitalise);
 
   return parts.length > 0 ? parts.join(" • ") : undefined;
 }
@@ -39,6 +39,38 @@ export function contentRatingFor(series: Series): ContentRating {
     default:
       return ContentRating.EVERYONE;
   }
+}
+
+function capitalise(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+export function typeLabel(series: Series): string | undefined {
+  return series.type ? capitalise(series.type) : undefined;
+}
+
+export function chaptersLabel(series: Series): string | undefined {
+  const total = series.total_chapters;
+  if (total == undefined || total <= 0) return undefined;
+  return total === 1 ? "1 chapter" : `${total} chapters`;
+}
+
+// `final_volume` is the number the series ends on, which is also how many
+// volumes there are.
+export function volumesLabel(series: Series): string | undefined {
+  const final = series.final_volume;
+  if (final == undefined || final <= 0) return undefined;
+  return final === 1 ? "1 volume" : `${final} volumes`;
+}
+
+export function ratingLabel(series: Series): string | undefined {
+  const rating = series.rating;
+  if (rating == undefined || !Number.isFinite(rating) || rating <= 0) return undefined;
+  return rating.toFixed(2);
+}
+
+export function statusLabel(series: Series): string {
+  return mapStatus(series.status);
 }
 
 function mapStatus(status?: string | null): string {

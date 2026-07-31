@@ -8,7 +8,7 @@ export const TOKEN_KEY = "mangabaka-token";
 export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
 export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
 export const SESSION_KEY = "mangabaka-session";
-export const TAGS_CACHE_KEY = "mangabaka-tags";
+export const GENRES_CACHE_KEY = "mangabaka-genres";
 
 // The search endpoint caps `limit` at 100 and `page` at 100.
 export const SEARCH_LIMIT = 20;
@@ -16,6 +16,10 @@ export const SEARCH_MAX_PAGE = 100;
 
 // The library endpoints bound chapter and volume progress at ten thousand.
 export const PROGRESS_MAX = 10000;
+
+// The discover endpoints cap their own list at twenty; the search rows are
+// asked for the same number so every row is the same length.
+export const DISCOVER_LIMIT = 20;
 
 // Endpoints come from https://mangabaka.org/.well-known/openid-configuration,
 // which advertises `code` as the only response type and `S256` as the only
@@ -86,8 +90,10 @@ export const SORT_OPTIONS = [
   { id: "relevance_asc", label: "Relevance (ascending)" },
   { id: "trending_7d", label: "Trending (7 days)" },
   { id: "trending_30d", label: "Trending (30 days)" },
-  { id: "popularity_desc", label: "Most Popular" },
-  { id: "popularity_asc", label: "Least Popular" },
+  // Popularity is a rank, where one is the most popular, so the ascending
+  // order is the flattering one.
+  { id: "popularity_asc", label: "Most Popular" },
+  { id: "popularity_desc", label: "Least Popular" },
   { id: "score_desc", label: "Highest Rated" },
   { id: "score_asc", label: "Lowest Rated" },
   { id: "latest", label: "Recently Updated" },
@@ -108,13 +114,10 @@ export const SORT_OPTIONS = [
 // filter the endpoint takes has a matching negative form, so each one is kept
 // as an included and an excluded list.
 export type SearchFilters = {
-  // Genres are tags carrying `is_genre`, and both are filtered through the
-  // same pair of parameters; they are kept apart only so the form can offer
-  // them as two lists.
+  // Genres are tags carrying `is_genre`, so they travel on the tag
+  // parameters.
   genres?: string[];
   excludeGenres?: string[];
-  tags?: string[];
-  excludeTags?: string[];
   tagMode?: string;
   types?: string[];
   excludeTypes?: string[];
@@ -164,12 +167,6 @@ export interface TagDefinition {
   is_genre?: boolean | null;
   merged_with?: number | null;
   series_count?: number | null;
-}
-
-export interface TagOption {
-  id: string;
-  title: string;
-  isGenre: boolean;
 }
 
 export interface SeriesTag {
