@@ -5,6 +5,8 @@ import {
   BasicRateLimiter,
   type Chapter,
   type ChapterReadActionQueueProcessingResult,
+  type CloudflareBypassRequestProviding,
+  type Cookie,
   type DiscoverSection,
   type DiscoverSectionItem,
   DiscoverSectionType,
@@ -16,6 +18,7 @@ import {
   type MangaProgressProviding,
   type Metadata,
   type PagedResults,
+  type Request,
   type SearchQuery,
   type SearchResultItem,
   type SearchResultsProviding,
@@ -46,6 +49,7 @@ import {
   MangaBakaError,
   MangaBakaInterceptor,
   makeRequest,
+  setSessionCookies,
   shouldRetryLater,
 } from "./network";
 import {
@@ -190,6 +194,7 @@ function toDiscoverItem(series: Series, section: DiscoverSection): DiscoverSecti
 export class MangaBakaExtension
   implements
     Extension,
+    CloudflareBypassRequestProviding,
     DiscoverSectionProviding,
     MangaProgressProviding,
     SearchResultsProviding,
@@ -211,6 +216,12 @@ export class MangaBakaExtension
 
   async getSettingsForm(): Promise<Form> {
     return new SettingsForm();
+  }
+
+  // Whatever the app's own web view collects is a signed-in session just as
+  // much as the sign-in row's is, so it is kept the same way.
+  async cloudflareBypassCompleted(_request: Request, cookies: Cookie[]): Promise<void> {
+    setSessionCookies(cookies);
   }
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
