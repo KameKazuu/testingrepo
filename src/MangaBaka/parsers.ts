@@ -16,9 +16,14 @@ export function seriesTitle(series: Series): string {
   );
 }
 
-export function seriesThumbnail(series: Series): string {
+// Undefined when the series has no artwork at all. Every size is nullable and
+// the whole cover object can be missing.
+export function seriesThumbnail(series: Series): string | undefined {
   const cover = series.cover;
-  return cover?.x350 ?? cover?.x250 ?? cover?.raw ?? cover?.x150 ?? "";
+  for (const url of [cover?.x350, cover?.x250, cover?.raw, cover?.x150]) {
+    if (url) return url;
+  }
+  return undefined;
 }
 
 export function seriesSubtitle(series: Series): string | undefined {
@@ -113,7 +118,7 @@ export function parseSourceManga(series: Series): SourceManga {
     mangaInfo: {
       primaryTitle,
       secondaryTitles,
-      thumbnailUrl: seriesThumbnail(series),
+      thumbnailUrl: seriesThumbnail(series) ?? "",
       synopsis: series.description ? Application.decodeHTMLEntities(series.description) : "",
       author: (series.authors ?? []).filter(Boolean).join(", ") || undefined,
       artist: (series.artists ?? []).filter(Boolean).join(", ") || undefined,

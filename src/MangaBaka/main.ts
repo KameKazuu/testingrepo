@@ -113,14 +113,24 @@ function appendAll(params: string[], key: string, values: string[] | undefined):
   }
 }
 
-function toSearchResultItem(series: Series): SearchResultItem {
+// The app rejects an item whose image URL is not a URL, and takes the whole
+// row down with it, so a series with no cover art is left out rather than
+// handed over with an empty one.
+function toSearchResultItem(series: Series): SearchResultItem | undefined {
+  const imageUrl = seriesThumbnail(series);
+  if (imageUrl == undefined) return undefined;
+
   return {
     mangaId: String(series.id),
     title: seriesTitle(series),
-    imageUrl: seriesThumbnail(series),
+    imageUrl,
     subtitle: seriesSubtitle(series),
     contentRating: contentRatingFor(series),
   };
+}
+
+function isPresent<T>(value: T | undefined): value is T {
+  return value != undefined;
 }
 
 // At most two facts fit on a featured card, so it gets the chapter count and
@@ -147,11 +157,14 @@ function detailSubtitle(series: Series, detail: "volumes" | "status"): string | 
   return parts.length > 0 ? parts.join(" • ") : undefined;
 }
 
-function toDiscoverItem(series: Series, section: DiscoverSection): DiscoverSectionItem {
+function toDiscoverItem(series: Series, section: DiscoverSection): DiscoverSectionItem | undefined {
+  const imageUrl = seriesThumbnail(series);
+  if (imageUrl == undefined) return undefined;
+
   const base = {
     mangaId: String(series.id),
     title: seriesTitle(series),
-    imageUrl: seriesThumbnail(series),
+    imageUrl,
     contentRating: contentRatingFor(series),
   };
 
@@ -262,7 +275,7 @@ export class MangaBakaExtension
     );
 
     return {
-      items: (response.data ?? []).map(toSearchResultItem),
+      items: (response.data ?? []).map(toSearchResultItem).filter(isPresent),
       metadata: response.pagination?.next && page < SEARCH_MAX_PAGE ? page + 1 : undefined,
     };
   }
@@ -280,7 +293,9 @@ export class MangaBakaExtension
     const response = await makeRequest<PagedEnvelope<Series>>(path);
 
     return {
-      items: (response.data ?? []).map((series) => toDiscoverItem(series, section)),
+      items: (response.data ?? [])
+        .map((series) => toDiscoverItem(series, section))
+        .filter(isPresent),
     };
   }
 
