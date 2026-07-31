@@ -68,7 +68,7 @@
       "author": "PoppingMango",
       "contentRating": "MATURE",
       "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/MangaBaka/static/icon.png",
-      "version": "1.0.0-alpha.21",
+      "version": "1.0.0-alpha.22",
       "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/MangaBaka",
       "repository": "https://github.com/PoppingMango/PoppingMango-Source"
     },
@@ -92,7 +92,7 @@
       "author": "PoppingMango",
       "contentRating": "ADULT",
       "icon": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/OManga/static/omanga.png",
-      "version": "1.0.0-alpha.21",
+      "version": "1.0.0-alpha.22",
       "bundleUrl": "https://raw.githubusercontent.com/PoppingMango/PoppingMango-Source/refs/heads/0.9/test/bundles/OManga",
       "repository": "https://github.com/PoppingMango/PoppingMango-Source"
     },

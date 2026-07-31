@@ -34,80 +34,63 @@ import {
   swapAccessTokens,
 } from "../network";
 
+// The web view row is hosted by the root form, which is the only place one is
+// known to work; pushed forms appear to render it inert.
 export class SettingsForm extends Form {
   override getSections() {
-    return [
-      Section("account", [NavigationRow("account", { title: "Account", form: new AccountForm() })]),
-    ];
-  }
-}
-
-// Hosts the login row and nothing else: no lifecycle hook and no request runs
-// here, so the form is inert while the login WebView opens and closes over it.
-class AccountForm extends Form {
-  override getSections() {
-    if (!isAuthenticated()) {
+    if (isAuthenticated()) {
       return [
-        Section(
-          {
-            id: "token",
-            header: "Access Token",
-            footer:
-              "Create a personal access token on mangabaka.org and paste it here. It starts with mb-.",
-          },
-          [
-            InputRow("token", {
-              title: "Access Token",
-              value: "",
-              isSecureEntry: true,
-              onValueChange: Application.Selector(this as AccountForm, "handleTokenChange"),
-            }),
-          ],
-        ),
-        Section(
-          {
-            id: "browser",
-            header: "Browser Login",
-            footer: "Sign in on mangabaka.org and the session is reused for your library.",
-          },
-          [
-            WebViewRow("webViewLogin", {
-              title: "Log In",
-              request: { url: LOGIN_URL, method: "GET" },
-              onComplete: Application.Selector(this as AccountForm, "handleWebViewLogin"),
-              onCancel: Application.Selector(this as AccountForm, "handleWebViewCancel"),
-            }),
-          ],
-        ),
-        Section("login", [
-          OAuthButtonRow("oAuthButton", {
-            title: "Log in with MangaBaka",
-            clientId: OAUTH_CLIENT_ID,
-            authorizeEndpoint: OAUTH_AUTHORIZE_URL,
-            redirectUri: OAUTH_REDIRECT_URI,
-            scopes: OAUTH_SCOPES,
-            responseType: {
-              type: "pkce",
-              tokenEndpoint: OAUTH_TOKEN_URL,
-              pkceCodeLength: 64,
-              pkceCodeMethod: "S256",
-              formEncodeGrant: true,
-            },
-            onSuccess: Application.Selector(this as AccountForm, "handleOAuthSuccess"),
+        Section("session", [
+          NavigationRow("profile", { title: "Account Info", form: new ProfileForm() }),
+          ButtonRow("logout", {
+            title: "Log Out",
+            onSelect: Application.Selector(this as SettingsForm, "handleLogout"),
           }),
         ]),
       ];
     }
 
     return [
-      Section("session", [
-        NavigationRow("profile", { title: "Account Info", form: new ProfileForm() }),
-        ButtonRow("logout", {
-          title: "Log Out",
-          onSelect: Application.Selector(this as AccountForm, "handleLogout"),
-        }),
+      Section(
+        {
+          id: "token",
+          header: "Access Token",
+          footer:
+            "Create a personal access token on mangabaka.org and paste it here. It starts with mb-.",
+        },
+        [
+          InputRow("token", {
+            title: "Access Token",
+            value: "",
+            isSecureEntry: true,
+            onValueChange: Application.Selector(this as SettingsForm, "handleTokenChange"),
+          }),
+        ],
+      ),
+      Section(
+        {
+          id: "browser",
+          header: "Browser Login",
+          footer: "Sign in on mangabaka.org and the session is reused for your library.",
+        },
+        [
+          WebViewRow("webViewLogin", {
+            title: "Log In",
+            request: { url: LOGIN_URL, method: "GET" },
+            isHidden: false,
+            onComplete: Application.Selector(this as SettingsForm, "handleWebViewLogin"),
+            onCancel: Application.Selector(this as SettingsForm, "handleWebViewCancel"),
+          }),
+        ],
+      ),
+      Section({ id: "oauth", footer: "Opens mangabaka.org to authorise this extension." }, [
+        NavigationRow("oauth", { title: "Log in with MangaBaka", form: new OAuthForm(this) }),
       ]),
     ];
+  }
+
+  reload(): void {
+    this.reloadForm();
   }
 
   async handleWebViewLogin(cookies: Cookie[]): Promise<void> {
@@ -116,11 +99,6 @@ class AccountForm extends Form {
   }
 
   async handleWebViewCancel(): Promise<void> {
-    this.reloadForm();
-  }
-
-  async handleOAuthSuccess(first: string, second: string): Promise<void> {
-    setAccessTokens(first, second);
     this.reloadForm();
   }
 
@@ -134,6 +112,45 @@ class AccountForm extends Form {
 
   async handleLogout(): Promise<void> {
     clearToken();
+    this.reloadForm();
+  }
+}
+
+// Hosts the login row and nothing else: no lifecycle hook and no request runs
+// here, so the form is inert while the login web view opens and closes over it.
+class OAuthForm extends Form {
+  private readonly parent: SettingsForm;
+
+  constructor(parent: SettingsForm) {
+    super();
+    this.parent = parent;
+  }
+
+  override getSections() {
+    return [
+      Section("login", [
+        OAuthButtonRow("oAuthButton", {
+          title: "Log in with MangaBaka",
+          clientId: OAUTH_CLIENT_ID,
+          authorizeEndpoint: OAUTH_AUTHORIZE_URL,
+          redirectUri: OAUTH_REDIRECT_URI,
+          scopes: OAUTH_SCOPES,
+          responseType: {
+            type: "pkce",
+            tokenEndpoint: OAUTH_TOKEN_URL,
+            pkceCodeLength: 64,
+            pkceCodeMethod: "S256",
+            formEncodeGrant: true,
+          },
+          onSuccess: Application.Selector(this as OAuthForm, "handleOAuthSuccess"),
+        }),
+      ]),
+    ];
+  }
+
+  async handleOAuthSuccess(first: string, second: string): Promise<void> {
+    setAccessTokens(first, second);
+    this.parent.reload();
     this.reloadForm();
   }
 }
