@@ -13,6 +13,9 @@ export const SESSION_KEY = "mangabaka-session";
 export const SEARCH_LIMIT = 20;
 export const SEARCH_MAX_PAGE = 100;
 
+// The library endpoints bound chapter and volume progress at ten thousand.
+export const PROGRESS_MAX = 10000;
+
 // Endpoints come from https://mangabaka.org/.well-known/openid-configuration,
 // which advertises `code` as the only response type and `S256` as the only
 // code challenge method, so the authorization code flow below is the only one

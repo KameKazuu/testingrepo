@@ -13,14 +13,27 @@ import {
   ToggleRow,
 } from "@paperback/types";
 
-import { type Envelope, LIBRARY_STATES, type LibraryEntry, RATING_SCALE } from "../models";
-import { getRatingSteps, makeRequest } from "../network";
+import {
+  type Envelope,
+  LIBRARY_STATES,
+  type LibraryEntry,
+  type Profile,
+  RATING_SCALE,
+} from "../models";
+import {
+  getRatingSteps,
+  hasRatingSteps,
+  MangaBakaError,
+  makeRequest,
+  setRatingSteps,
+} from "../network";
 
 export class ProgressForm extends Form {
   private readonly seriesId: string;
   private entry?: LibraryEntry;
   private exists = false;
   private error?: string;
+  private loaded = false;
 
   constructor(seriesId: string) {
     super();
@@ -30,24 +43,53 @@ export class ProgressForm extends Form {
   override requiresExplicitSubmission = true;
 
   override formWillAppear(): void {
-    makeRequest<Envelope<LibraryEntry>>(`/v1/my/library/${this.seriesId}`, { needsAuth: true })
-      .then((response) => {
-        this.entry = response.data;
-        this.exists = true;
-      })
-      .catch((error: Error) => {
-        // A missing entry is the normal "not tracked yet" case; anything else
-        // is a real failure worth showing.
-        if (error.message.includes("[404]")) {
-          this.entry = { state: "reading", progress_chapter: 0, progress_volume: 0, rating: 0 };
-          this.exists = false;
-        } else {
-          this.error = error.message;
-        }
-      })
-      .finally(() => {
-        this.reloadForm();
-      });
+    // The hook runs again on the way back from the deletion screen, and
+    // refetching there would quietly throw away whatever has been typed in.
+    if (this.loaded) return;
+    this.loaded = true;
+    void this.load();
+  }
+
+  private async load(): Promise<void> {
+    try {
+      const response = await makeRequest<Envelope<LibraryEntry>>(
+        `/v1/my/library/${this.seriesId}`,
+        { needsAuth: true },
+      );
+      this.entry = response.data;
+      this.exists = true;
+    } catch (error) {
+      // A missing entry is the normal "not tracked yet" case; anything else
+      // is a real failure worth showing.
+      if (error instanceof MangaBakaError && error.status === 404) {
+        this.entry = { state: "reading", progress_chapter: 0, progress_volume: 0, rating: 0 };
+        this.exists = false;
+      } else {
+        this.error = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    // The score picker's increment comes from the account, and nothing else
+    // on the way in fetches it, so a reader who never opens Account Info
+    // would otherwise be offered scores their account cannot store.
+    if (this.error == undefined && !hasRatingSteps()) {
+      try {
+        const profile = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
+        setRatingSteps(profile.data.rating_steps);
+      } catch {
+        // Not worth failing the whole form over; the default still works.
+      }
+    }
+
+    this.reloadForm();
+  }
+
+  // Called by the deletion screen so this form knows the entry is gone and
+  // submits a fresh one rather than patching something that no longer exists.
+  handleDeleted(): void {
+    this.entry = { state: "reading", progress_chapter: 0, progress_volume: 0, rating: 0 };
+    this.exists = false;
+    this.reloadForm();
   }
 
   override getSections() {
@@ -138,7 +180,7 @@ export class ProgressForm extends Form {
         Section({ id: "delete", footer: "Remove the title from your MangaBaka library" }, [
           NavigationRow("delete", {
             title: "Delete",
-            form: new DeletionForm(this.seriesId),
+            form: new DeletionForm(this.seriesId, this),
           }),
         ]),
       );
@@ -206,11 +248,13 @@ export class ProgressForm extends Form {
 
 class DeletionForm extends Form {
   private readonly seriesId: string;
+  private readonly parent: ProgressForm;
   private deleted = false;
 
-  constructor(seriesId: string) {
+  constructor(seriesId: string, parent: ProgressForm) {
     super();
     this.seriesId = seriesId;
+    this.parent = parent;
   }
 
   override getSections() {
@@ -240,6 +284,7 @@ class DeletionForm extends Form {
       needsAuth: true,
     });
     this.deleted = true;
+    this.parent.handleDeleted();
     this.reloadForm();
   }
 }

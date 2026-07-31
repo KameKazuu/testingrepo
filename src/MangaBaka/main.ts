@@ -31,13 +31,20 @@ import {
   type Envelope,
   type LibraryEntry,
   type PagedEnvelope,
+  PROGRESS_MAX,
   SEARCH_LIMIT,
   SEARCH_MAX_PAGE,
   type SearchFilters,
   type Series,
   SORT_OPTIONS,
 } from "./models";
-import { isAuthenticated, MangaBakaInterceptor, makeRequest } from "./network";
+import {
+  isAuthenticated,
+  MangaBakaError,
+  MangaBakaInterceptor,
+  makeRequest,
+  shouldRetryLater,
+} from "./network";
 import {
   contentRatingFor,
   parseSourceManga,
@@ -62,6 +69,12 @@ function readFilters(query: SearchQuery<Metadata>): SearchFilters {
   return metadata != undefined && typeof metadata === "object" && !Array.isArray(metadata)
     ? (metadata as SearchFilters)
     : {};
+}
+
+// Progress is stored as a number between zero and ten thousand; anything
+// outside that is rejected, and a rejected write never drains from the queue.
+function clampProgress(value: number): number {
+  return Math.min(PROGRESS_MAX, Math.max(0, value));
 }
 
 function appendAll(params: string[], key: string, values: string[] | undefined): void {
@@ -213,9 +226,12 @@ export class MangaBakaExtension
         { needsAuth: true },
       );
       entry = response.data;
-    } catch {
-      // Not tracked yet, or the token is no longer valid.
-      return undefined;
+    } catch (error) {
+      // Only a 404 means the title is untracked. Reporting anything else the
+      // same way invites the reader to add a title they already have, which
+      // would overwrite the rating and note they had on it.
+      if (error instanceof MangaBakaError && error.status === 404) return undefined;
+      throw error;
     }
 
     const chapterNumber = entry.progress_chapter ?? 0;
@@ -224,7 +240,8 @@ export class MangaBakaExtension
       sourceManga,
       langCode: "unknown",
       chapNum: chapterNumber,
-      volume: entry.progress_volume ?? undefined,
+      // A fresh entry stores zero, which is not a volume anyone has read.
+      volume: entry.progress_volume ? entry.progress_volume : undefined,
     };
 
     return {
@@ -242,22 +259,27 @@ export class MangaBakaExtension
       failedItems: [],
     };
 
-    if (!isAuthenticated()) {
-      result.failedItems.push(...actions.map((action) => action.id));
-      return result;
-    }
+    // Someone who has not signed in yet has not failed anything. Leaving the
+    // actions unreported keeps them queued for when they do.
+    if (!isAuthenticated()) return result;
 
-    // Collapse the queue so each series is written once, at its highest chapter.
-    const highest = new Map<string, number>();
+    // Collapse the queue so each series is written once, at its furthest point.
+    const furthest = new Map<string, { chapter: number; volume: number }>();
     for (const action of actions) {
       const seriesId = action.sourceManga.mangaId;
-      const chapter = Math.floor(action.chapterNum);
-      if ((highest.get(seriesId) ?? -1) < chapter) {
-        highest.set(seriesId, chapter);
-      }
+      const previous = furthest.get(seriesId);
+      furthest.set(seriesId, {
+        // Chapter numbers are fractional on plenty of series, and the endpoint
+        // stores them that way, so they are carried through as they are.
+        chapter: Math.max(previous?.chapter ?? -1, clampProgress(action.chapterNum)),
+        volume: Math.max(
+          previous?.volume ?? -1,
+          action.chapterVolume == undefined ? -1 : clampProgress(action.chapterVolume),
+        ),
+      });
     }
 
-    for (const [seriesId, chapter] of highest) {
+    for (const [seriesId, progress] of furthest) {
       const ids = actions
         .filter((action) => action.sourceManga.mangaId === seriesId)
         .map((action) => action.id);
@@ -271,27 +293,38 @@ export class MangaBakaExtension
           });
           current = response.data.progress_chapter ?? 0;
         } catch (error) {
-          if (!(error instanceof Error) || !error.message.includes("[404]")) throw error;
+          if (!(error instanceof MangaBakaError) || error.status !== 404) throw error;
           exists = false;
         }
 
         // Never move progress backwards.
-        if (exists && current >= chapter) {
+        if (exists && current >= progress.chapter) {
           result.successfulItems.push(...ids);
           continue;
+        }
+
+        const body: Record<string, unknown> = { progress_chapter: progress.chapter };
+        if (progress.volume >= 0) {
+          body.progress_volume = progress.volume;
+        }
+        if (!exists) {
+          body.state = "reading";
         }
 
         await makeRequest(`/v1/my/library/${seriesId}`, {
           method: exists ? "PATCH" : "POST",
           needsAuth: true,
-          body: exists
-            ? { progress_chapter: chapter }
-            : { state: "reading", progress_chapter: chapter },
+          body,
         });
 
         result.successfulItems.push(...ids);
-      } catch {
-        result.failedItems.push(...ids);
+      } catch (error) {
+        // A rate limit, an outage or an expired credential is not a write that
+        // failed, it is one that never happened. Reporting those would count
+        // an error against actions that deserve another attempt.
+        if (!shouldRetryLater(error)) {
+          result.failedItems.push(...ids);
+        }
       }
     }
 

@@ -99,6 +99,10 @@ export function getRatingSteps(): number {
   return typeof steps === "number" && steps > 0 ? steps : DEFAULT_RATING_STEPS;
 }
 
+export function hasRatingSteps(): boolean {
+  return typeof Application.getState(RATING_STEPS_KEY) === "number";
+}
+
 export function setRatingSteps(steps: number | null | undefined): void {
   if (typeof steps === "number" && steps > 0) {
     Application.setState(steps, RATING_STEPS_KEY);
@@ -138,6 +142,41 @@ export function assertAuthenticated(): Record<string, string> {
   return headers;
 }
 
+export class MangaBakaError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// A rate limit, an outage or a credential the user can repair are all reasons
+// to come back later rather than to record a permanent failure.
+export function shouldRetryLater(error: unknown): boolean {
+  if (!(error instanceof MangaBakaError)) return true;
+  return (
+    error.status === 401 || error.status === 403 || error.status === 429 || error.status >= 500
+  );
+}
+
+// Errors answer with the same envelope as everything else, and its `message`
+// is written to be shown to the reader, so prefer it over anything made up
+// here.
+function errorMessage(status: number, text: string): string {
+  try {
+    const payload = JSON.parse(text) as { message?: string };
+    if (payload.message) return payload.message;
+  } catch {
+    // Not the documented envelope; fall through to the generic wording.
+  }
+
+  if (status === 401 || status === 403) {
+    return "MangaBaka rejected your credentials, please sign in again in the settings";
+  }
+  return `MangaBaka returned status ${status}`;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -164,18 +203,11 @@ export async function makeRequest<T>(path: string, options: RequestOptions = {})
   };
 
   const [response, buffer] = await Application.scheduleRequest(request);
-
-  if (response.status === 401 || response.status === 403) {
-    throw new Error("MangaBaka rejected your access token, please add a new one in the settings");
-  }
-  if (response.status === 404) {
-    throw new Error(`[404] Not found: ${path}`);
-  }
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(`MangaBaka returned status ${response.status} for ${path}`);
-  }
-
   const text = Application.arrayBufferToUTF8String(buffer);
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new MangaBakaError(response.status, errorMessage(response.status, text));
+  }
   if (!text) {
     return undefined as T;
   }
