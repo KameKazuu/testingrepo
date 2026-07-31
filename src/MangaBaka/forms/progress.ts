@@ -65,9 +65,10 @@ export class ProgressForm extends Form {
         SelectRow("state", {
           title: "Status",
           value: [entry.state ?? "reading"],
+          layout: "list",
           minItemCount: 1,
           maxItemCount: 1,
-          options: LIBRARY_STATES,
+          items: LIBRARY_STATES,
           onValueChange: Application.Selector(this as ProgressForm, "handleStateChange"),
         }),
         StepperRow("chapter", {
@@ -108,9 +109,10 @@ export class ProgressForm extends Form {
           value: (entry.rating ?? 0) / RATING_SCALE,
           minValue: 0,
           maxValue: RATING_SCALE,
-          // The account decides how many steps the scale has; offering finer
-          // increments would store scores it cannot represent.
-          stepValue: RATING_SCALE / getRatingSteps(),
+          // `rating_steps` is the increment the account stores on the 0-100
+          // scale, so a tenth of it is the increment on this 0-10 one.
+          // Offering anything finer would store scores it cannot represent.
+          stepValue: getRatingSteps() / RATING_SCALE,
           loopOver: false,
           onValueChange: Application.Selector(this as ProgressForm, "handleRatingChange"),
         }),

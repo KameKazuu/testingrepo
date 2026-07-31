@@ -72,6 +72,7 @@ export function parseSourceManga(series: Series): SourceManga {
   }
 
   const tags: Tag[] = (series.tags ?? [])
+    .map((tag) => tag.name)
     .filter((name): name is string => Boolean(name))
     .map((name) => ({ id: name.toLowerCase().replace(/\s+/g, "-"), title: name }));
 

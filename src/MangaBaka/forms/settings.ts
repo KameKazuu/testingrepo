@@ -3,16 +3,19 @@
 
 import {
   ButtonRow,
+  type Cookie,
   Form,
   InputRow,
   LabelRow,
   NavigationRow,
   OAuthButtonRow,
   Section,
+  WebViewRow,
 } from "@paperback/types";
 
 import {
   type Envelope,
+  LOGIN_URL,
   OAUTH_AUTHORIZE_URL,
   OAUTH_CLIENT_ID,
   OAUTH_REDIRECT_URI,
@@ -26,6 +29,7 @@ import {
   makeRequest,
   setAccessTokens,
   setRatingSteps,
+  setSessionCookies,
   setToken,
   swapAccessTokens,
 } from "../network";
@@ -60,6 +64,21 @@ class AccountForm extends Form {
             }),
           ],
         ),
+        Section(
+          {
+            id: "browser",
+            header: "Browser Login",
+            footer: "Sign in on mangabaka.org and the session is reused for your library.",
+          },
+          [
+            WebViewRow("webViewLogin", {
+              title: "Log In",
+              request: { url: LOGIN_URL, method: "GET" },
+              onComplete: Application.Selector(this as AccountForm, "handleWebViewLogin"),
+              onCancel: Application.Selector(this as AccountForm, "handleWebViewCancel"),
+            }),
+          ],
+        ),
         Section("login", [
           OAuthButtonRow("oAuthButton", {
             title: "Log in with MangaBaka",
@@ -89,6 +108,15 @@ class AccountForm extends Form {
         }),
       ]),
     ];
+  }
+
+  async handleWebViewLogin(cookies: Cookie[]): Promise<void> {
+    setSessionCookies(cookies);
+    this.reloadForm();
+  }
+
+  async handleWebViewCancel(): Promise<void> {
+    this.reloadForm();
   }
 
   async handleOAuthSuccess(first: string, second: string): Promise<void> {
@@ -154,6 +182,10 @@ class ProfileForm extends Form {
         LabelRow("user", {
           title: "Signed in as",
           subtitle: this.profile?.preferred_username ?? this.profile?.nickname ?? "Loading...",
+        }),
+        LabelRow("method", {
+          title: "Signed in with",
+          subtitle: this.profile?.auth_type ?? "Loading...",
         }),
       ]),
     ];

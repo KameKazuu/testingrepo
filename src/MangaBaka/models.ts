@@ -7,8 +7,11 @@ export const API_URL = "https://api.mangabaka.org";
 export const TOKEN_KEY = "mangabaka-token";
 export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
 export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
+export const SESSION_KEY = "mangabaka-session";
 
+// The search endpoint caps `limit` at 100 and `page` at 100.
 export const SEARCH_LIMIT = 20;
+export const SEARCH_MAX_PAGE = 100;
 
 // Endpoints come from https://mangabaka.org/.well-known/openid-configuration.
 export const OAUTH_AUTHORIZE_URL = "https://mangabaka.org/auth/oauth2/authorize";
@@ -23,6 +26,8 @@ export const OAUTH_SCOPES = [
   "offline_access",
 ];
 
+export const LOGIN_URL = `${DOMAIN}/login`;
+
 // The library `state` values the API accepts, in the order they are offered.
 export const LIBRARY_STATES = [
   { id: "reading", title: "Reading" },
@@ -34,23 +39,81 @@ export const LIBRARY_STATES = [
   { id: "considering", title: "Considering" },
 ];
 
-// Ratings are stored 0-100 but presented on the usual 0-10 scale. How many
-// steps that scale is divided into is a per-account setting, so the score
-// picker has to match it or it offers values the account cannot store.
+// Ratings are stored 0-100. `rating_steps` on the account is the increment the
+// account stores them in, so a 0-10 picker has to step by a tenth of it.
 export const RATING_SCALE = 10;
 export const RATING_STEPS_KEY = "mangabaka-rating-steps";
-export const DEFAULT_RATING_STEPS = 10;
+export const DEFAULT_RATING_STEPS = 1;
+
+// Every option below is an enum the search endpoint documents; sending anything
+// else is rejected with a 400.
+export const SERIES_TYPES = [
+  { id: "manga", title: "Manga" },
+  { id: "manhwa", title: "Manhwa" },
+  { id: "manhua", title: "Manhua" },
+  { id: "novel", title: "Novel" },
+  { id: "oel", title: "OEL" },
+  { id: "other", title: "Other" },
+];
+
+export const SERIES_STATUSES = [
+  { id: "releasing", title: "Releasing" },
+  { id: "completed", title: "Completed" },
+  { id: "hiatus", title: "Hiatus" },
+  { id: "cancelled", title: "Cancelled" },
+  { id: "upcoming", title: "Upcoming" },
+  { id: "unknown", title: "Unknown" },
+];
+
+export const CONTENT_RATINGS = [
+  { id: "safe", title: "Safe" },
+  { id: "suggestive", title: "Suggestive" },
+  { id: "erotica", title: "Erotica" },
+  { id: "pornographic", title: "Pornographic" },
+];
+
+export const SORT_OPTIONS = [
+  { id: "relevance_desc", label: "Relevance" },
+  { id: "relevance_asc", label: "Relevance (ascending)" },
+  { id: "trending_7d", label: "Trending (7 days)" },
+  { id: "trending_30d", label: "Trending (30 days)" },
+  { id: "popularity_desc", label: "Most Popular" },
+  { id: "popularity_asc", label: "Least Popular" },
+  { id: "score_desc", label: "Highest Rated" },
+  { id: "score_asc", label: "Lowest Rated" },
+  { id: "latest", label: "Recently Updated" },
+  { id: "published_start_date_desc", label: "Newest" },
+  { id: "published_start_date_asc", label: "Oldest" },
+  { id: "published_end_date_desc", label: "Ended Most Recently" },
+  { id: "published_end_date_asc", label: "Ended Earliest" },
+  { id: "published_year_desc", label: "Year (newest first)" },
+  { id: "published_year_asc", label: "Year (oldest first)" },
+  { id: "chapters_desc", label: "Most Chapters" },
+  { id: "chapters_asc", label: "Fewest Chapters" },
+  { id: "volumes_desc", label: "Most Volumes" },
+  { id: "volumes_asc", label: "Fewest Volumes" },
+  { id: "random", label: "Random" },
+];
+
+// Carried in `SearchQuery.metadata`, so it has to stay plain JSON.
+export type SearchFilters = {
+  types?: string[];
+  statuses?: string[];
+  contentRatings?: string[];
+  licensedOnly?: boolean;
+};
 
 export interface Pagination {
   count?: number | null;
   page?: number | null;
   limit?: number | null;
-  next?: number | null;
-  previous?: number | null;
+  // Both are the full URL of that page, or null when there is none.
+  next?: string | null;
+  previous?: string | null;
 }
 
 export interface Envelope<T> {
-  status?: string;
+  status?: number;
   data: T;
 }
 
@@ -71,6 +134,18 @@ export interface SeriesCover {
   x350?: string | null;
 }
 
+export interface SeriesTag {
+  id?: number | null;
+  name?: string | null;
+  is_genre?: boolean | null;
+}
+
+export interface SeriesPublisher {
+  name?: string | null;
+  type?: string | null;
+  note?: string | null;
+}
+
 export interface Series {
   id: number;
   titles?: SeriesTitle[] | null;
@@ -78,8 +153,9 @@ export interface Series {
   description?: string | null;
   authors?: string[] | null;
   artists?: string[] | null;
-  publishers?: string[] | null;
-  tags?: string[] | null;
+  publishers?: SeriesPublisher[] | null;
+  // Only returned by the `full` schema.
+  tags?: SeriesTag[] | null;
   status?: string | null;
   type?: string | null;
   content_rating?: string | null;
@@ -101,8 +177,9 @@ export interface LibraryEntry {
 }
 
 export interface Profile {
-  id?: number | null;
+  id?: string | null;
   nickname?: string | null;
   preferred_username?: string | null;
+  auth_type?: string | null;
   rating_steps?: number | null;
 }

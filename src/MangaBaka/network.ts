@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
+import { type Cookie, PaperbackInterceptor, type Request, type Response } from "@paperback/types";
 
 import {
   ACCESS_TOKEN_KEY,
@@ -10,6 +10,7 @@ import {
   DOMAIN,
   RATING_STEPS_KEY,
   REFRESH_TOKEN_KEY,
+  SESSION_KEY,
   TOKEN_KEY,
 } from "./models";
 
@@ -66,10 +67,31 @@ export function swapAccessTokens(): boolean {
   return true;
 }
 
+// The API documents `session` alongside `oauth` and `pat` as a way to
+// authenticate, so the cookies a browser login leaves behind are kept and
+// replayed on the `/my/` endpoints.
+export function getSessionCookie(): string | undefined {
+  const cookie = Application.getSecureState(SESSION_KEY) as string | null;
+  return cookie ? String(cookie) : undefined;
+}
+
+export function setSessionCookies(cookies: Cookie[]): void {
+  const header = cookies
+    .filter((cookie) => cookie.domain.replace(/^\./, "").endsWith("mangabaka.org"))
+    .filter((cookie) => cookie.name && cookie.value)
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join("; ");
+
+  if (header) {
+    Application.setSecureState(header, SESSION_KEY);
+  }
+}
+
 export function clearToken(): void {
   Application.setSecureState(null, TOKEN_KEY);
   Application.setSecureState(null, ACCESS_TOKEN_KEY);
   Application.setSecureState(null, REFRESH_TOKEN_KEY);
+  Application.setSecureState(null, SESSION_KEY);
 }
 
 export function getRatingSteps(): number {
@@ -84,7 +106,9 @@ export function setRatingSteps(steps: number | null | undefined): void {
 }
 
 export function isAuthenticated(): boolean {
-  return getAccessToken() != undefined || getToken() != undefined;
+  return (
+    getAccessToken() != undefined || getToken() != undefined || getSessionCookie() != undefined
+  );
 }
 
 // OAuth access tokens are bearer credentials; a personal access token is sent
@@ -98,7 +122,12 @@ function authHeaders(): Record<string, string> {
   }
 
   const token = getToken();
-  return token ? { "x-api-key": token } : {};
+  if (token) {
+    return { "x-api-key": token };
+  }
+
+  const session = getSessionCookie();
+  return session ? { cookie: session } : {};
 }
 
 export function assertAuthenticated(): Record<string, string> {

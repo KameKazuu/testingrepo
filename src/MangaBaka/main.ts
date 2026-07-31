@@ -25,13 +25,17 @@ import {
 } from "@paperback/types";
 
 import { ProgressForm } from "./forms/progress";
+import { SearchFiltersForm } from "./forms/search";
 import { SettingsForm } from "./forms/settings";
 import {
   type Envelope,
   type LibraryEntry,
   type PagedEnvelope,
   SEARCH_LIMIT,
+  SEARCH_MAX_PAGE,
+  type SearchFilters,
   type Series,
+  SORT_OPTIONS,
 } from "./models";
 import { isAuthenticated, MangaBakaInterceptor, makeRequest } from "./network";
 import {
@@ -50,6 +54,21 @@ const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "rising", title: "Rising", type: DiscoverSectionType.featured },
   { id: "hidden-gems", title: "Hidden Gems", type: DiscoverSectionType.prominentCarousel },
 ];
+
+// The filter form hands its selection back through the query metadata, which
+// the app carries across pages for us.
+function readFilters(query: SearchQuery<Metadata>): SearchFilters {
+  const metadata = query.metadata;
+  return metadata != undefined && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as SearchFilters)
+    : {};
+}
+
+function appendAll(params: string[], key: string, values: string[] | undefined): void {
+  for (const value of values ?? []) {
+    params.push(`${key}=${encodeURIComponent(value)}`);
+  }
+}
 
 function toSearchResultItem(series: Series): SearchResultItem {
   return {
@@ -112,21 +131,42 @@ export class MangaBakaExtension
   }
 
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
-    const response = await makeRequest<Envelope<Series>>(`/v2/series/${mangaId}`);
+    // Tags only exist on the `full` schema; the lean default omits them.
+    const response = await makeRequest<Envelope<Series>>(`/v2/series/${mangaId}?schema=full`);
     return parseSourceManga(response.data);
+  }
+
+  async getSortingOptions(_query: SearchQuery<Metadata>): Promise<SortingOption[]> {
+    return SORT_OPTIONS;
+  }
+
+  async getAdvancedSearchForm(query: SearchQuery<Metadata>): Promise<SearchFiltersForm> {
+    return new SearchFiltersForm(readFilters(query));
   }
 
   async getSearchResults(
     query: SearchQuery<Metadata>,
     metadata: Metadata | undefined,
-    _sortingOption: SortingOption | undefined,
+    sortingOption: SortingOption | undefined,
   ): Promise<PagedResults<SearchResultItem>> {
     const page = typeof metadata === "number" ? metadata : 1;
+    const filters = readFilters(query);
+
     // `URLSearchParams` is absent from the app's JavaScript runtime, so the
-    // query string is assembled by hand.
+    // query string is assembled by hand. Repeated keys are how the endpoint
+    // takes its array parameters.
     const params = [`page=${page}`, `limit=${SEARCH_LIMIT}`];
     if (query.title) {
       params.push(`q=${encodeURIComponent(query.title)}`);
+    }
+    if (sortingOption) {
+      params.push(`sort_by=${sortingOption.id}`);
+    }
+    appendAll(params, "type", filters.types);
+    appendAll(params, "status", filters.statuses);
+    appendAll(params, "content_rating", filters.contentRatings);
+    if (filters.licensedOnly) {
+      params.push("is_licensed=true");
     }
 
     const response = await makeRequest<PagedEnvelope<Series>>(
@@ -135,7 +175,7 @@ export class MangaBakaExtension
 
     return {
       items: (response.data ?? []).map(toSearchResultItem),
-      metadata: response.pagination?.next ? page + 1 : undefined,
+      metadata: response.pagination?.next && page < SEARCH_MAX_PAGE ? page + 1 : undefined,
     };
   }
 
