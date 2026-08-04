@@ -27,13 +27,23 @@ const BOOTSTRAP = `
       } catch (e) {}
     }
     var orig = JSON.parse;
-    JSON.parse = new Proxy(orig, {
+    var captureParse = new Proxy(orig, {
       apply: function (target, thisArg, args) {
         var parsed = Reflect.apply(target, thisArg, args);
         capture(parsed, args[0]);
         return parsed;
       },
     });
+    JSON.parse = captureParse;
+    // The reader pins this parser before its application scripts boot.
+    try {
+      Object.defineProperty(window, "aaJp0", {
+        value: captureParse,
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      });
+    } catch (e) {}
     var origJson = Response.prototype.json;
     Response.prototype.json = function () {
       return origJson.call(this).then(function (parsed) {
