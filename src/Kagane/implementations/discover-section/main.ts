@@ -2,26 +2,19 @@
 /* Copyright © 2026 Inkdex */
 
 import type { DiscoverSection, DiscoverSectionItem, PagedResults, Request } from "@paperback/types";
-import { CloudflareError, DiscoverSectionType, URL } from "@paperback/types";
+import { DiscoverSectionType, URL } from "@paperback/types";
 
-import { apiHeaders, fetchJSON, getKaganeMetadata, warmTagTaxonomy } from "../../services/network";
+import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
 import { buildSearchBody } from "../search-results/main";
 import {
   API_URL,
   PAGE_SIZE,
   RANGE_OPTIONS,
-  type KaganeSeriesDetailsResponse,
   type KaganeMetadata,
-  type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
 import { mapFeaturedItem, mapLatestItem, mapSimpleItem } from "./parsers";
 
-// The Popular hero is the only section enriched with detail fetches (author /
-// rating / views / description); the listing carries none of those. Kept to a
-// handful of visible cards so discover stays light and doesn't multiply
-// Cloudflare challenges. Latest and Recently Added render from listing data
-// alone — no per-card detail requests.
 const FEATURED_LIMIT = 10;
 
 const DISCOVER_SECTIONS: DiscoverSection[] = [
@@ -32,6 +25,19 @@ const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
 ];
 
+// Paperback asks for discover sections independently. Share the taxonomy load
+// so a cold refresh cannot start duplicate genre/source request pairs.
+let discoverMetadataPromise: Promise<KaganeMetadata> | undefined;
+const discoverPagePromises = new Map<string, Promise<KaganeSearchResponse>>();
+
+function getDiscoverMetadata(): Promise<KaganeMetadata> {
+  const request = (discoverMetadataPromise ??= getKaganeMetadata().catch((error: unknown) => {
+    if (discoverMetadataPromise === request) discoverMetadataPromise = undefined;
+    throw error;
+  }));
+  return request;
+}
+
 export class DiscoverProvider {
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return DISCOVER_SECTIONS;
@@ -41,13 +47,12 @@ export class DiscoverProvider {
     section: DiscoverSection,
     metadata?: { page?: number },
   ): Promise<PagedResults<DiscoverSectionItem>> {
-    // Trending is a static set of range chips — resolve it before touching the
-    // network so opening it costs no request.
+    // Trending is a static set of range chips and should never touch the network.
     if (section.id === "trending") {
       return buildTrendingRangeItems();
     }
 
-    const kaganeMetadata = await getKaganeMetadata();
+    const kaganeMetadata = await getDiscoverMetadata();
 
     if (section.id === "genres") {
       return genreChips(kaganeMetadata);
@@ -56,20 +61,18 @@ export class DiscoverProvider {
     const page = metadata?.page ?? 1;
 
     if (section.id === "popular") {
-      const data = await fetchDiscoverSearchPage("total_views,desc", page);
-      const books = (data.content ?? []).slice(0, FEATURED_LIMIT);
-      const details = await enrichDetails(books, FEATURED_LIMIT);
-      const items = books.map((book) =>
-        mapFeaturedItem(book, details.get(book.series_id), kaganeMetadata),
+      // The listing already carries the cover, title, format, genres, status,
+      // source id, and content rating needed for a useful hero card. Avoid one
+      // detail request per card and ask the API only for the ten cards displayed.
+      const data = await fetchDiscoverSearchPage("total_views,desc", page, FEATURED_LIMIT);
+      const items = (data.content ?? []).map((book) =>
+        mapFeaturedItem(book, undefined, kaganeMetadata),
       );
-      // Home has loaded and Cloudflare is cleared — warm the tag taxonomy in
-      // the background so Advanced Search opens with tags already available.
-      warmTagTaxonomy();
       return { items, metadata: undefined };
     }
 
     if (section.id === "latest") {
-      const data = await fetchDiscoverSearchPage("updated_at,desc", page);
+      const data = await fetchDiscoverSearchPage("updated_at,desc", page, PAGE_SIZE);
       const items = (data.content ?? []).map((book) => mapLatestItem(book, kaganeMetadata));
       return {
         items,
@@ -78,7 +81,7 @@ export class DiscoverProvider {
     }
 
     if (section.id === "recently_added") {
-      const data = await fetchDiscoverSearchPage("created_at,desc", page);
+      const data = await fetchDiscoverSearchPage("created_at,desc", page, PAGE_SIZE);
       const items = (data.content ?? []).map((book) => mapSimpleItem(book, kaganeMetadata));
       return {
         items,
@@ -90,34 +93,27 @@ export class DiscoverProvider {
   }
 }
 
-// Fetch details for the first `limit` books (in parallel, after the section's
-// own request has cleared Cloudflare) and key them by series id. Only the
-// Popular hero uses this.
-async function enrichDetails(
-  books: KaganeSearchSeries[],
-  limit: number,
-): Promise<Map<string, KaganeSeriesDetailsResponse>> {
-  const targets = books.slice(0, limit);
-  const details = await Promise.all(targets.map((book) => fetchOptionalDetails(book.series_id)));
-  const map = new Map<string, KaganeSeriesDetailsResponse>();
-  targets.forEach((book, index) => {
-    const detail = details[index];
-    if (detail) map.set(book.series_id, detail);
-  });
-  return map;
-}
-
-// The browse feed is the search endpoint with the reader's own filter body and
-// a sort (newest-first, most-viewed, …).
-async function fetchDiscoverSearchPage(sort: string, page: number): Promise<KaganeSearchResponse> {
+// The browse feed is the search endpoint with the reader's filter body and a
+// sort. Duplicate in-flight calls share one response instead of poking
+// Cloudflare twice during refresh/retry bursts.
+async function fetchDiscoverSearchPage(
+  sort: string,
+  page: number,
+  size: number,
+): Promise<KaganeSearchResponse> {
   const body = await buildSearchBody("", {});
+  const serializedBody = JSON.stringify(body);
+  const key = `${sort}:${page}:${size}:${serializedBody}`;
+  const cached = discoverPagePromises.get(key);
+  if (cached) return cached;
+
   const url = new URL(API_URL)
     .addPathComponent("api")
     .addPathComponent("v2")
     .addPathComponent("search")
     .addPathComponent("series")
     .setQueryItem("page", String(page - 1))
-    .setQueryItem("size", String(PAGE_SIZE))
+    .setQueryItem("size", String(size))
     .setQueryItem("sort", sort)
     .toString();
 
@@ -125,29 +121,13 @@ async function fetchDiscoverSearchPage(sort: string, page: number): Promise<Kaga
     url,
     method: "POST",
     headers: apiHeaders(),
-    body: JSON.stringify(body),
+    body: serializedBody,
   };
-  return fetchJSON<KaganeSearchResponse>(request);
-}
-
-async function fetchOptionalDetails(
-  seriesId: string,
-): Promise<KaganeSeriesDetailsResponse | undefined> {
-  try {
-    return await fetchJSON<KaganeSeriesDetailsResponse>({
-      url: new URL(API_URL)
-        .addPathComponent("api")
-        .addPathComponent("v2")
-        .addPathComponent("series")
-        .addPathComponent(seriesId)
-        .toString(),
-      method: "GET",
-      headers: apiHeaders(),
-    });
-  } catch (error) {
-    if (error instanceof CloudflareError) throw error;
-    return undefined;
-  }
+  const promise = fetchJSON<KaganeSearchResponse>(request).finally(() => {
+    if (discoverPagePromises.get(key) === promise) discoverPagePromises.delete(key);
+  });
+  discoverPagePromises.set(key, promise);
+  return promise;
 }
 
 // Genre chips → a filtered search on that genre.
