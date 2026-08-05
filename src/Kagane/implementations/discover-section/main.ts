@@ -25,18 +25,7 @@ const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
 ];
 
-// Paperback asks for discover sections independently. Share the taxonomy load
-// so a cold refresh cannot start duplicate genre/source request pairs.
-let discoverMetadataPromise: Promise<KaganeMetadata> | undefined;
 const discoverPagePromises = new Map<string, Promise<KaganeSearchResponse>>();
-
-function getDiscoverMetadata(): Promise<KaganeMetadata> {
-  const request = (discoverMetadataPromise ??= getKaganeMetadata().catch((error: unknown) => {
-    if (discoverMetadataPromise === request) discoverMetadataPromise = undefined;
-    throw error;
-  }));
-  return request;
-}
 
 export class DiscoverProvider {
   async getDiscoverSections(): Promise<DiscoverSection[]> {
@@ -52,7 +41,7 @@ export class DiscoverProvider {
       return buildTrendingRangeItems();
     }
 
-    const kaganeMetadata = await getDiscoverMetadata();
+    const kaganeMetadata = await getKaganeMetadata();
 
     if (section.id === "genres") {
       return genreChips(kaganeMetadata);

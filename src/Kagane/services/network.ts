@@ -25,6 +25,10 @@ import {
 } from "../implementations/shared/models";
 import { buildPageUrl } from "../implementations/shared/utils";
 
+let integrityTokenPromise: Promise<string> | undefined;
+const challengePromises = new Map<string, Promise<ChallengeDto>>();
+let metadataPromise: Promise<KaganeMetadata> | undefined;
+
 export class KaganeInterceptor extends PaperbackInterceptor {
   async interceptRequest(request: Request): Promise<Request> {
     return {
@@ -71,6 +75,13 @@ export class KaganeInterceptor extends PaperbackInterceptor {
   }
 }
 
+function responseHeader(response: Response, name: string): string {
+  const key = Object.keys(response.headers ?? {}).find(
+    (header) => header.toLowerCase() === name.toLowerCase(),
+  );
+  return key ? response.headers?.[key] ?? "" : "";
+}
+
 async function isCloudflareChallenge(
   request: Request,
   response: Response,
@@ -79,34 +90,28 @@ async function isCloudflareChallenge(
   if (!request.url.startsWith(BASE_URL)) {
     return false;
   }
-  // Cloudflare challenges the browse/search POSTs as well as navigations
-  // (they come back with cf-mitigated: challenge), so every same-origin
-  // request must be able to raise the bypass — otherwise discover breaks. The
-  // managed challenge is solved in the WebView under the device User-Agent,
-  // and the resulting cf_clearance is reused across methods, so this does not
-  // loop.
-  if (response.headers?.["cf-mitigated"] === "challenge") {
+
+  // cf-mitigated is the strongest signal and can appear on API POSTs too.
+  if (responseHeader(response, "cf-mitigated").toLowerCase() === "challenge") {
     return true;
   }
-  if (response.status !== 403) {
+
+  // Kagane also uses ordinary JSON 403/503 responses for expired reader
+  // tokens, rate limits, and outages. Do not turn those into a WebView prompt.
+  if (response.status !== 403 && response.status !== 503) {
     return false;
   }
 
-  const headerKeys = Object.keys(response.headers ?? {}).map((key) => key.toLowerCase());
-  if (headerKeys.some((key) => key.startsWith("cf-") || key === "server")) {
-    const serverHeaderKey = Object.keys(response.headers ?? {}).find(
-      (key) => key.toLowerCase() === "server",
-    );
-    const server = serverHeaderKey ? response.headers[serverHeaderKey] : "";
-    if (!server || server.toLowerCase().includes("cloudflare")) {
-      return true;
-    }
-  }
-
+  const contentType = responseHeader(response, "content-type").toLowerCase();
+  if (contentType.includes("application/json")) return false;
   const text = Application.arrayBufferToUTF8String(data);
+  if (typeof text !== "string") return false;
+  const looksHtml = contentType.includes("text/html") || /^\s*(?:<!doctype html|<html)/i.test(text);
   return (
-    typeof text === "string" &&
-    /cloudflare|cf-browser-verification|cf-challenge|Just a moment/i.test(text)
+    looksHtml &&
+    /cf-browser-verification|cf-challenge|cf-chl-|_cf_chl_opt|Just a moment/i.test(
+      text,
+    )
   );
 }
 
@@ -181,9 +186,29 @@ function getDataSaver(): boolean {
   return (Application.getState(DATA_SAVER_KEY) as boolean | undefined) ?? false;
 }
 
-export async function getChallengeResponse(
+export function getChallengeResponse(
   chapterId: string,
   forceRefresh = false,
+): Promise<ChallengeDto> {
+  const existing = challengePromises.get(chapterId);
+  if (existing) return existing;
+
+  const request = loadChallengeResponse(chapterId, forceRefresh);
+  challengePromises.set(chapterId, request);
+  request.then(
+    () => {
+      if (challengePromises.get(chapterId) === request) challengePromises.delete(chapterId);
+    },
+    () => {
+      if (challengePromises.get(chapterId) === request) challengePromises.delete(chapterId);
+    },
+  );
+  return request;
+}
+
+async function loadChallengeResponse(
+  chapterId: string,
+  forceRefresh: boolean,
 ): Promise<ChallengeDto> {
   const integrityToken = await getIntegrityToken(forceRefresh);
   try {
@@ -219,14 +244,30 @@ async function requestChallengeResponse(
   });
 }
 
-async function getIntegrityToken(forceRefresh = false): Promise<string> {
+function getIntegrityToken(forceRefresh = false): Promise<string> {
   const exp = Number(Application.getState(INTEGRITY_EXP_KEY) ?? 0);
   const token = Application.getState(INTEGRITY_TOKEN_KEY);
 
   if (!forceRefresh && typeof token === "string" && token && exp > Date.now()) {
-    return token;
+    return Promise.resolve(token);
   }
+  if (integrityTokenPromise) return integrityTokenPromise;
+  if (forceRefresh) clearIntegrityToken();
 
+  const request = refreshIntegrityToken();
+  integrityTokenPromise = request;
+  request.then(
+    () => {
+      if (integrityTokenPromise === request) integrityTokenPromise = undefined;
+    },
+    () => {
+      if (integrityTokenPromise === request) integrityTokenPromise = undefined;
+    },
+  );
+  return request;
+}
+
+async function refreshIntegrityToken(): Promise<string> {
   await scheduleWithRetry({
     url: `${BASE_URL}/`,
     method: "GET",
@@ -269,6 +310,19 @@ export function browserHeaders(extra?: Record<string, string>): Record<string, s
   };
 }
 
+function retryDelaySeconds(response: Response): number {
+  const retryAfter = responseHeader(response, "retry-after").trim();
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(10, Math.max(1, seconds));
+  }
+  const date = Date.parse(retryAfter);
+  if (Number.isFinite(date)) {
+    return Math.min(10, Math.max(1, Math.ceil((date - Date.now()) / 1000)));
+  }
+  return response.status === 429 ? 2 : 1;
+}
+
 // The origin sheds connections under load: pooled keep-alive sockets die
 // ("network connection lost") and new connections get refused outright. One
 // short retry absorbs those transient socket deaths. A CloudflareError must
@@ -284,9 +338,20 @@ async function scheduleWithRetry(request: Request): Promise<[Response, ArrayBuff
 }
 
 export async function fetchJSON<T>(request: Request): Promise<T> {
-  const [response, buffer] = await scheduleWithRetry(request);
+  let result = await scheduleWithRetry(request);
+  if (result[0].status === 429 || result[0].status === 503) {
+    await Application.sleep(retryDelaySeconds(result[0]));
+    result = await scheduleWithRetry(request);
+  }
+  const [response, buffer] = result;
 
   if (response.status < 200 || response.status >= 300) {
+    if (response.status === 429) {
+      throw new Error("Kagane is rate limiting requests. Try again shortly.");
+    }
+    if (response.status === 503) {
+      throw new Error("Kagane is temporarily unavailable. Try again shortly.");
+    }
     throw new Error(`Request failed with status ${response.status}: ${request.url}`);
   }
 
@@ -301,22 +366,36 @@ export async function fetchJSON<T>(request: Request): Promise<T> {
   }
 }
 
-export async function getKaganeMetadata(): Promise<KaganeMetadata> {
+export function getKaganeMetadata(): Promise<KaganeMetadata> {
   const cacheDate = Number(Application.getState(METADATA_CACHE_DATE_KEY) ?? 0);
   const cached = Application.getState(METADATA_CACHE_KEY);
 
   if (typeof cached === "string" && cacheDate + METADATA_CACHE_TTL_SECONDS > Date.now() / 1000) {
     try {
-      return JSON.parse(cached) as KaganeMetadata;
+      return Promise.resolve(JSON.parse(cached) as KaganeMetadata);
     } catch {
       Application.setState("", METADATA_CACHE_KEY);
       Application.setState("0", METADATA_CACHE_DATE_KEY);
     }
   }
 
-  // Fetched one after another rather than in parallel: on a cold load the first
-  // clears any Cloudflare challenge (raising the bypass once) so the second
-  // rides the fresh clearance, instead of both hitting the challenge at once.
+  if (metadataPromise) return metadataPromise;
+  const request = loadKaganeMetadata();
+  metadataPromise = request;
+  request.then(
+    () => {
+      if (metadataPromise === request) metadataPromise = undefined;
+    },
+    () => {
+      if (metadataPromise === request) metadataPromise = undefined;
+    },
+  );
+  return request;
+}
+
+async function loadKaganeMetadata(): Promise<KaganeMetadata> {
+  // Keep the two vocabulary requests sequential so the first can clear a real
+  // challenge. Every provider shares this one in-flight operation.
   const genres = await fetchJSON<GenreDto[]>({
     url: `${API_URL}/api/v2/genres/list`,
     method: "GET",

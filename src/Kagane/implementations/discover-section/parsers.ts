@@ -91,7 +91,7 @@ export function mapFeaturedItem(
     title: displayTitle(book, metadata),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
-    supertitle: authorNames(detail) ?? statusLabel(book),
+    supertitle: authorNames(detail),
     summary: detail?.description?.trim() || descriptor(book, metadata) || "",
     infoItems,
   };
@@ -131,12 +131,15 @@ export function mapSimpleItem(
   book: KaganeSearchSeries,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem {
+  const latest = book.latest_chapters?.[0];
+  const chapter = latest?.chapter_no?.trim();
+  const volume = latest?.volume_no?.trim();
   return {
     type: "simpleCarouselItem",
     mangaId: book.series_id,
     title: displayTitle(book, metadata),
     imageUrl: buildImageUrl(book.cover_image_id),
     contentRating: mapItemContentRating(book.content_rating),
-    subtitle: descriptor(book, metadata) ?? statusLabel(book),
+    subtitle: chapter ? (volume ? `Vol.${volume} Ch.${chapter}` : `Ch. ${chapter}`) : undefined,
   };
 }
