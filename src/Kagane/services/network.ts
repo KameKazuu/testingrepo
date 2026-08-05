@@ -79,7 +79,7 @@ function responseHeader(response: Response, name: string): string {
   const key = Object.keys(response.headers ?? {}).find(
     (header) => header.toLowerCase() === name.toLowerCase(),
   );
-  return key ? response.headers?.[key] ?? "" : "";
+  return key ? (response.headers?.[key] ?? "") : "";
 }
 
 async function isCloudflareChallenge(
@@ -109,9 +109,7 @@ async function isCloudflareChallenge(
   const looksHtml = contentType.includes("text/html") || /^\s*(?:<!doctype html|<html)/i.test(text);
   return (
     looksHtml &&
-    /cf-browser-verification|cf-challenge|cf-chl-|_cf_chl_opt|Just a moment/i.test(
-      text,
-    )
+    /cf-browser-verification|cf-challenge|cf-chl-|_cf_chl_opt|Just a moment/i.test(text)
   );
 }
 
