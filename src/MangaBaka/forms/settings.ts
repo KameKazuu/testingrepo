@@ -79,7 +79,7 @@ export class SettingsForm extends Form {
         [
           OAuthButtonRow("oauthLogin", {
             title: "Log In",
-            authorizeEndpoint: `${OAUTH_AUTHORIZE_URL}?prompt=consent`,
+            authorizeEndpoint: OAUTH_AUTHORIZE_URL,
             clientId: OAUTH_CLIENT_ID,
             redirectUri: OAUTH_REDIRECT_URI,
             scopes: OAUTH_SCOPES,
