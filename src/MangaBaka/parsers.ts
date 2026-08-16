@@ -3,24 +3,64 @@
 
 import { ContentRating, type SourceManga, type Tag } from "@paperback/types";
 
-import { DOMAIN, type Series } from "./models";
+import { DOMAIN, type Series, type SeriesTitle, TITLE_PREFERENCE_KEY } from "./models";
+
+export type TitlePreference = "english" | "romanized" | "native";
+
+export const TITLE_PREFERENCES: { id: TitlePreference; title: string }[] = [
+  { id: "english", title: "English" },
+  { id: "romanized", title: "Romanized" },
+  { id: "native", title: "Original Language" },
+];
+
+export function getTitlePreference(): TitlePreference {
+  const stored = Application.getState(TITLE_PREFERENCE_KEY);
+  return stored === "romanized" || stored === "native" ? stored : "english";
+}
+
+function preferredTitle(
+  series: Series,
+  matches: (entry: SeriesTitle) => boolean,
+): string | undefined {
+  const titles = (series.titles ?? []).filter((entry) => entry.title && matches(entry));
+  return (
+    titles.find((entry) => entry.is_primary === true)?.title ??
+    titles.find((entry) => entry.traits?.includes("official"))?.title ??
+    titles[0]?.title ??
+    undefined
+  );
+}
 
 export function seriesTitle(series: Series): string {
-  const titles = series.titles ?? [];
-  const englishPrimary = titles.find(
-    (entry) => entry.language === "en" && entry.is_primary === true && entry.title,
-  );
-  const english = titles.find((entry) => entry.language === "en" && entry.title);
-  const primary = titles.find((entry) => entry.is_primary === true && entry.title);
-  const first = titles.find((entry) => entry.title);
+  const english = () =>
+    preferredTitle(series, (entry) => entry.language?.toLowerCase().startsWith("en") === true) ??
+    series.title ??
+    undefined;
+  const romanized = () =>
+    preferredTitle(series, (entry) => /-latn$/i.test(entry.language ?? "")) ??
+    series.romanized_title ??
+    undefined;
+  const native = () =>
+    series.native_title ??
+    preferredTitle(
+      series,
+      (entry) => entry.traits?.includes("native") === true && !/-latn$/i.test(entry.language ?? ""),
+    ) ??
+    undefined;
 
-  return Application.decodeHTMLEntities(
-    englishPrimary?.title ??
-      english?.title ??
-      primary?.title ??
-      first?.title ??
-      `Series ${series.id}`,
-  );
+  const preference = getTitlePreference();
+  const candidates =
+    preference === "native"
+      ? [native(), romanized(), english()]
+      : preference === "romanized"
+        ? [romanized(), english(), native()]
+        : [english(), romanized(), native()];
+  const fallback =
+    candidates.find(Boolean) ??
+    (series.titles ?? []).find((entry) => entry.title)?.title ??
+    `Series ${series.id}`;
+
+  return Application.decodeHTMLEntities(fallback);
 }
 
 // Undefined when the series has no artwork at all. Every size is nullable and
@@ -103,13 +143,17 @@ function mapStatus(status?: string | null): string {
 }
 
 export function parseSourceManga(series: Series): SourceManga {
-  const titles = series.titles ?? [];
   const primaryTitle = seriesTitle(series);
   const seen = new Set([primaryTitle.toLowerCase()]);
   const secondaryTitles: string[] = [];
 
-  for (const entry of titles) {
-    const title = entry.title ? Application.decodeHTMLEntities(entry.title) : "";
+  for (const candidate of [
+    series.native_title,
+    series.romanized_title,
+    series.title,
+    ...(series.titles ?? []).map((entry) => entry.title),
+  ]) {
+    const title = candidate ? Application.decodeHTMLEntities(candidate) : "";
     if (!title || seen.has(title.toLowerCase())) continue;
     seen.add(title.toLowerCase());
     secondaryTitles.push(title);

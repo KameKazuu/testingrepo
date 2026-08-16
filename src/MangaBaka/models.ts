@@ -8,6 +8,8 @@ export const TOKEN_KEY = "mangabaka-token";
 export const ACCESS_TOKEN_KEY = "mangabaka-access-token";
 export const REFRESH_TOKEN_KEY = "mangabaka-refresh-token";
 export const GENRES_CACHE_KEY = "mangabaka-genres";
+export const PROFILE_KEY = "mangabaka-profile";
+export const TITLE_PREFERENCE_KEY = "mangabaka-title-preference";
 
 // The search endpoint caps `limit` at 100 and `page` at 100.
 export const SEARCH_LIMIT = 20;
@@ -42,6 +44,15 @@ export const LIBRARY_STATES = [
   { id: "rereading", title: "Rereading" },
   { id: "considering", title: "Considering" },
 ];
+
+export const LIBRARY_PRIORITIES = [
+  { id: "10", title: "Low" },
+  { id: "20", title: "Normal" },
+  { id: "30", title: "High" },
+];
+
+export const DEFAULT_LIBRARY_STATE = "plan_to_read";
+export const DEFAULT_LIBRARY_PRIORITY = 20;
 
 // Ratings are stored 0-100. `rating_steps` on the account is the increment the
 // account stores them in, so a 0-10 picker has to step by a tenth of it.
@@ -146,6 +157,7 @@ export interface SeriesTitle {
   language?: string | null;
   title?: string | null;
   is_primary?: boolean | null;
+  traits?: string[] | null;
 }
 
 export interface SeriesCover {
@@ -179,6 +191,9 @@ export interface SeriesPublisher {
 
 export interface Series {
   id: number;
+  title?: string | null;
+  native_title?: string | null;
+  romanized_title?: string | null;
   titles?: SeriesTitle[] | null;
   cover?: SeriesCover | null;
   description?: string | null;
@@ -203,7 +218,10 @@ export interface LibraryEntry {
   progress_chapter?: number | null;
   progress_volume?: number | null;
   number_of_rereads?: number | null;
+  start_date?: string | null;
+  finish_date?: string | null;
   is_private?: boolean | null;
+  priority?: number | null;
   note?: string | null;
 }
 
@@ -213,9 +231,7 @@ export interface Profile {
   preferred_username?: string | null;
   auth_type?: string | null;
   rating_steps?: number | null;
-}
-
-export interface OAuthTokenResponse {
-  access_token: string;
-  refresh_token?: string | null;
+  library_default_state?: string | null;
+  role?: string | null;
+  scopes?: string[] | null;
 }

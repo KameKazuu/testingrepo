@@ -14,19 +14,29 @@ import {
 } from "@paperback/types";
 
 import {
+  DEFAULT_LIBRARY_PRIORITY,
   type Envelope,
+  LIBRARY_PRIORITIES,
   LIBRARY_STATES,
   type LibraryEntry,
-  type Profile,
   RATING_SCALE,
 } from "../models";
 import {
+  getDefaultLibraryState,
   getRatingSteps,
+  getProfile,
   hasRatingSteps,
   MangaBakaError,
   makeRequest,
-  setRatingSteps,
+  refreshProfile,
 } from "../network";
+
+const today = (): string => {
+  const now = new Date();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  return `${now.getUTCFullYear()}-${month}-${day}`;
+};
 
 export class ProgressForm extends Form {
   private readonly seriesId: string;
@@ -51,6 +61,7 @@ export class ProgressForm extends Form {
   }
 
   private async load(): Promise<void> {
+    let missing = false;
     try {
       const response = await makeRequest<Envelope<LibraryEntry>>(
         `/v1/my/library/${this.seriesId}`,
@@ -62,7 +73,7 @@ export class ProgressForm extends Form {
       // A missing entry is the normal "not tracked yet" case; anything else
       // is a real failure worth showing.
       if (error instanceof MangaBakaError && error.status === 404) {
-        this.entry = { state: "reading", progress_chapter: 0, progress_volume: 0, rating: 0 };
+        missing = true;
         this.exists = false;
       } else {
         this.error = error instanceof Error ? error.message : String(error);
@@ -72,13 +83,22 @@ export class ProgressForm extends Form {
     // The score picker's increment comes from the account, and nothing else
     // on the way in fetches it, so a reader who never opens Account Info
     // would otherwise be offered scores their account cannot store.
-    if (this.error == undefined && !hasRatingSteps()) {
+    if (this.error == undefined && (!hasRatingSteps() || getProfile() == undefined)) {
       try {
-        const profile = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
-        setRatingSteps(profile.data.rating_steps);
+        await refreshProfile();
       } catch {
         // Not worth failing the whole form over; the default still works.
       }
+    }
+
+    if (missing) {
+      this.entry = {
+        state: getDefaultLibraryState(),
+        progress_chapter: 0,
+        progress_volume: 0,
+        rating: 0,
+        priority: DEFAULT_LIBRARY_PRIORITY,
+      };
     }
 
     this.reloadForm();
@@ -87,7 +107,13 @@ export class ProgressForm extends Form {
   // Called by the deletion screen so this form knows the entry is gone and
   // submits a fresh one rather than patching something that no longer exists.
   handleDeleted(): void {
-    this.entry = { state: "reading", progress_chapter: 0, progress_volume: 0, rating: 0 };
+    this.entry = {
+      state: getDefaultLibraryState(),
+      progress_chapter: 0,
+      progress_volume: 0,
+      rating: 0,
+      priority: DEFAULT_LIBRARY_PRIORITY,
+    };
     this.exists = false;
     this.reloadForm();
   }
@@ -159,7 +185,16 @@ export class ProgressForm extends Form {
           onValueChange: Application.Selector(this as ProgressForm, "handleRatingChange"),
         }),
       ]),
-      Section({ id: "privacy", header: "Privacy" }, [
+      Section({ id: "organise", header: "Organise" }, [
+        SelectRow("priority", {
+          title: "Priority",
+          value: [String(entry.priority ?? DEFAULT_LIBRARY_PRIORITY)],
+          layout: "list",
+          minItemCount: 1,
+          maxItemCount: 1,
+          items: LIBRARY_PRIORITIES,
+          onValueChange: Application.Selector(this as ProgressForm, "handlePriorityChange"),
+        }),
         ToggleRow("private", {
           title: "Private",
           value: entry.is_private ?? false,
@@ -214,6 +249,12 @@ export class ProgressForm extends Form {
     this.reloadForm();
   }
 
+  async handlePriorityChange(value: string[]): Promise<void> {
+    const priority = Number(value[0]);
+    if (!Number.isFinite(priority)) return;
+    this.entry!.priority = priority;
+  }
+
   async handlePrivateChange(value: boolean): Promise<void> {
     this.entry!.is_private = value;
   }
@@ -226,6 +267,14 @@ export class ProgressForm extends Form {
     const entry = this.entry;
     if (entry == undefined) return;
 
+    let startDate = entry.start_date ?? null;
+    if (startDate == null && (entry.state === "reading" || entry.state === "completed")) {
+      startDate = today();
+    }
+
+    let finishDate = entry.finish_date ?? null;
+    if (finishDate == null && entry.state === "completed") finishDate = today();
+
     await makeRequest(`/v1/my/library/${this.seriesId}`, {
       method: this.exists ? "PATCH" : "POST",
       needsAuth: true,
@@ -234,8 +283,11 @@ export class ProgressForm extends Form {
         progress_chapter: entry.progress_chapter ?? 0,
         progress_volume: entry.progress_volume ?? 0,
         number_of_rereads: entry.number_of_rereads ?? 0,
+        start_date: startDate,
+        finish_date: finishDate,
         rating: entry.rating ? entry.rating : null,
         is_private: entry.is_private ?? false,
+        priority: entry.priority ?? DEFAULT_LIBRARY_PRIORITY,
         note: entry.note ? entry.note : null,
       },
     });

@@ -1,24 +1,30 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import { PaperbackInterceptor, type Request, type Response } from "@paperback/types";
+import { PaperbackInterceptor, type Cookie, type Request, type Response } from "@paperback/types";
 
 import {
   ACCESS_TOKEN_KEY,
   API_URL,
   DEFAULT_RATING_STEPS,
+  DEFAULT_LIBRARY_STATE,
   DOMAIN,
   type Envelope,
   GENRES_CACHE_KEY,
+  LIBRARY_STATES,
+  OAUTH_AUTHORIZE_URL,
   OAUTH_CLIENT_ID,
   OAUTH_REDIRECT_URI,
+  OAUTH_SCOPES,
   OAUTH_TOKEN_URL,
-  type OAuthTokenResponse,
+  PROFILE_KEY,
+  type Profile,
   RATING_STEPS_KEY,
   REFRESH_TOKEN_KEY,
   type TagDefinition,
   TOKEN_KEY,
 } from "./models";
+import { createPkceSession, type PkceSession } from "./utils";
 
 export class MangaBakaInterceptor extends PaperbackInterceptor {
   override async interceptRequest(request: Request): Promise<Request> {
@@ -48,6 +54,7 @@ export function getToken(): string | undefined {
 
 export function setToken(token: string): void {
   Application.setSecureState(token, TOKEN_KEY);
+  clearAccessTokens();
 }
 
 export function getAccessToken(): string | undefined {
@@ -57,9 +64,8 @@ export function getAccessToken(): string | undefined {
 
 export function setAccessTokens(accessToken: string, refreshToken?: string): void {
   Application.setSecureState(accessToken, ACCESS_TOKEN_KEY);
-  if (refreshToken) {
-    Application.setSecureState(refreshToken, REFRESH_TOKEN_KEY);
-  }
+  Application.setSecureState(refreshToken ?? null, REFRESH_TOKEN_KEY);
+  Application.setSecureState(null, TOKEN_KEY);
 }
 
 const clearAccessTokens = (): void => {
@@ -75,6 +81,30 @@ function getRefreshToken(): string | undefined {
 export function clearToken(): void {
   Application.setSecureState(null, TOKEN_KEY);
   clearAccessTokens();
+  Application.setState(null, PROFILE_KEY);
+  Application.setState(null, RATING_STEPS_KEY);
+}
+
+export function getProfile(): Profile | undefined {
+  const stored = Application.getState(PROFILE_KEY);
+  if (typeof stored !== "string") return undefined;
+
+  try {
+    const profile = JSON.parse(stored) as Profile;
+    return profile && typeof profile === "object" ? profile : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function setProfile(profile: Profile): void {
+  Application.setState(JSON.stringify(profile), PROFILE_KEY);
+  setRatingSteps(profile.rating_steps);
+}
+
+export function getDefaultLibraryState(): string {
+  const state = getProfile()?.library_default_state;
+  return LIBRARY_STATES.some((option) => option.id === state) ? state! : DEFAULT_LIBRARY_STATE;
 }
 
 export function getRatingSteps(): number {
@@ -115,6 +145,12 @@ export function setRatingSteps(steps: number | null | undefined): void {
   if (typeof steps === "number" && steps > 0) {
     Application.setState(steps, RATING_STEPS_KEY);
   }
+}
+
+export async function refreshProfile(): Promise<Profile> {
+  const response = await makeRequest<Envelope<Profile>>("/v1/my/profile", { needsAuth: true });
+  setProfile(response.data);
+  return response.data;
 }
 
 export function isAuthenticated(): boolean {
@@ -181,6 +217,212 @@ function errorMessage(status: number, text: string): string {
     return "MangaBaka rejected your credentials, please sign in again in the settings";
   }
   return `MangaBaka returned status ${status}`;
+}
+
+const encodeForm = (params: Record<string, string>): string =>
+  Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+
+const buildAuthorizeUrl = (session: PkceSession, prompt: "consent" | "none"): string =>
+  `${OAUTH_AUTHORIZE_URL}?${encodeForm({
+    client_id: OAUTH_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: OAUTH_REDIRECT_URI,
+    scope: OAUTH_SCOPES.join(" "),
+    state: session.state,
+    code_challenge: session.challenge,
+    code_challenge_method: "S256",
+    prompt,
+  })}`;
+
+export async function prepareOAuthAuthorizeUrl(): Promise<string> {
+  return buildAuthorizeUrl(await createPkceSession(), "consent");
+}
+
+const headerValue = (headers: Record<string, string>, name: string): string | undefined => {
+  const target = name.toLowerCase();
+  return Object.entries(headers).find(([key]) => key.toLowerCase() === target)?.[1];
+};
+
+const parseSetCookie = (header: string | undefined): [string, string][] => {
+  if (!header) return [];
+
+  const cookies: [string, string][] = [];
+  for (const part of header.split(/,(?=\s*[A-Za-z0-9!#$%&'*+\-.^_`|~]+=)/)) {
+    const pair = part.split(";")[0]?.trim();
+    const separator = pair?.indexOf("=") ?? -1;
+    if (pair == undefined || separator <= 0) continue;
+
+    const name = pair.slice(0, separator).trim();
+    const value = pair.slice(separator + 1).trim();
+    if (name && value) cookies.push([name, value]);
+  }
+  return cookies;
+};
+
+const parseQuery = (url: string): Record<string, string> => {
+  const start = url.indexOf("?");
+  if (start === -1) return {};
+
+  const end = url.indexOf("#", start);
+  const query = url.slice(start + 1, end === -1 ? undefined : end);
+  const result: Record<string, string> = {};
+
+  for (const pair of query.split("&")) {
+    if (!pair) continue;
+    const separator = pair.indexOf("=");
+    const key = separator === -1 ? pair : pair.slice(0, separator);
+    const value = separator === -1 ? "" : pair.slice(separator + 1);
+    result[decodeURIComponent(key.replace(/\+/g, " "))] = decodeURIComponent(
+      value.replace(/\+/g, " "),
+    );
+  }
+
+  return result;
+};
+
+const redirectFromBody = (text: string): string | undefined => {
+  try {
+    const payload = JSON.parse(text) as Record<string, unknown>;
+    const redirect = payload.redirectURI ?? payload.redirect_uri ?? payload.url;
+    return typeof redirect === "string" ? redirect : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const absoluteAuthUrl = (url: string): string => {
+  if (url.startsWith("http")) return url;
+  return `${DOMAIN}${url.startsWith("/") ? "" : "/"}${url}`;
+};
+
+const authorizationCode = async (cookies: Cookie[], session: PkceSession): Promise<string> => {
+  const jar = new Map<string, string>();
+  for (const cookie of cookies) {
+    const domain = cookie.domain.replace(/^\./, "").toLowerCase();
+    if (domain === "mangabaka.org" || domain.endsWith(".mangabaka.org")) {
+      jar.set(cookie.name, cookie.value);
+    }
+  }
+  if (jar.size === 0) {
+    throw new Error("No MangaBaka login cookies were captured. Please try again.");
+  }
+
+  let url = buildAuthorizeUrl(session, "none");
+  for (let hop = 0; hop < 3; hop++) {
+    const [response, buffer] = await Application.scheduleRequest({
+      url,
+      method: "GET",
+      headers: {
+        accept: "application/json, text/html",
+        cookie: [...jar].map(([name, value]) => `${name}=${value}`).join("; "),
+      },
+    });
+
+    for (const cookie of response.cookies) jar.set(cookie.name, cookie.value);
+    for (const [name, value] of parseSetCookie(headerValue(response.headers, "set-cookie"))) {
+      jar.set(name, value);
+    }
+
+    const text = Application.arrayBufferToUTF8String(buffer);
+    const redirect = headerValue(response.headers, "location") ?? redirectFromBody(text);
+    if (!redirect) {
+      throw new Error(`MangaBaka login stopped at HTTP ${response.status}.`);
+    }
+
+    if (redirect.startsWith(OAUTH_REDIRECT_URI)) {
+      const query = parseQuery(redirect);
+      if (query.state !== session.state) throw new Error("MangaBaka login state did not match.");
+      if (query.iss && query.iss !== `${DOMAIN}/auth`) {
+        throw new Error("MangaBaka login returned an unexpected issuer.");
+      }
+      if (query.code) return query.code;
+
+      const detail = query.error_description ?? query.error;
+      throw new Error(detail ? `MangaBaka refused login: ${detail}` : "MangaBaka refused login.");
+    }
+
+    if (/\/(auth|consent)(\?|$)/.test(redirect)) {
+      throw new Error("Approve access in MangaBaka, then close the login window with Done.");
+    }
+    url = absoluteAuthUrl(redirect);
+  }
+
+  throw new Error("MangaBaka login returned too many redirects.");
+};
+
+interface OAuthTokenPayload {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  error?: unknown;
+  error_description?: unknown;
+}
+
+const exchangeAuthorizationCode = async (
+  code: string,
+  verifier: string,
+): Promise<{ accessToken: string; refreshToken?: string }> => {
+  const [response, buffer] = await Application.scheduleRequest({
+    url: OAUTH_TOKEN_URL,
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: encodeForm({
+      grant_type: "authorization_code",
+      code,
+      code_verifier: verifier,
+      client_id: OAUTH_CLIENT_ID,
+      redirect_uri: OAUTH_REDIRECT_URI,
+    }),
+  });
+  const text = Application.arrayBufferToUTF8String(buffer);
+
+  let payload: OAuthTokenPayload;
+  try {
+    payload = JSON.parse(text) as OAuthTokenPayload;
+  } catch {
+    throw new Error(`MangaBaka returned an unreadable login response (HTTP ${response.status}).`);
+  }
+
+  if (typeof payload.access_token !== "string" || !payload.access_token) {
+    const detail =
+      typeof payload.error_description === "string"
+        ? payload.error_description
+        : typeof payload.error === "string"
+          ? payload.error
+          : `HTTP ${response.status}`;
+    throw new Error(`MangaBaka rejected login: ${detail}`);
+  }
+
+  return {
+    accessToken: payload.access_token,
+    ...(typeof payload.refresh_token === "string" && payload.refresh_token
+      ? { refreshToken: payload.refresh_token }
+      : {}),
+  };
+};
+
+export async function loginWithCookies(cookies: Cookie[]): Promise<void> {
+  const session = await createPkceSession();
+  const code = await authorizationCode(cookies, session);
+  const tokens = await exchangeAuthorizationCode(code, session.verifier);
+  const probe = await scheduleApiRequest("/v1/my/library/1", {
+    headers: { authorization: `Bearer ${tokens.accessToken}` },
+  });
+
+  if (probe.status !== 200 && probe.status !== 404) {
+    throw new Error(`MangaBaka rejected the new login (HTTP ${probe.status}).`);
+  }
+
+  setAccessTokens(tokens.accessToken, tokens.refreshToken);
+  try {
+    await refreshProfile();
+  } catch {
+    // The library token is authoritative; profile information is optional.
+  }
 }
 
 interface RequestOptions {
@@ -253,18 +495,21 @@ const refreshAccessToken = async (): Promise<void> => {
     throw new MangaBakaError(response.status, errorMessage(response.status, text));
   }
 
-  let tokens: OAuthTokenResponse;
+  let tokens: OAuthTokenPayload;
   try {
-    tokens = JSON.parse(text) as OAuthTokenResponse;
+    tokens = JSON.parse(text) as OAuthTokenPayload;
   } catch {
     clearAccessTokens();
     throw new MangaBakaError(401, "MangaBaka did not return refreshed credentials");
   }
-  if (!tokens.access_token) {
+  if (typeof tokens.access_token !== "string" || !tokens.access_token) {
     clearAccessTokens();
     throw new MangaBakaError(401, "MangaBaka did not return a refreshed access token");
   }
-  setAccessTokens(tokens.access_token, tokens.refresh_token ?? refreshToken);
+  setAccessTokens(
+    tokens.access_token,
+    typeof tokens.refresh_token === "string" ? tokens.refresh_token : refreshToken,
+  );
 };
 
 const refreshOnce = async (): Promise<void> => {
