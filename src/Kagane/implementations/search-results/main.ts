@@ -270,7 +270,9 @@ export class SearchProvider {
     );
     const showSource = getShowSource();
 
-    const items = (data.content ?? []).map((book) => mapSearchResult(book, sourceMap, showSource));
+    const items = (data.content ?? [])
+      .map((book) => mapSearchResult(book, sourceMap, showSource))
+      .filter((item): item is SearchResultItem => item != undefined);
 
     return {
       items,
@@ -437,7 +439,10 @@ function mapSearchResult(
   book: KaganeSearchSeries,
   sources: Map<string, string>,
   showSource: boolean,
-): SearchResultItem {
+): SearchResultItem | undefined {
+  const coverImageId = book.cover_image_id?.trim();
+  if (!coverImageId) return undefined;
+
   const sourceName = book.source_id ? sources.get(book.source_id) : undefined;
   const title =
     showSource && sourceName ? `${book.title.trim()} [${sourceName}]` : book.title.trim();
@@ -449,7 +454,7 @@ function mapSearchResult(
   return {
     mangaId: book.series_id,
     title,
-    imageUrl: buildImageUrl(book.cover_image_id),
+    imageUrl: buildImageUrl(coverImageId),
     subtitle: subtitles.join(" - "),
     contentRating: mapItemContentRating(book.content_rating),
   };

@@ -181,6 +181,10 @@ export function parseSourceManga(series: Series): SourceManga {
       contentRating: contentRatingFor(series),
       contentType: series.type === "novel" ? "novel" : "comic",
       tagGroups: tags.length > 0 ? [{ id: "tags", title: "Tags", tags }] : [],
+      additionalInfo:
+        series.total_chapters != undefined && series.total_chapters > 0
+          ? { "Total Chapters": String(series.total_chapters) }
+          : undefined,
       shareUrl: `${DOMAIN}/${series.id}`,
     },
   };

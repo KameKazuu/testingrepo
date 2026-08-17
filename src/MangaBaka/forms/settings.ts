@@ -9,11 +9,18 @@ import {
   NavigationRow,
   Section,
   SelectRow,
+  ToggleRow,
   WebViewRow,
   type Cookie,
 } from "@paperback/types";
 
-import { DOMAIN, type Envelope, type Profile, TITLE_PREFERENCE_KEY } from "../models";
+import {
+  DOMAIN,
+  type Envelope,
+  LIBRARY_STATES,
+  type Profile,
+  TITLE_PREFERENCE_KEY,
+} from "../models";
 import {
   clearToken,
   getProfile,
@@ -26,6 +33,23 @@ import {
   setToken,
 } from "../network";
 import { getTitlePreference, TITLE_PREFERENCES } from "../parsers";
+
+const AUTO_COMPLETE_KEY = "mangabaka-auto-complete";
+
+// Completing a finished title is the helpful default; the toggle stores only
+// an explicit user override.
+export function autoCompleteEnabled(): boolean {
+  const stored = Application.getState(AUTO_COMPLETE_KEY);
+  return typeof stored === "boolean" ? stored : true;
+}
+
+function humanizeSlug(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 export class SettingsForm extends Form {
   private token = "";
@@ -53,13 +77,18 @@ export class SettingsForm extends Form {
   }
 
   override getSections() {
+    const authenticated = isAuthenticated();
+    const profile = getProfile();
     const sections = [
       this.error == undefined
         ? undefined
         : Section("error", [LabelRow("error", { title: "Error", subtitle: this.error })]),
-      isAuthenticated() ? this.accountSection() : this.tokenSection(),
-      isAuthenticated() ? undefined : this.loginSection(),
+      authenticated ? this.accountSection() : this.tokenSection(),
+      authenticated ? undefined : this.loginSection(),
+      authenticated && profile != undefined ? this.mangaBakaSection(profile) : undefined,
       this.titleSection(),
+      authenticated ? this.syncSection() : undefined,
+      this.aboutSection(),
     ];
 
     return sections.filter((section) => section != undefined);
@@ -76,8 +105,7 @@ export class SettingsForm extends Form {
       {
         id: "account",
         header: "Account",
-        footer:
-          "Opening MangaBaka settings may ask you to sign in again. Account changes are refreshed when the window closes.",
+        footer: "Logging out removes the stored MangaBaka token from this device.",
       },
       [
         LabelRow("status", {
@@ -85,15 +113,47 @@ export class SettingsForm extends Form {
           subtitle: details.length > 0 ? details.join(" • ") : "Library syncing is enabled",
         }),
         NavigationRow("profile", { title: "Account Info", form: new ProfileForm() }),
-        WebViewRow("websiteSettings", {
-          title: "Open MangaBaka Settings",
-          request: { url: `${DOMAIN}/auth?redirect_to=/my/settings`, method: "GET" },
-          onComplete: Application.Selector(this as SettingsForm, "handleSettingsClosed"),
-          onCancel: Application.Selector(this as SettingsForm, "handleSettingsClosed"),
-        }),
         ButtonRow("logout", {
           title: "Log Out",
           onSelect: Application.Selector(this as SettingsForm, "handleLogout"),
+        }),
+      ],
+    );
+  }
+
+  private mangaBakaSection(profile: Profile) {
+    const rawDefaultState = profile.library_default_state ?? "plan_to_read";
+    const defaultState =
+      LIBRARY_STATES.find((state) => state.id === rawDefaultState)?.title ??
+      humanizeSlug(rawDefaultState);
+
+    return Section(
+      {
+        id: "mangabakaSettings",
+        header: "MangaBaka settings",
+        footer:
+          "These are set on MangaBaka and used here. Opening the page signs you in again — Paperback cannot pass its login into the web view — but your settings are re-read as soon as you close it.",
+      },
+      [
+        LabelRow("defaultState", {
+          title: "Default library state",
+          subtitle: "Used when you add a title from the tracker.",
+          value: { text: defaultState },
+        }),
+        LabelRow("ratingSteps", {
+          title: "Score increment",
+          subtitle: "Scores are always stored out of 100.",
+          value: { text: String(profile.rating_steps ?? 1) },
+        }),
+        LabelRow("role", {
+          title: "Role",
+          value: { text: humanizeSlug(profile.role ?? "user") },
+        }),
+        WebViewRow("websiteSettings", {
+          title: "Open on MangaBaka (sign-in required)",
+          request: { url: `${DOMAIN}/auth?redirect_to=/my/settings`, method: "GET" },
+          onComplete: Application.Selector(this as SettingsForm, "handleSettingsClosed"),
+          onCancel: Application.Selector(this as SettingsForm, "handleSettingsClosed"),
         }),
       ],
     );
@@ -151,7 +211,8 @@ export class SettingsForm extends Form {
       {
         id: "titles",
         header: "Titles",
-        footer: "Choose which MangaBaka title language is preferred throughout the extension.",
+        footer:
+          "MangaBaka stores a title per language. Choose which one to display. Titles you have already opened keep their old name until they are refreshed.",
       },
       [
         SelectRow("titlePreference", {
@@ -164,6 +225,36 @@ export class SettingsForm extends Form {
           onValueChange: Application.Selector(this as SettingsForm, "handleTitlePreferenceChange"),
         }),
       ],
+    );
+  }
+
+  private syncSection() {
+    return Section(
+      {
+        id: "sync",
+        header: "Sync",
+        footer:
+          "When the last chapter of a finished series is read, mark it as Completed and record the finish date.",
+      },
+      [
+        ToggleRow("autoComplete", {
+          title: "Complete finished series",
+          value: autoCompleteEnabled(),
+          onValueChange: Application.Selector(this as SettingsForm, "handleAutoCompleteChange"),
+        }),
+      ],
+    );
+  }
+
+  private aboutSection() {
+    return Section(
+      {
+        id: "about",
+        header: "About",
+        footer:
+          "Series data is provided by MangaBaka (mangabaka.org) under CC BY-NC-SA 4.0, aggregating AniList, MyAnimeList, MangaUpdates, Kitsu, Anime-Planet, Shikimori and Anime News Network.",
+      },
+      [LabelRow("attribution", { title: "Data by MangaBaka", subtitle: DOMAIN })],
     );
   }
 
@@ -207,6 +298,10 @@ export class SettingsForm extends Form {
     const preference = value[0];
     if (preference == undefined) return;
     Application.setState(preference, TITLE_PREFERENCE_KEY);
+  }
+
+  async handleAutoCompleteChange(value: boolean): Promise<void> {
+    Application.setState(value, AUTO_COMPLETE_KEY);
   }
 
   async handleTokenChange(value: string): Promise<void> {

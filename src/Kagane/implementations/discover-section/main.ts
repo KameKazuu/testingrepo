@@ -27,6 +27,10 @@ const DISCOVER_SECTIONS: DiscoverSection[] = [
 
 const discoverPagePromises = new Map<string, Promise<KaganeSearchResponse>>();
 
+function isPresent<T>(value: T | undefined): value is T {
+  return value != undefined;
+}
+
 export class DiscoverProvider {
   async getDiscoverSections(): Promise<DiscoverSection[]> {
     return DISCOVER_SECTIONS;
@@ -54,15 +58,17 @@ export class DiscoverProvider {
       // source id, and content rating needed for a useful hero card. Avoid one
       // detail request per card and ask the API only for the ten cards displayed.
       const data = await fetchDiscoverSearchPage("total_views,desc", page, FEATURED_LIMIT);
-      const items = (data.content ?? []).map((book) =>
-        mapFeaturedItem(book, undefined, kaganeMetadata),
-      );
+      const items = (data.content ?? [])
+        .map((book) => mapFeaturedItem(book, undefined, kaganeMetadata))
+        .filter(isPresent);
       return { items, metadata: undefined };
     }
 
     if (section.id === "latest") {
       const data = await fetchDiscoverSearchPage("updated_at,desc", page, PAGE_SIZE);
-      const items = (data.content ?? []).map((book) => mapLatestItem(book, kaganeMetadata));
+      const items = (data.content ?? [])
+        .map((book) => mapLatestItem(book, kaganeMetadata))
+        .filter(isPresent);
       return {
         items,
         metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,
@@ -71,7 +77,9 @@ export class DiscoverProvider {
 
     if (section.id === "recently_added") {
       const data = await fetchDiscoverSearchPage("created_at,desc", page, PAGE_SIZE);
-      const items = (data.content ?? []).map((book) => mapSimpleItem(book, kaganeMetadata));
+      const items = (data.content ?? [])
+        .map((book) => mapSimpleItem(book, kaganeMetadata))
+        .filter(isPresent);
       return {
         items,
         metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,

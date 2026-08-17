@@ -61,13 +61,21 @@ function descriptor(book: KaganeSearchSeries, metadata: KaganeMetadata): string 
   return bits.length > 0 ? bits.join(" • ") : undefined;
 }
 
+function cardImageUrl(book: KaganeSearchSeries): string | undefined {
+  const imageId = book.cover_image_id?.trim();
+  return imageId ? buildImageUrl(imageId) : undefined;
+}
+
 // The Popular hero: author as the supertitle, description as the summary, and a
 // star rating + view count as the info chips.
 export function mapFeaturedItem(
   book: KaganeSearchSeries,
   detail: KaganeSeriesDetailsResponse | undefined,
   metadata: KaganeMetadata,
-): DiscoverSectionItem {
+): DiscoverSectionItem | undefined {
+  const imageUrl = cardImageUrl(book);
+  if (imageUrl == undefined) return undefined;
+
   const rating = detailRating(detail);
   const views = formatViews(detail?.total_views);
   const status = statusLabel(book);
@@ -89,7 +97,7 @@ export function mapFeaturedItem(
     type: "featuredCarouselItem",
     mangaId: book.series_id,
     title: displayTitle(book, metadata),
-    imageUrl: buildImageUrl(book.cover_image_id),
+    imageUrl,
     contentRating: mapItemContentRating(book.content_rating),
     supertitle: authorNames(detail),
     summary: detail?.description?.trim() || descriptor(book, metadata) || "",
@@ -112,7 +120,10 @@ function chapterLabel(latest: LatestChapter): string | undefined {
 export function mapLatestItem(
   book: KaganeSearchSeries,
   metadata: KaganeMetadata,
-): DiscoverSectionItem {
+): DiscoverSectionItem | undefined {
+  const imageUrl = cardImageUrl(book);
+  if (imageUrl == undefined) return undefined;
+
   const latest = book.latest_chapters?.[0];
   if (!latest?.book_id) return mapSimpleItem(book, metadata);
   return {
@@ -120,7 +131,7 @@ export function mapLatestItem(
     mangaId: book.series_id,
     chapterId: latest.book_id,
     title: displayTitle(book, metadata),
-    imageUrl: buildImageUrl(book.cover_image_id),
+    imageUrl,
     contentRating: mapItemContentRating(book.content_rating),
     subtitle: chapterLabel(latest),
     publishDate: parseKaganeDate(latest.available_at ?? latest.created_at),
@@ -130,7 +141,10 @@ export function mapLatestItem(
 export function mapSimpleItem(
   book: KaganeSearchSeries,
   metadata: KaganeMetadata,
-): DiscoverSectionItem {
+): DiscoverSectionItem | undefined {
+  const imageUrl = cardImageUrl(book);
+  if (imageUrl == undefined) return undefined;
+
   const latest = book.latest_chapters?.[0];
   const chapter = latest?.chapter_no?.trim();
   const volume = latest?.volume_no?.trim();
@@ -138,7 +152,7 @@ export function mapSimpleItem(
     type: "simpleCarouselItem",
     mangaId: book.series_id,
     title: displayTitle(book, metadata),
-    imageUrl: buildImageUrl(book.cover_image_id),
+    imageUrl,
     contentRating: mapItemContentRating(book.content_rating),
     subtitle: chapter ? (volume ? `Vol.${volume} Ch.${chapter}` : `Ch. ${chapter}`) : undefined,
   };

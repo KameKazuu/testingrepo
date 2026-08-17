@@ -27,7 +27,7 @@ import {
 
 import { ProgressForm } from "./forms/progress";
 import { SearchFiltersForm } from "./forms/search";
-import { SettingsForm } from "./forms/settings";
+import { autoCompleteEnabled, SettingsForm } from "./forms/settings";
 import {
   DISCOVER_LIMIT,
   type Envelope,
@@ -105,6 +105,31 @@ function readFilters(query: SearchQuery<Metadata>): SearchFilters {
 // outside that is rejected, and a rejected write never drains from the queue.
 function clampProgress(value: number): number {
   return Math.min(PROGRESS_MAX, Math.max(0, value));
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Details fetched after this release carry the final count in additionalInfo,
+// so normal syncing needs no extra request. Older cached records fall back to
+// one cacheable public lookup, and a failed convenience check never fails the
+// underlying progress write.
+async function reachedFinalChapter(sourceManga: SourceManga, progress: number): Promise<boolean> {
+  if (sourceManga.mangaInfo.status !== "Completed") return false;
+
+  const storedTotal = Number(sourceManga.mangaInfo.additionalInfo?.["Total Chapters"]);
+  if (Number.isFinite(storedTotal) && storedTotal > 0) return progress >= storedTotal;
+
+  try {
+    const response = await makeRequest<Envelope<Series>>(`/v2/series/${sourceManga.mangaId}`);
+    const total = response.data.total_chapters;
+    return (
+      response.data.status === "completed" && total != undefined && total > 0 && progress >= total
+    );
+  } catch {
+    return false;
+  }
 }
 
 function appendAll(params: string[], key: string, values: string[] | undefined): void {
@@ -350,7 +375,15 @@ export class MangaBakaExtension
     // actions unreported keeps them queued for when they do.
     if (!isAuthenticated()) return result;
 
-    const furthest = new Map<string, { chapter: number; volume: number; actionIds: string[] }>();
+    const furthest = new Map<
+      string,
+      {
+        chapter: number;
+        volume: number;
+        actionIds: string[];
+        sourceManga: SourceManga;
+      }
+    >();
     for (const action of actions) {
       const seriesId = action.sourceManga.mangaId;
       const previous = furthest.get(seriesId);
@@ -363,10 +396,12 @@ export class MangaBakaExtension
           action.chapterVolume == undefined ? -1 : clampProgress(action.chapterVolume),
         ),
         actionIds: [...(previous?.actionIds ?? []), action.id],
+        sourceManga: action.sourceManga,
       });
     }
 
     const groups = [...furthest.entries()];
+    const shouldAutoComplete = autoCompleteEnabled();
     for (let offset = 0; offset < groups.length; offset += 100) {
       const batch = groups.slice(offset, offset + 100);
       const batchActionIds = batch.flatMap(([, progress]) => progress.actionIds);
@@ -392,8 +427,17 @@ export class MangaBakaExtension
           const currentVolume = current?.progress_volume ?? 0;
           const chapter = Math.max(currentChapter, progress.chapter);
           const volume = Math.max(currentVolume, progress.volume);
+          const complete =
+            shouldAutoComplete &&
+            current?.state !== "completed" &&
+            (await reachedFinalChapter(progress.sourceManga, chapter));
 
-          if (current != undefined && chapter === currentChapter && volume === currentVolume) {
+          if (
+            current != undefined &&
+            chapter === currentChapter &&
+            volume === currentVolume &&
+            !complete
+          ) {
             result.successfulItems.push(...progress.actionIds);
             continue;
           }
@@ -404,6 +448,10 @@ export class MangaBakaExtension
           };
           if (volume >= 0) body.progress_volume = volume;
           if (current == undefined) body.state = "reading";
+          if (complete) {
+            body.state = "completed";
+            body.finish_date = today();
+          }
           writes.push(body);
         }
 
