@@ -6,6 +6,11 @@ on:
 permissions:
   contents: write
 
+# Skip the local pre-push conformance hook; this job's whole purpose is to fix
+# formatting, so it must be able to push the fix.
+env:
+  HUSKY: "0"
+
 jobs:
   format:
     runs-on: ubuntu-latest
