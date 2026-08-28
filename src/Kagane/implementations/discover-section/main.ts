@@ -131,24 +131,20 @@ async function fetchDiscoverSearchPage(
 function genreChips(metadata: KaganeMetadata): PagedResults<DiscoverSectionItem> {
   const items = Object.entries(metadata.genres)
     .sort(([, left], [, right]) => left.localeCompare(right))
-    .map(
-      ([id, name]): DiscoverSectionItem => ({
-        type: "genresCarouselItem",
-        name,
-        searchQuery: { title: "", metadata: { genres: { [id]: "included" } } },
-      }),
-    );
+    .map(([id, name]): DiscoverSectionItem => ({
+      type: "genresCarouselItem",
+      name,
+      searchQuery: { title: "", metadata: { genres: { [id]: "included" } } },
+    }));
   return { items };
 }
 
 // Trending chips (Today / This Week / This Month) → a sorted search.
 function buildTrendingRangeItems(): PagedResults<DiscoverSectionItem> {
-  const items = RANGE_OPTIONS.map(
-    (range): DiscoverSectionItem => ({
-      type: "genresCarouselItem",
-      name: range.title,
-      searchQuery: { title: "", metadata: { range: range.id } },
-    }),
-  );
+  const items = RANGE_OPTIONS.map((range): DiscoverSectionItem => ({
+    type: "genresCarouselItem",
+    name: range.title,
+    searchQuery: { title: "", metadata: { range: range.id } },
+  }));
   return { items };
 }

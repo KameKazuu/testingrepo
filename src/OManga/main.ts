@@ -230,16 +230,14 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       const cards = parseHomeLinkSection(await this.getHomepage(), "New Season", '"hl-col-items"');
       if (cards.length > 0) {
         return {
-          items: cards.map(
-            (card): DiscoverSectionItem => ({
-              type: "simpleCarouselItem",
-              mangaId: card.slug,
-              title: card.title,
-              imageUrl: card.cover,
-              subtitle: [card.type, card.year].filter(Boolean).join(" "),
-              metadata: undefined,
-            }),
-          ),
+          items: cards.map((card): DiscoverSectionItem => ({
+            type: "simpleCarouselItem",
+            mangaId: card.slug,
+            title: card.title,
+            imageUrl: card.cover,
+            subtitle: [card.type, card.year].filter(Boolean).join(" "),
+            metadata: undefined,
+          })),
           metadata: undefined,
         };
       }
@@ -249,16 +247,14 @@ export class OMangaExtension implements ExtensionImpl<typeof OMangaConfig> {
       const cards = parseHomeLinkSection(await this.getHomepage(), "Best Ongoings", '"grid gap-2');
       if (cards.length > 0) {
         return {
-          items: cards.map(
-            (card, index): DiscoverSectionItem => ({
-              type: "prominentCarouselItem",
-              mangaId: card.slug,
-              title: card.title,
-              imageUrl: card.cover,
-              subtitle: `#${index + 1}`,
-              metadata: undefined,
-            }),
-          ),
+          items: cards.map((card, index): DiscoverSectionItem => ({
+            type: "prominentCarouselItem",
+            mangaId: card.slug,
+            title: card.title,
+            imageUrl: card.cover,
+            subtitle: `#${index + 1}`,
+            metadata: undefined,
+          })),
           metadata: undefined,
         };
       }
