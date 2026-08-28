@@ -1,0 +1,112 @@
+{
+  "sources": [
+    {
+      "id": "AllManga",
+      "name": "AllManga",
+      "description": "Extension that pulls content from allmanga.to.",
+      "website": "https://allmanga.to",
+      "author": "KameKazuu",
+      "contentRating": "MATURE",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/AllManga/static/icon.png",
+      "version": "1.0.0-alpha.29",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/AllManga",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "EHentai",
+      "name": "EHentai",
+      "description": "Extension that pulls content from e-hentai.org.",
+      "website": "https://e-hentai.org",
+      "author": "KameKazuu",
+      "contentRating": "ADULT",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/EHentai/static/icon.png",
+      "version": "1.1.1",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/EHentai",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "ExHentai",
+      "name": "ExHentai",
+      "description": "Extension that pulls content from exhentai.org.",
+      "website": "https://exhentai.org",
+      "author": "KameKazuu",
+      "contentRating": "ADULT",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/ExHentai/static/icon.png",
+      "version": "1.1.1",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/ExHentai",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "HiveToons",
+      "name": "HiveToons",
+      "description": "Extension that pulls content from hivetoons.org.",
+      "website": "https://hivetoons.org",
+      "author": "KameKazuu",
+      "contentRating": "MATURE",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/HiveToons/static/icon.png",
+      "version": "1.0.0-alpha.2",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/HiveToons",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "Kagane",
+      "name": "Kagane",
+      "description": "Extension that pulls content from kagane.to.",
+      "website": "https://kagane.to",
+      "author": "KameKazuu",
+      "contentRating": "MATURE",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Kagane/static/kagane.png",
+      "version": "1.0.0-alpha.42",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Kagane",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "MangaBaka",
+      "name": "MangaBaka",
+      "description": "Extension that integrates with mangabaka.org for tracking and collection management.",
+      "website": "https://mangabaka.org",
+      "author": "KameKazuu",
+      "contentRating": "ADULT",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/MangaBaka/static/icon.png",
+      "version": "1.0.0-alpha.25",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/MangaBaka",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "Mangago",
+      "name": "Mangago",
+      "description": "Extension that pulls content from mangago.me.",
+      "website": "https://mangago.me",
+      "author": "KameKazuu",
+      "contentRating": "ADULT",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Mangago/static/icon.png",
+      "version": "1.0.0-alpha.6",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Mangago",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "OManga",
+      "name": "oManga",
+      "description": "Extension that pulls content from omanga.to.",
+      "website": "https://omanga.to",
+      "author": "KameKazuu",
+      "contentRating": "ADULT",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/OManga/static/omanga.png",
+      "version": "1.0.0-alpha.23",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/OManga",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    },
+    {
+      "id": "ScansGG",
+      "name": "Scans.GG",
+      "description": "Extension that pulls content from scans.gg.",
+      "website": "https://scans.gg",
+      "author": "KameKazuu",
+      "contentRating": "MATURE",
+      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/ScansGG/static/icon.png",
+      "version": "1.0.0-alpha.11",
+      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/ScansGG",
+      "repository": "https://github.com/KameKazuu/testingrepo"
+    }
+  ]
+}

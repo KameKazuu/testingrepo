@@ -1,0 +1,359 @@
+import {
+  BasicRateLimiter,
+  PaperbackInterceptor,
+  URL,
+  type Request,
+  type Response,
+  type SearchQuery,
+  CloudflareError,
+} from "@paperback/types";
+import * as cheerio from "cheerio";
+
+import { BASE_URL } from "./main";
+import {
+  getAccountID,
+  getExhentaiDenied,
+  getFallbackToEH,
+  getIgneous,
+  getPassHash,
+  isLoggedIn,
+  setExhentaiDenied,
+  setIgneous,
+  type Metadata,
+  type SearchMetadata,
+} from "./utils";
+
+export const mainRateLimiter = new BasicRateLimiter("main", {
+  numberOfRequests: (Application.getState("RateFilter") as number | undefined) ?? 5,
+  bufferInterval: 0.5,
+  ignoreImages: true,
+});
+export class MainInterceptor extends PaperbackInterceptor {
+  private validImgExtensions = [".jpg", ".jpeg", ".png", ".webp"];
+
+  isImageUrl(url: string): boolean {
+    try {
+      const pathname = new URL(url).path.toLowerCase();
+
+      return this.validImgExtensions.some((ext) => pathname.endsWith(ext));
+    } catch {
+      return false;
+    }
+  }
+  override async interceptRequest(request: Request): Promise<Request> {
+    if (this.isImageUrl(request.url)) {
+      if (request.headers && request.headers["nl-link"]) {
+        if (request.headers["first"]) {
+          delete request.headers["first"];
+          return request;
+        } else {
+          request.url = request.headers["nl-link"];
+          return request;
+        }
+      }
+    } else if (request.url.includes(`${BASE_URL}/g/`)) {
+      request.cookies = { nw: "1" };
+    } else {
+      request.cookies = { sl: "dm_2" };
+    }
+    request.headers = {
+      "user-agent": await Application.getDefaultUserAgent(),
+      ...request.headers,
+    };
+    // Attach a stored igneous only when it is real — omitting it lets ExHentai
+    // mint a fresh valid one instead of looping on a stale/refused value.
+    const igneous = getIgneous();
+    request.cookies = {
+      ipb_member_id: getAccountID(),
+      ipb_pass_hash: getPassHash(),
+      ...(igneous ? { igneous } : {}),
+      ...request.cookies,
+    };
+    // Serve the same gallery from E-Hentai when ExHentai can't be used — either
+    // logged out, or already denied this session. Same IDs and paths, so only
+    // the host changes.
+    if (
+      getFallbackToEH() &&
+      request.url.includes("exhentai.org") &&
+      (!isLoggedIn() || getExhentaiDenied())
+    ) {
+      request.url = request.url.replace("exhentai.org", "e-hentai.org");
+    }
+    return request;
+  }
+
+  override async interceptResponse(
+    request: Request,
+    response: Response,
+    data: ArrayBuffer,
+  ): Promise<ArrayBuffer> {
+    // Capture a fresh igneous whenever the server sends one. A request carrying
+    // the login cookies gets a valid igneous back in Set-Cookie; a "mystery"
+    // value means access was refused, so it is never stored.
+    const setCookie = response.headers?.["set-cookie"];
+    if (setCookie) {
+      const match = setCookie.match(/igneous=([^;,\s]+)/);
+      if (match && match[1] !== "mystery") setIgneous(match[1]);
+    }
+
+    // A redirect that reaches here is the ExHentai access-denied bounce that the
+    // redirect handler cancelled (logged-out or ineligible account). Remember it
+    // so later requests skip the dead host, then either serve the same page from
+    // E-Hentai or surface a clear message.
+    if (response.status >= 300 && response.status < 400) {
+      setExhentaiDenied(true);
+      if (getFallbackToEH() && request.url.includes("exhentai.org")) {
+        const [, ehData] = await Application.scheduleRequest({
+          url: request.url.replace("exhentai.org", "e-hentai.org"),
+          method: request.method ?? "GET",
+        });
+        return ehData;
+      }
+      throw new Error(
+        isLoggedIn()
+          ? "ExHentai denied access — your account may not be eligible yet (accounts need to be about a week old) or your session expired. Try logging in again."
+          : "Please log in to use ExHentai.",
+      );
+    }
+
+    const cfMitigated = response.headers?.["cf-mitigated"];
+    if (cfMitigated === "challenge") {
+      throw new CloudflareError({
+        url: `https://forums.e-hentai.org/`,
+        method: request.method ?? "GET",
+        headers: {
+          "user-agent": await Application.getDefaultUserAgent(),
+        },
+      });
+    }
+    return data;
+  }
+}
+
+export class ImageURLInterceptor extends PaperbackInterceptor {
+  override async interceptRequest(request: Request): Promise<Request> {
+    return request;
+  }
+  override async interceptResponse(
+    request: Request,
+    _response: Response,
+    data: ArrayBuffer,
+  ): Promise<ArrayBuffer> {
+    if (!request.url.includes(`${BASE_URL}/s/`)) {
+      return data;
+    }
+
+    const html = Application.arrayBufferToUTF8String(data);
+
+    const $ = cheerio.load(html);
+    const div = $("#i3");
+    const image = div.find("img#img");
+
+    const newPage = image.attr("onerror") ?? "";
+    const match = newPage.match(/'(\d+-\d+)'/);
+
+    if (match?.[1]) {
+      request.headers = {
+        "nl-link": `${request.url}?nl=${match[1]}`,
+        first: "1",
+      };
+    }
+
+    request.url = image.attr("src") ?? request.url;
+
+    return (await Application.scheduleRequest(request))[1];
+  }
+}
+
+export class Network {
+  buildFilter(query: string, filter: { id: string; value: string[] }) {
+    filter.value.forEach((filterValue) => {
+      if (filterValue.startsWith("-")) {
+        query += ` -${filter.id}:${filterValue.split("-")[1]}`;
+      } else {
+        if (filter.id === "language" && filter.value.length > 0) {
+          if (filterValue.startsWith("-")) {
+            query += ` -~${filter.id}:${filterValue.split("-")[1]}`;
+          } else {
+            query += ` ~${filter.id}:${filterValue}`;
+          }
+        } else {
+          query += ` ${filter.id}:${filterValue}`;
+        }
+      }
+    });
+    return query;
+  }
+
+  async favoriteRequest(favLink: string) {
+    const data = await Application.scheduleRequest({
+      url: favLink,
+      method: "GET",
+    });
+
+    return Application.arrayBufferToUTF8String(data[1]);
+  }
+
+  async searchRequest(query: SearchQuery<SearchMetadata>, metadata: Metadata) {
+    const url = new URL(BASE_URL);
+    const isValid = (n: number) => Number.isFinite(n) && n > 0;
+    const typeFilter = query.metadata?.type ?? [];
+    const languageFilter = Object.entries(query.metadata?.language ?? {}).map(
+      ([k, v]) => `${v === "excluded" ? "-" : ""}${k}`,
+    );
+    const characterFilter = query.metadata?.character ?? [];
+    const femaleFilter = query.metadata?.female ?? [];
+    const maleFilter = query.metadata?.male ?? [];
+    const artistFilter = query.metadata?.artist ?? [];
+    const otherFilter = query.metadata?.other ?? [];
+    const mixedFilter = query.metadata?.mixed ?? [];
+    const parodyFilter = query.metadata?.parody ?? [];
+    const rating = query.metadata?.rating ?? -1;
+
+    if (typeFilter && typeof typeFilter === "object") {
+      const ratingSum = typeFilter.reduce((totale, valore) => totale + Number(valore), 0);
+      if (ratingSum > 0) {
+        url.setQueryItem("f_cats", String(1023 - ratingSum));
+      }
+    }
+    const filterMap = [
+      {
+        id: "language",
+        value: languageFilter,
+      },
+      {
+        id: "character",
+        value: characterFilter,
+      },
+      {
+        id: "female",
+        value: femaleFilter,
+      },
+      {
+        id: "male",
+        value: maleFilter,
+      },
+      {
+        id: "artist",
+        value: artistFilter,
+      },
+      {
+        id: "other",
+        value: otherFilter,
+      },
+      {
+        id: "mixed",
+        value: mixedFilter,
+      },
+      {
+        id: "parody",
+        value: parodyFilter,
+      },
+    ];
+    if (rating >= 0) {
+      url.setQueryItem("f_srdd", rating.toString());
+    }
+    filterMap.forEach((filter) => {
+      query.title = this.buildFilter(query.title, filter);
+    });
+    if (query.title) {
+      url.setQueryItem("f_search", query.title);
+    }
+    const min = query.metadata?.minPages ?? 0;
+    const max = query.metadata?.maxPages ?? 0;
+    if (isValid(min)) url.setQueryItem("f_spf", String(min));
+    if (isValid(max)) url.setQueryItem("f_spt", String(max));
+    if (metadata?.page) {
+      url.setQueryItem("next", metadata.page);
+    }
+
+    const data = await Application.scheduleRequest({
+      url: url.toString(),
+      method: "GET",
+    });
+
+    return Application.arrayBufferToUTF8String(data[1]);
+  }
+
+  async getSection(popular: boolean) {
+    const filterValue = (Application.getState("_type") as string[]) ?? [];
+    const ratingSum = filterValue.reduce((acc, val) => acc + Number(val), 0);
+    const url = new URL(BASE_URL);
+    if (popular) {
+      url.setPath("popular");
+    }
+    url.setQueryItem("f_cats", String(1023 - ratingSum));
+    const data = await Application.scheduleRequest({
+      url: url.toString(),
+      method: "GET",
+    });
+    return Application.arrayBufferToUTF8String(data[1]);
+  }
+
+  async mangaDetailRequest(mangaID: string) {
+    const data = await Application.scheduleRequest({
+      url: `${BASE_URL}/g/${mangaID}`,
+      method: "GET",
+    });
+    return Application.arrayBufferToUTF8String(data[1]);
+  }
+  async getChapterPages(url: string) {
+    const data = await Application.scheduleRequest({
+      url: url,
+      method: "GET",
+    });
+    return Application.arrayBufferToUTF8String(data[1]);
+  }
+  async getFevList() {
+    const data = await Application.scheduleRequest({
+      url: `${BASE_URL}/favorites.php`,
+      method: "GET",
+    });
+    const html = Application.arrayBufferToUTF8String(data[1]);
+    const $ = cheerio.load(html);
+    return $("div.fp")
+      .filter((_, el) => $(el).children("div").length === 3) // Skip "Show All Favorites"
+      .map((_, el) => {
+        const $el = $(el);
+        return {
+          id: $el.attr("onclick")?.match(/'([^']+)'/)?.[1] ?? "",
+          value: $el.children("div").eq(2).text().trim(),
+        };
+      })
+      .get();
+  }
+
+  async getFavoriteSelected(mangaid: string) {
+    const [gid, t] = mangaid.split("/");
+    const page = await Application.scheduleRequest({
+      url: `https://e-hentai.org/gallerypopups.php?gid=${gid}&t=${t}&act=addfav`,
+      method: "GET",
+    });
+    const html = Application.arrayBufferToUTF8String(page[1]);
+    const $ = cheerio.load(html);
+    const favList = $('input[type="radio"][name="favcat"]');
+    if (favList.length === 10) {
+      return {
+        id: "",
+        value: "",
+      };
+    }
+    const checked = favList.filter("[checked]");
+    if (checked.length) {
+      const id = checked.attr("id")!;
+
+      const labelDiv = $(`div[onclick*="${id}"]`)
+        .filter((_, el) => $(el).text().trim().length > 0)
+        .first();
+      return {
+        id: id.replace("fav", "https://exhentai.org/favorites.php?favcat="),
+        value: labelDiv.text().trim(),
+      };
+    } else {
+      return {
+        id: "",
+        value: "",
+      };
+    }
+  }
+}

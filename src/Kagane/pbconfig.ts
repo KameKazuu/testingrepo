@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Inkdex */
+
+import type { ExtensionInfo } from "@paperback/types";
+import { ContentRating, SourceIntents } from "@paperback/types";
+
+export default {
+  name: "Kagane",
+  description: "Extension that pulls content from kagane.to.",
+  version: "1.0.0-alpha.45",
+  icon: "kagane.png",
+  language: "en",
+  contentRating: ContentRating.MATURE,
+  capabilities: [
+    SourceIntents.CHAPTER_PROVIDING,
+    SourceIntents.CLOUDFLARE_BYPASS_PROVIDING,
+    SourceIntents.DISCOVER_SECTION_PROVIDING,
+    SourceIntents.SEARCH_RESULT_PROVIDING,
+    SourceIntents.SETTINGS_FORM_PROVIDING,
+  ],
+  badges: [],
+  developers: [
+    {
+      name: "KameKazuu",
+      github: "https://github.com/KameKazuu",
+    },
+  ],
+} satisfies ExtensionInfo;
