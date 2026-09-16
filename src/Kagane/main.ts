@@ -38,13 +38,7 @@ export class KaganeExtension implements Omit<Extension, keyof MangaProviding> {
     _localStorage: Record<string, string>,
   ): Promise<void> {
     for (const cookie of cookies) {
-      if (
-        cookie.name.startsWith("cf") ||
-        cookie.name.startsWith("_cf") ||
-        cookie.name.startsWith("__cf")
-      ) {
-        this.cookieStorageInterceptor.setCookie(cookie);
-      }
+      this.cookieStorageInterceptor.setCookie(cookie);
     }
   }
 }
