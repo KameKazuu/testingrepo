@@ -45,7 +45,7 @@ import {
   type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
-import { buildImageUrl, mapItemContentRating, titleCase } from "../shared/utils";
+import { buildImageUrl, isKaganeRatingAllowed, mapItemContentRating } from "../shared/utils";
 import {
   getVisibleSources,
   parseTagInput,
@@ -243,7 +243,7 @@ export class SearchProvider {
     // A trending chip carries the window whose sort to apply; otherwise use
     // the reader's sorting option.
     const rangeSort = RANGE_OPTIONS.find((range) => range.id === meta.range)?.sort;
-    const sort = rangeSort ?? sortingOption?.id ?? "relevance";
+    const sort = rangeSort ?? sortingOption?.id ?? (query.title?.trim() ? "relevance" : "total_views,desc");
 
     const url = new URL(API_URL)
       .addPathComponent("api")
@@ -271,6 +271,7 @@ export class SearchProvider {
     const showSource = getShowSource();
 
     const items = (data.content ?? [])
+      .filter((book) => isKaganeRatingAllowed(book, getContentRatingSelections()))
       .map((book) => mapSearchResult(book, sourceMap, showSource))
       .filter((item): item is SearchResultItem => item != undefined);
 
@@ -331,7 +332,15 @@ export async function buildSearchBody(
   const displayMode = getSourceDisplayMode();
   const sourceTypes = meta.sourceTypes ?? [];
   const languages = meta.languages ?? [];
+  const ratings = getContentRatingSelections();
+  const ageRatings = [...new Set(ratings.map((rating) =>
+    rating === "safe" ? "Safe" : rating === "suggestive" ? "FifteenPlus" : "EighteenPlus"
+  ))];
   const body: Record<string, unknown> = {
+    age_rating: ageRatings,
+    ...(ratings.includes("pornographic")
+      ? ratings.length === 1 ? { is_pornographic: true } : {}
+      : { is_pornographic: false }),
     source_type:
       sourceTypes.length > 0
         ? sourceTypes
@@ -340,7 +349,6 @@ export async function buildSearchBody(
           : displayMode === "scanlations"
             ? ["Unofficial", "Mixed"]
             : ["Official", "Unofficial", "Mixed"],
-    content_rating: getContentRatingSelections().map(titleCase),
     content_lang: languages.length > 0 ? languages : getContentLanguages(),
   };
 
@@ -375,6 +383,7 @@ export async function buildSearchBody(
 
   const sources = meta.sources ?? [];
   if (sources.length > 0) {
+    if (sources.length > 50) throw new Error("Kagane allows at most 50 sources.");
     body.source_id = sources;
   }
 
@@ -421,8 +430,11 @@ function buildCompoundFilter(
   excluded: string[],
   matchAll: boolean,
 ): Record<string, unknown> {
+  if (included.length > 50 || excluded.length > 50) {
+    throw new Error("Kagane allows at most 50 selected or excluded IDs per filter.");
+  }
   const filter: Record<string, unknown> = {
-    values: included,
+    values: [...new Set(included)],
   };
 
   if (matchAll) {
@@ -456,6 +468,6 @@ function mapSearchResult(
     title,
     imageUrl: buildImageUrl(coverImageId),
     subtitle: subtitles.join(" - "),
-    contentRating: mapItemContentRating(book.content_rating),
+    contentRating: mapItemContentRating(book.content_rating, book.age_rating, book.is_pornographic),
   };
 }

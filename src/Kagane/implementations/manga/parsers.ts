@@ -50,7 +50,7 @@ export function parseMangaDetails(
       artist: joinUnique(artists),
       status: mapPublicationStatus(data.publication_status ?? data.upload_status),
       rating: ratingFraction(pickRating(data.average_rating, data.bayesian_rating)),
-      contentRating: mapItemContentRating(data.content_rating),
+      contentRating: mapItemContentRating(data.content_rating, data.age_rating, data.is_pornographic),
       tagGroups,
       shareUrl: `${BASE_URL}/series/${mangaId}`,
     },

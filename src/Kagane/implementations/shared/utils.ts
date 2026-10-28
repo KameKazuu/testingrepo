@@ -5,11 +5,7 @@ import { ContentRating, URL } from "@paperback/types";
 
 import { API_URL } from "./models";
 
-// The reader fetches a page from the cache CDN as
-//   {cache_url}/api/v2/books/page/{chapterId}/{file}?token={token}
-// and, in data-saver mode, inserts a `datasaver` path segment after `page`
-// (the quality is selected by the path, not a query — the challenge request is
-// what carries is_datasaver).
+// Quality is now selected by the is_datasaver query rather than a path segment.
 export function buildPageUrl(
   cacheUrl: string,
   chapterId: string,
@@ -22,13 +18,11 @@ export function buildPageUrl(
     .addPathComponent("v2")
     .addPathComponent("books")
     .addPathComponent("page");
-  if (dataSaver) {
-    url.addPathComponent("datasaver");
-  }
   return url
     .addPathComponent(chapterId)
     .addPathComponent(fileName)
     .setQueryItem("token", token)
+    .setQueryItem("is_datasaver", String(dataSaver))
     .toString();
 }
 
@@ -59,15 +53,46 @@ export function titleCase(value: string): string {
 // A single title's own rating string ("Safe" / "Suggestive" / …) → Paperback.
 // Anything missing or unrecognized is treated as MATURE — the safer fallback
 // for a catalog like this.
-export function mapItemContentRating(value?: string | null): ContentRating {
-  switch ((value ?? "").toLowerCase()) {
-    case "safe":
-      return ContentRating.EVERYONE;
-    case "pornographic":
-      return ContentRating.ADULT;
-    default:
-      return ContentRating.MATURE;
+export function getKaganeRating(book: {
+  content_rating?: string | null;
+  age_rating?: string | null;
+  is_pornographic?: boolean | null;
+}): "safe" | "suggestive" | "erotica" | "pornographic" | undefined {
+  if (book.is_pornographic === true) return "pornographic";
+  if (book.age_rating === "Safe") return "safe";
+  if (book.age_rating === "FifteenPlus") return "suggestive";
+  if (book.age_rating === "EighteenPlus") {
+    return book.is_pornographic === false ? "erotica" : undefined;
   }
+  const legacy = book.content_rating?.toLowerCase();
+  if (
+    legacy === "safe" || legacy === "suggestive" ||
+    legacy === "erotica" || legacy === "pornographic"
+  ) return legacy;
+  return undefined;
+}
+
+export function isKaganeRatingAllowed(
+  book: Parameters<typeof getKaganeRating>[0],
+  selected: string[],
+): boolean {
+  const rating = getKaganeRating(book);
+  return rating !== undefined && selected.includes(rating);
+}
+
+export function mapItemContentRating(
+  contentRating?: string | null,
+  ageRating?: string | null,
+  isPornographic?: boolean | null,
+): ContentRating {
+  const rating = getKaganeRating({
+    content_rating: contentRating,
+    age_rating: ageRating,
+    is_pornographic: isPornographic,
+  });
+  if (rating === "safe") return ContentRating.EVERYONE;
+  if (rating === "pornographic" || rating === undefined) return ContentRating.ADULT;
+  return ContentRating.MATURE;
 }
 
 // Prefer the average rating, falling back to the bayesian one — a plain ??

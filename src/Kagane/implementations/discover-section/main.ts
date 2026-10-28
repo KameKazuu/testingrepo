@@ -6,6 +6,8 @@ import { DiscoverSectionType, URL } from "@paperback/types";
 
 import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
 import { buildSearchBody } from "../search-results/main";
+import { getContentRatingSelections } from "../settings-form/main";
+import { isKaganeRatingAllowed } from "../shared/utils";
 import {
   API_URL,
   PAGE_SIZE,
@@ -59,6 +61,7 @@ export class DiscoverProvider {
       // detail request per card and ask the API only for the ten cards displayed.
       const data = await fetchDiscoverSearchPage("total_views,desc", page, FEATURED_LIMIT);
       const items = (data.content ?? [])
+        .filter((book) => isKaganeRatingAllowed(book, getContentRatingSelections()))
         .map((book) => mapFeaturedItem(book, undefined, kaganeMetadata))
         .filter(isPresent);
       return { items, metadata: undefined };
@@ -67,6 +70,7 @@ export class DiscoverProvider {
     if (section.id === "latest") {
       const data = await fetchDiscoverSearchPage("updated_at,desc", page, PAGE_SIZE);
       const items = (data.content ?? [])
+        .filter((book) => isKaganeRatingAllowed(book, getContentRatingSelections()))
         .map((book) => mapLatestItem(book, kaganeMetadata))
         .filter(isPresent);
       return {
@@ -78,6 +82,7 @@ export class DiscoverProvider {
     if (section.id === "recently_added") {
       const data = await fetchDiscoverSearchPage("created_at,desc", page, PAGE_SIZE);
       const items = (data.content ?? [])
+        .filter((book) => isKaganeRatingAllowed(book, getContentRatingSelections()))
         .map((book) => mapSimpleItem(book, kaganeMetadata))
         .filter(isPresent);
       return {

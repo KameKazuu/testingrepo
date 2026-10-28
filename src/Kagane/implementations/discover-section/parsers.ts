@@ -98,7 +98,7 @@ export function mapFeaturedItem(
     mangaId: book.series_id,
     title: displayTitle(book, metadata),
     imageUrl,
-    contentRating: mapItemContentRating(book.content_rating),
+    contentRating: mapItemContentRating(book.content_rating, book.age_rating, book.is_pornographic),
     supertitle: authorNames(detail),
     summary: detail?.description?.trim() || descriptor(book, metadata) || "",
     infoItems,
@@ -132,7 +132,7 @@ export function mapLatestItem(
     chapterId: latest.book_id,
     title: displayTitle(book, metadata),
     imageUrl,
-    contentRating: mapItemContentRating(book.content_rating),
+    contentRating: mapItemContentRating(book.content_rating, book.age_rating, book.is_pornographic),
     subtitle: chapterLabel(latest),
     publishDate: parseKaganeDate(latest.available_at ?? latest.created_at),
   };
@@ -153,7 +153,7 @@ export function mapSimpleItem(
     mangaId: book.series_id,
     title: displayTitle(book, metadata),
     imageUrl,
-    contentRating: mapItemContentRating(book.content_rating),
+    contentRating: mapItemContentRating(book.content_rating, book.age_rating, book.is_pornographic),
     subtitle: chapter ? (volume ? `Vol.${volume} Ch.${chapter}` : `Ch. ${chapter}`) : undefined,
   };
 }

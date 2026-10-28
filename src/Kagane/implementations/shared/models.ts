@@ -3,7 +3,7 @@
 
 import type { SortingOption } from "@paperback/types";
 
-export const BASE_URL = "https://kagane.org";
+export const BASE_URL = "https://kagane.cx";
 export const API_URL = BASE_URL;
 export const DEFAULT_CACHE_URL = "https://kstatic.to";
 export const PAGE_SIZE = 35;
@@ -488,12 +488,11 @@ export const SORTING_OPTIONS: SortingOption[] = [
   { id: "relevance", label: "Relevance" },
   { id: "total_views,desc", label: "Popular (Total Views)" },
   { id: "avg_views,desc", label: "Popular (Average Views)" },
-  { id: "avg_views_today,desc", label: "Popular (Today)" },
+  { id: "popular_now,desc", label: "Popular Now" },
   { id: "avg_views_week,desc", label: "Popular (Week)" },
   { id: "avg_views_month,desc", label: "Popular (Month)" },
   { id: "updated_at,desc", label: "Latest" },
-  { id: "series_name,desc", label: "Name (Z–A)" },
-  { id: "books_count,desc", label: "Chapter Count" },
+  { id: "rating,desc", label: "Top Rated" },
   { id: "created_at,desc", label: "Created At" },
 ];
 
@@ -538,6 +537,8 @@ export interface KaganeSearchSeries {
   cover_image_id?: string | null;
   alternate_titles?: string[];
   content_rating?: string | null;
+  age_rating?: string | null;
+  is_pornographic?: boolean | null;
   format?: string | null;
   publication_status?: string | null;
   translated_language?: string | null;
@@ -560,7 +561,7 @@ export interface LatestChapter {
  * filter-option id, which forbids commas — the sort string lives alongside it.
  */
 export const RANGE_OPTIONS = [
-  { id: "today", title: "Today", sort: "avg_views_today,desc" },
+  { id: "today", title: "Popular Now", sort: "popular_now,desc" },
   { id: "week", title: "This Week", sort: "avg_views_week,desc" },
   { id: "month", title: "This Month", sort: "avg_views_month,desc" },
 ];
@@ -573,6 +574,8 @@ export interface KaganeSeriesDetailsResponse {
   upload_status: string;
   publication_status?: string | null;
   content_rating?: string | null;
+  age_rating?: string | null;
+  is_pornographic?: boolean | null;
   translated_language?: string | null;
   format?: string | null;
   source_id?: string | null;
@@ -613,6 +616,13 @@ export interface AlternateTitle {
 
 export interface SeriesCover {
   image_id: string;
+}
+
+export interface ChapterIndexDto {
+  count: number;
+  fields: string[];
+  groups?: Array<{ title: string }>;
+  books: unknown[][];
 }
 
 export interface ChapterBook {

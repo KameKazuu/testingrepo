@@ -2,7 +2,7 @@
 /* Copyright © 2026 Inkdex */
 
 import type { Chapter, ChapterDetails, SourceManga } from "@paperback/types";
-import { URL } from "@paperback/types";
+import { CloudflareError, URL } from "@paperback/types";
 
 import {
   apiHeaders,
@@ -15,10 +15,11 @@ import {
   API_URL,
   DEFAULT_CACHE_URL,
   type KaganeSeriesDetailsResponse,
+  type ChapterIndexDto,
   type SourceDto,
 } from "../shared/models";
 import { buildPageUrl } from "../shared/utils";
-import { parseChapterList } from "./parsers";
+import { parseChapterIndex, parseChapterList } from "./parsers";
 
 export class ChapterProvider {
   async getChapters(sourceManga: SourceManga): Promise<Chapter[]> {
@@ -27,12 +28,22 @@ export class ChapterProvider {
       method: "GET",
       headers: apiHeaders(),
     });
+    const index = await fetchJSON<ChapterIndexDto>({
+      url: new URL(seriesUrl(sourceManga.mangaId))
+        .addPathComponent("books")
+        .addPathComponent("index")
+        .setQueryItem("fields", "List")
+        .toString(),
+      method: "GET",
+      headers: apiHeaders(),
+    });
+    const books = parseChapterIndex(index);
     const sources = await safeSources();
     // Prefer the series' own translated language over the reader's first
     // language preference so chapters are tagged with what they actually are.
     const langCode = data.translated_language ?? getContentLanguages()[0] ?? "en";
 
-    return parseChapterList(data, sourceManga, getChapterTitleMode(), langCode, sources);
+    return parseChapterList({ ...data, series_books: books }, sourceManga, getChapterTitleMode(), langCode, sources);
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
@@ -41,8 +52,11 @@ export class ChapterProvider {
     const cacheUrl = challenge.cache_url || DEFAULT_CACHE_URL;
 
     const manifestPages = challenge.manifest?.pages ?? [];
-    if (manifestPages.length === 0) {
-      throw new Error(`No pages returned for chapter ${chapterId}`);
+    if (!challenge.access_token || !Array.isArray(manifestPages) || manifestPages.length === 0) {
+      throw new Error(`Kagane returned an incomplete reader session for chapter ${chapterId}.`);
+    }
+    if (manifestPages.some((page) => !page.page_id || !Number.isFinite(page.page_no))) {
+      throw new Error(`Kagane returned invalid reader pages for chapter ${chapterId}.`);
     }
 
     // Paperback's reader preloads upcoming pages itself, so we just hand back
@@ -80,7 +94,8 @@ function seriesUrl(seriesId: string): string {
 async function safeSources(): Promise<SourceDto[]> {
   try {
     return (await getKaganeMetadata()).sources;
-  } catch {
+  } catch (error) {
+    if (error instanceof CloudflareError) throw error;
     return [];
   }
 }

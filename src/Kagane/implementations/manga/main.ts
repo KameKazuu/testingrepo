@@ -2,7 +2,7 @@
 /* Copyright © 2026 Inkdex */
 
 import type { Request, SourceManga } from "@paperback/types";
-import { URL } from "@paperback/types";
+import { CloudflareError, URL } from "@paperback/types";
 
 import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
 import { getShowEdition, getShowSource, getShowSpoilerTags } from "../settings-form/main";
@@ -38,7 +38,8 @@ export class MangaProvider {
 async function safeMetadata(): Promise<KaganeMetadata | undefined> {
   try {
     return await getKaganeMetadata();
-  } catch {
+  } catch (error) {
+    if (error instanceof CloudflareError) throw error;
     return undefined;
   }
 }
