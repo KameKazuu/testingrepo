@@ -3,7 +3,12 @@
 
 import type { Chapter, SourceManga } from "@paperback/types";
 
-import type { ChapterBook, ChapterIndexDto, KaganeSeriesDetailsResponse, SourceDto } from "../shared/models";
+import type {
+  ChapterBook,
+  ChapterIndexDto,
+  KaganeSeriesDetailsResponse,
+  SourceDto,
+} from "../shared/models";
 import { buildChapterTitle, parseChapterNumber, parseKaganeDate } from "../shared/utils";
 
 // Source names (not formats) whose own chapter numbering we trust over the
@@ -27,8 +32,6 @@ export function parseChapterList(
   const seriesSource = data.source_id
     ? sources.find((source) => source.source_id === data.source_id)
     : undefined;
-  const officialSource =
-    seriesSource?.source_type.toLowerCase() === "official" ? seriesSource : undefined;
 
   return books.map((book, index) =>
     mapChapter(
@@ -38,7 +41,7 @@ export function parseChapterList(
       langCode,
       useSourceChapterNumber,
       index,
-      officialSource,
+      seriesSource,
     ),
   );
 }
@@ -60,17 +63,18 @@ function mapChapter(
   langCode: string,
   useSourceChapterNumber: boolean,
   sortingIndex: number,
-  officialSource: SourceDto | undefined,
+  seriesSource: SourceDto | undefined,
 ): Chapter {
   const chapterNumber = parseChapterNumber(book.chapter_no);
   const volume = parseChapterNumber(book.volume_no);
   const hasVolumeOnly = volume !== undefined && chapterNumber === undefined;
 
-  // Official uploads get a star after the platform name in the scanlator
-  // slot ("Tappytoon ⭐"), so they're distinguishable from scanlation groups.
   const groupLabel =
-    book.groups?.map((group) => group.title).join(", ") || officialSource?.title || undefined;
-  const version = officialSource && groupLabel ? `${groupLabel} ⭐` : groupLabel;
+    seriesSource?.title || book.groups?.map((group) => group.title).join(", ") || undefined;
+  const version =
+    seriesSource?.source_type.toLowerCase() === "official" && groupLabel
+      ? `${groupLabel} ✓`
+      : groupLabel;
 
   const chapter: Chapter = {
     chapterId: book.book_id,

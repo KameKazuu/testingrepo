@@ -14,6 +14,7 @@ import {
   type ToggleRowProps,
 } from "@paperback/types";
 
+import { getKaganeTags, setKaganeDomain } from "../../services/network";
 import {
   CHAPTER_TITLE_MODE_OPTIONS,
   CONTENT_RATING_OPTIONS,
@@ -21,13 +22,17 @@ import {
   HIDDEN_TAG_CATEGORIES,
   LANGUAGE_OPTIONS,
   SOURCE_DISPLAY_MODE_OPTIONS,
+  DOMAIN_OPTIONS,
+  HIDE_DISTURBING_KEY,
 } from "../shared/models";
+import { getBaseUrl } from "../shared/parsers";
 import {
   getChapterTitleMode,
   getContentLanguages,
   getContentRatingSelections,
   getCustomHiddenTags,
   getDataSaver,
+  getHideDisturbing,
   getExcludedGenres,
   getHiddenFormats,
   getHiddenTagCategories,
@@ -61,6 +66,24 @@ export class KaganeSettingsForm extends Form {
     return [
       Section(
         {
+          id: "domain",
+          footer:
+            "The selected mirror is checked before saving. A temporarily unavailable mirror can be selected again once it recovers.",
+        },
+        [
+          SelectRow("domain", {
+            title: "Kagane Domain",
+            layout: "list",
+            items: DOMAIN_OPTIONS,
+            value: [getBaseUrl().replace("https://", "")],
+            minItemCount: 1,
+            maxItemCount: 1,
+            onValueChange: Application.Selector(this as KaganeSettingsForm, "handleDomain"),
+          }),
+        ],
+      ),
+      Section(
+        {
           id: "content",
           footer:
             "safe: Family-friendly content suitable for all ages. No mature themes.\n\nsuggestive: Includes mild fan service, romantic themes, and suggestive content.\n\nerotica: Includes sexual content, violence, and mature themes. Not explicit pornography.\n\npornographic: All content including explicit sexual material.",
@@ -76,9 +99,18 @@ export class KaganeSettingsForm extends Form {
         {
           id: "content-filters",
           footer:
-            "Hidden formats and tags are removed from the home page, listings, and search results. Custom Hidden Tags is a comma-separated list of exact tag names, like: Love Triangle, Amnesia",
+            "Hidden formats and genres apply to all feeds. Hidden tags apply to search and listing feeds; Kagane’s Trending chart does not provide tag data. Custom Hidden Tags accepts comma-separated exact tag names, like: Love Triangle, Amnesia",
         },
-        [this.hiddenFormatsRow(), this.hiddenTagCategoriesRow(), this.customHiddenTagsRow()],
+        [
+          ToggleRow("hide-disturbing", {
+            title: "Hide Disturbing Content",
+            value: getHideDisturbing(),
+            onValueChange: Application.Selector(this as KaganeSettingsForm, "handleHideDisturbing"),
+          }),
+          this.hiddenFormatsRow(),
+          this.hiddenTagCategoriesRow(),
+          this.customHiddenTagsRow(),
+        ],
       ),
       Section("display", [
         this.showEditionRow(),
@@ -92,8 +124,9 @@ export class KaganeSettingsForm extends Form {
 
   contentLanguagesRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Content Languages",
-      options: LANGUAGE_OPTIONS,
+      items: LANGUAGE_OPTIONS,
       value: getContentLanguages(),
       minItemCount: 1,
       maxItemCount: LANGUAGE_OPTIONS.length,
@@ -105,8 +138,9 @@ export class KaganeSettingsForm extends Form {
 
   contentRatingRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Content Rating",
-      options: CONTENT_RATING_OPTIONS,
+      items: CONTENT_RATING_OPTIONS,
       value: getContentRatingSelections(),
       minItemCount: 1,
       maxItemCount: CONTENT_RATING_OPTIONS.length,
@@ -118,8 +152,9 @@ export class KaganeSettingsForm extends Form {
 
   sourceDisplayModeRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Sources",
-      options: SOURCE_DISPLAY_MODE_OPTIONS,
+      items: SOURCE_DISPLAY_MODE_OPTIONS,
       value: [getSourceDisplayMode()],
       minItemCount: 1,
       maxItemCount: 1,
@@ -131,8 +166,9 @@ export class KaganeSettingsForm extends Form {
 
   excludedGenresRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Excluded Genres",
-      options: this.genreOptions,
+      items: this.genreOptions,
       value: getExcludedGenres(),
       minItemCount: 0,
       maxItemCount: Math.max(this.genreOptions.length, 1),
@@ -164,8 +200,9 @@ export class KaganeSettingsForm extends Form {
 
   chapterTitleModeRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Chapter Title Format",
-      options: CHAPTER_TITLE_MODE_OPTIONS,
+      items: CHAPTER_TITLE_MODE_OPTIONS,
       value: [getChapterTitleMode()],
       minItemCount: 1,
       maxItemCount: 1,
@@ -177,8 +214,9 @@ export class KaganeSettingsForm extends Form {
 
   hiddenFormatsRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Hidden Formats",
-      options: FORMAT_OPTIONS.map((format) => ({ id: format, title: format })),
+      items: FORMAT_OPTIONS.map((format) => ({ id: format, title: format })),
       value: getHiddenFormats(),
       minItemCount: 0,
       maxItemCount: FORMAT_OPTIONS.length - 1,
@@ -190,8 +228,9 @@ export class KaganeSettingsForm extends Form {
 
   hiddenTagCategoriesRow(): FormItemElement<unknown> {
     const props: SelectRowProps = {
+      layout: "flow",
       title: "Hidden Tags",
-      options: HIDDEN_TAG_CATEGORIES.map((category) => ({
+      items: HIDDEN_TAG_CATEGORIES.map((category) => ({
         id: category.id,
         title: category.title,
       })),
@@ -232,6 +271,16 @@ export class KaganeSettingsForm extends Form {
     };
 
     return ToggleRow("data-saver", props);
+  }
+
+  async handleDomain(value: string[]): Promise<void> {
+    await setKaganeDomain(value[0] ?? "kagane.cx");
+    this.reloadForm();
+  }
+
+  async handleHideDisturbing(value: boolean): Promise<void> {
+    Application.setState(value, HIDE_DISTURBING_KEY);
+    Application.invalidateDiscoverSections();
   }
 
   async handleContentLanguages(value: string[]): Promise<void> {
@@ -286,7 +335,18 @@ export class KaganeSettingsForm extends Form {
   }
 
   async handleCustomHiddenTags(value: string): Promise<void> {
-    setCustomHiddenTags(value.split(","));
+    const names = value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (names.length) {
+      const tags = await getKaganeTags();
+      const unknown = names.filter((tag) => !tags[tag.toLowerCase()]);
+      if (unknown.length)
+        throw new Error(`Unknown Kagane tags: ${unknown.join(", ")}. Enter exact tag names.`);
+    }
+
+    setCustomHiddenTags(names);
     Application.invalidateDiscoverSections();
     this.reloadForm();
   }

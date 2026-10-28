@@ -6,13 +6,14 @@ import { CloudflareError, URL } from "@paperback/types";
 
 import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
 import { getShowEdition, getShowSource, getShowSpoilerTags } from "../settings-form/main";
-import { API_URL, type KaganeSeriesDetailsResponse, type KaganeMetadata } from "../shared/models";
+import { type KaganeSeriesDetailsResponse, type KaganeMetadata } from "../shared/models";
+import { getBaseUrl } from "../shared/parsers";
 import { parseMangaDetails } from "./parsers";
 
 export class MangaProvider {
   async getMangaDetails(mangaId: string): Promise<SourceManga> {
     const request: Request = {
-      url: new URL(API_URL)
+      url: new URL(getBaseUrl())
         .addPathComponent("api")
         .addPathComponent("v2")
         .addPathComponent("series")

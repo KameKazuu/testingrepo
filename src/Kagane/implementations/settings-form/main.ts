@@ -15,6 +15,7 @@ import {
   EXCLUDED_GENRES_KEY,
   FORMAT_OPTIONS,
   HIDDEN_FORMATS_KEY,
+  HIDE_DISTURBING_KEY,
   HIDDEN_TAG_CATEGORIES,
   HIDDEN_TAG_CATEGORIES_KEY,
   CONTENT_RATING_VALUES,
@@ -225,3 +226,6 @@ export class SettingsFormProvider implements SettingsFormProviding {
     return new KaganeSettingsForm(genreOptions);
   }
 }
+
+export const getHideDisturbing = (): boolean =>
+  (Application.getState(HIDE_DISTURBING_KEY) as boolean | undefined) ?? true;

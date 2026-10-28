@@ -2,26 +2,35 @@
 /* Copyright © 2026 Inkdex */
 
 import type { DiscoverSection, DiscoverSectionItem, PagedResults, Request } from "@paperback/types";
-import { DiscoverSectionType, URL } from "@paperback/types";
+import { ContentRating, DiscoverSectionType, URL } from "@paperback/types";
 
-import { apiHeaders, fetchJSON, getKaganeMetadata } from "../../services/network";
-import { buildSearchBody } from "../search-results/main";
-import { getContentRatingSelections } from "../settings-form/main";
-import { isKaganeRatingAllowed } from "../shared/utils";
 import {
-  API_URL,
+  apiHeaders,
+  fetchJSON,
+  fetchTrendingChart,
+  getKaganeMetadata,
+} from "../../services/network";
+import { buildSearchBody } from "../search-results/main";
+import {
+  getContentRatingSelections,
+  getHiddenFormats,
+  getExcludedGenres,
+  getContentLanguages,
+} from "../settings-form/main";
+import {
   PAGE_SIZE,
   RANGE_OPTIONS,
   type KaganeMetadata,
   type KaganeSearchResponse,
 } from "../shared/models";
+import { getBaseUrl } from "../shared/parsers";
+import { isKaganeRatingAllowed } from "../shared/utils";
 import { mapFeaturedItem, mapLatestItem, mapSimpleItem } from "./parsers";
-
-const FEATURED_LIMIT = 10;
 
 const DISCOVER_SECTIONS: DiscoverSection[] = [
   { id: "popular", title: "Popular", type: DiscoverSectionType.featured },
-  { id: "trending", title: "Trending", type: DiscoverSectionType.genres },
+  { id: "weekly_chart", title: "Trending This Week", type: DiscoverSectionType.simpleCarousel },
+  { id: "trending", title: "Popularity by Period", type: DiscoverSectionType.genres },
   { id: "latest", title: "Latest Updates", type: DiscoverSectionType.chapterUpdates },
   { id: "recently_added", title: "Recently Added", type: DiscoverSectionType.simpleCarousel },
   { id: "genres", title: "Genres", type: DiscoverSectionType.genres },
@@ -55,16 +64,66 @@ export class DiscoverProvider {
 
     const page = metadata?.page ?? 1;
 
+    if (section.id === "weekly_chart") {
+      if (page > 1) return { items: [] };
+      const data = await fetchTrendingChart(await buildSearchBody("", {}));
+      return {
+        items: data.items
+          .filter((entry) => {
+            const book = entry.series;
+            const excluded = getExcludedGenres().map((id) =>
+              kaganeMetadata.genres[id]?.toLowerCase(),
+            );
+            return (
+              !entry.hidden_by_filter &&
+              !getHiddenFormats().includes(book.format ?? "") &&
+              !(book.genres ?? []).some((genre) => excluded.includes(genre.toLowerCase())) &&
+              getContentLanguages().some(
+                (language) => language.toLowerCase() === book.translated_language?.toLowerCase(),
+              )
+            );
+          })
+          .map((entry) => {
+            const item = mapSimpleItem(entry.series, kaganeMetadata);
+            if (!item || item.type !== "simpleCarouselItem") return undefined;
+            const movement = entry.is_new
+              ? "New"
+              : entry.delta
+                ? `${entry.delta > 0 ? "Up" : "Down"} ${Math.abs(entry.delta)}`
+                : undefined;
+            return {
+              ...item,
+              // The chart omits per-title ratings; use the strictest allowed rating.
+              contentRating: getContentRatingSelections().some(
+                (rating) => rating === "erotica" || rating === "pornographic",
+              )
+                ? ContentRating.ADULT
+                : getContentRatingSelections().includes("suggestive")
+                  ? ContentRating.MATURE
+                  : ContentRating.EVERYONE,
+              subtitle: [
+                `Rank ${entry.position}`,
+                movement,
+                entry.series.current_books === undefined
+                  ? undefined
+                  : `${entry.series.current_books} Chapters`,
+              ]
+                .filter(Boolean)
+                .join(" • "),
+            };
+          })
+          .filter(isPresent),
+      };
+    }
+
     if (section.id === "popular") {
-      // The listing already carries the cover, title, format, genres, status,
-      // source id, and content rating needed for a useful hero card. Avoid one
-      // detail request per card and ask the API only for the ten cards displayed.
-      const data = await fetchDiscoverSearchPage("total_views,desc", page, FEATURED_LIMIT);
+      // Map the listing directly; featured cards must not fan out into detail requests.
+      const data = await fetchDiscoverSearchPage("total_views,desc", page, PAGE_SIZE);
       const items = (data.content ?? [])
         .filter((book) => isKaganeRatingAllowed(book, getContentRatingSelections()))
-        .map((book) => mapFeaturedItem(book, undefined, kaganeMetadata))
+        .map((book) => mapFeaturedItem(book, kaganeMetadata))
         .filter(isPresent);
-      return { items, metadata: undefined };
+      return { items, metadata: data.last === false ? { page: page + 1 } : undefined };
     }
 
     if (section.id === "latest") {
@@ -75,7 +134,7 @@ export class DiscoverProvider {
         .filter(isPresent);
       return {
         items,
-        metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,
+        metadata: data.last === false ? { page: page + 1 } : undefined,
       };
     }
 
@@ -87,7 +146,7 @@ export class DiscoverProvider {
         .filter(isPresent);
       return {
         items,
-        metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,
+        metadata: data.last === false ? { page: page + 1 } : undefined,
       };
     }
 
@@ -109,7 +168,7 @@ async function fetchDiscoverSearchPage(
   const cached = discoverPagePromises.get(key);
   if (cached) return cached;
 
-  const url = new URL(API_URL)
+  const url = new URL(getBaseUrl())
     .addPathComponent("api")
     .addPathComponent("v2")
     .addPathComponent("search")

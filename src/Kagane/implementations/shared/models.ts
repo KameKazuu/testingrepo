@@ -1,12 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Inkdex */
 
-import type { SortingOption } from "@paperback/types";
+import type { JSONObject, SortingOption } from "@paperback/types";
 
 export const BASE_URL = "https://kagane.cx";
-export const API_URL = BASE_URL;
+export const DOMAIN_KEY = "kagane-domain";
+export const DOMAIN_OPTIONS = [
+  "kagane.cx",
+  "kagane.si",
+  "kagane.moe",
+  "kagane.net",
+  "kagane.org",
+].map((id) => ({ id, title: id }));
+export const HIDE_DISTURBING_KEY = "kagane-hide-disturbing";
 export const DEFAULT_CACHE_URL = "https://kstatic.to";
 export const PAGE_SIZE = 35;
+export const TRENDING_LIMIT = 30;
 
 export const METADATA_CACHE_KEY = "kagane-metadata-cache";
 export const METADATA_CACHE_DATE_KEY = "kagane-metadata-cache-date";
@@ -493,7 +502,16 @@ export const SORTING_OPTIONS: SortingOption[] = [
   { id: "avg_views_month,desc", label: "Popular (Month)" },
   { id: "updated_at,desc", label: "Latest" },
   { id: "rating,desc", label: "Top Rated" },
-  { id: "created_at,desc", label: "Created At" },
+  { id: "created_at,desc", label: "Recently Added" },
+  { id: "current_books,desc", label: "Most Chapters" },
+  { id: "total_views,asc", label: "Total Views (Ascending)" },
+  { id: "avg_views,asc", label: "Average Views (Ascending)" },
+  { id: "avg_views_week,asc", label: "Weekly Views (Ascending)" },
+  { id: "avg_views_month,asc", label: "Monthly Views (Ascending)" },
+  { id: "updated_at,asc", label: "Oldest Updates" },
+  { id: "rating,asc", label: "Rating (Ascending)" },
+  { id: "created_at,asc", label: "Oldest Added" },
+  { id: "current_books,asc", label: "Fewest Chapters" },
 ];
 
 export interface GenreDto {
@@ -539,12 +557,21 @@ export interface KaganeSearchSeries {
   content_rating?: string | null;
   age_rating?: string | null;
   is_pornographic?: boolean | null;
+  is_disturbing?: boolean | null;
   format?: string | null;
   publication_status?: string | null;
   translated_language?: string | null;
   /** Genre taxonomy UUIDs; resolved to names via KaganeMetadata.genres. */
   genres?: string[];
   latest_chapters?: LatestChapter[];
+  staff_list?: SeriesStaff[];
+  genre_list?: Array<{ id: string; name: string }>;
+  tag_list?: Array<{ id: string; name: string }>;
+  tags?: string[];
+  upload_status?: string;
+  rating?: number | null;
+  description?: string | null;
+  total_views?: number | null;
 }
 
 export interface LatestChapter {
@@ -577,6 +604,7 @@ export interface KaganeSeriesDetailsResponse {
   age_rating?: string | null;
   is_pornographic?: boolean | null;
   translated_language?: string | null;
+  is_disturbing?: boolean | null;
   format?: string | null;
   source_id?: string | null;
   series_staff?: SeriesStaff[];
@@ -656,4 +684,37 @@ export interface PageDto {
 export interface IntegrityDto {
   token: string;
   exp: number;
+}
+
+export interface KaganeSearchMetadata extends JSONObject {
+  range?: string;
+  formats?: string[];
+  statuses?: string[];
+  publicationStatuses?: string[];
+  languages?: string[];
+  sourceTypes?: string[];
+  sources?: string[];
+  yearFrom?: string;
+  yearTo?: string;
+  chaptersFrom?: string;
+  chaptersTo?: string;
+  creator?: string;
+  group?: string;
+  ratings?: string[];
+  disturbing?: string;
+  genres?: Record<string, "included" | "excluded">;
+  genresMatchAll?: boolean;
+  tags?: Record<string, "included" | "excluded">;
+  tagsMatchAll?: boolean;
+  typedTags?: string;
+}
+
+export interface KaganeTrendingResponse {
+  items: Array<{
+    position: number;
+    delta: number | null;
+    is_new: boolean;
+    hidden_by_filter: boolean;
+    series: KaganeSearchSeries;
+  }>;
 }

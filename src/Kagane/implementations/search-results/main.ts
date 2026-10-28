@@ -9,14 +9,11 @@ import type {
   SortingOption,
 } from "@paperback/types";
 import { CloudflareError, URL } from "@paperback/types";
-import {
-  SearchFilterForm,
-  type SearchFilter,
-  type SearchFilterValue,
-} from "@paperback/types/lib/compat/0.8";
+import type { SearchFilter, SearchFilterValue } from "@paperback/types/lib/compat/0.8";
 
 import {
   apiHeaders,
+  resolvePersonOrGroup,
   fetchJSON,
   getKaganeMetadata,
   getKaganeTagEntries,
@@ -30,11 +27,14 @@ import {
   getHiddenFormats,
   getHiddenTagCategoryIds,
   getShowSource,
+  getHideDisturbing,
   getSourceDisplayMode,
 } from "../settings-form/main";
 import {
-  API_URL,
   FORMAT_OPTIONS,
+  CONTENT_RATING_OPTIONS,
+  type KaganeSearchMetadata,
+  type KaganeSeriesDetailsResponse,
   LANGUAGE_OPTIONS,
   PAGE_SIZE,
   POPULAR_TAG_NAMES,
@@ -45,33 +45,10 @@ import {
   type KaganeSearchSeries,
   type KaganeSearchResponse,
 } from "../shared/models";
+import { getBaseUrl, parseSeriesUrl } from "../shared/parsers";
 import { buildImageUrl, isKaganeRatingAllowed, mapItemContentRating } from "../shared/utils";
-import {
-  getVisibleSources,
-  parseTagInput,
-  readDropdownFilter,
-  readInputFilter,
-  readMultiselectRecord,
-} from "./parsers";
-
-/** The internal, normalized shape a search request is built from. */
-export interface KaganeSearchMetadata {
-  /** Trending window id from the discover chips (today / week / month). */
-  range?: string;
-  formats?: string[];
-  statuses?: string[];
-  languages?: string[];
-  sourceTypes?: string[];
-  sources?: string[];
-  yearFrom?: string;
-  yearTo?: string;
-  genres?: Record<string, "included" | "excluded">;
-  genresMatchAll?: boolean;
-  tags?: Record<string, "included" | "excluded">;
-  tagsMatchAll?: boolean;
-  /** Comma-separated tag names; "-name" excludes ("romance, -gore"). */
-  typedTags?: string;
-}
+import { KaganeAdvancedSearchForm } from "./forms";
+import { getVisibleSources, parseTagInput, normalizeMetadata, parseRange } from "./parsers";
 
 export class SearchProvider {
   async getSearchFilters(): Promise<SearchFilter[]> {
@@ -108,12 +85,72 @@ export class SearchProvider {
       {
         type: "multiselect",
         id: "statuses",
-        title: "Status",
+        title: "Upload Status",
         options: PUBLICATION_STATUS_OPTIONS,
         value: {},
         allowExclusion: false,
         allowEmptySelection: true,
         maximum: undefined,
+      },
+      {
+        type: "multiselect",
+        id: "publication_statuses",
+        title: "Publication Status",
+        options: PUBLICATION_STATUS_OPTIONS,
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "multiselect",
+        id: "ratings",
+        title: "Content Ratings (This Search)",
+        options: CONTENT_RATING_OPTIONS.map(({ id, title }) => ({ id, value: title })),
+        value: {},
+        allowExclusion: false,
+        allowEmptySelection: true,
+        maximum: undefined,
+      },
+      {
+        type: "dropdown",
+        id: "disturbing",
+        title: "Disturbing Content (This Search)",
+        options: [
+          { id: "default", value: "Use Setting" },
+          { id: "exclude", value: "Hide" },
+          { id: "include", value: "Include" },
+          { id: "only", value: "Only Disturbing" },
+        ],
+        value: "default",
+      },
+      {
+        type: "input",
+        id: "creator",
+        title: "Author / Artist",
+        placeholder: "Full name or staff ID",
+        value: "",
+      },
+      {
+        type: "input",
+        id: "group",
+        title: "Scanlation Group",
+        placeholder: "Full name or group ID",
+        value: "",
+      },
+      {
+        type: "input",
+        id: "chapters_from",
+        title: "Minimum Chapters",
+        placeholder: "e.g. 10",
+        value: "",
+      },
+      {
+        type: "input",
+        id: "chapters_to",
+        title: "Maximum Chapters",
+        placeholder: "e.g. 100",
+        value: "",
       },
       {
         type: "multiselect",
@@ -220,11 +257,11 @@ export class SearchProvider {
     ];
   }
 
-  getAdvancedSearchForm(query: SearchQuery<SearchFilterValue[]>) {
-    // Chip queries carry object metadata, which the 0.8-compat form can't
-    // iterate — hand it an empty selection instead.
-    const filterValues = Array.isArray(query.metadata) ? query.metadata : [];
-    return new SearchFilterForm(filterValues, this.getSearchFilters());
+  async getAdvancedSearchForm(query: SearchQuery<SearchFilterValue[] | KaganeSearchMetadata>) {
+    return new KaganeAdvancedSearchForm(
+      normalizeMetadata(query.metadata),
+      await this.getSearchFilters(),
+    );
   }
 
   async getSortingOptions(): Promise<SortingOption[]> {
@@ -232,20 +269,54 @@ export class SearchProvider {
   }
 
   async getSearchResults(
-    query: SearchQuery<SearchFilterValue[]>,
+    query: SearchQuery<SearchFilterValue[] | KaganeSearchMetadata>,
     metadata?: { page?: number },
     sortingOption?: SortingOption,
   ): Promise<PagedResults<SearchResultItem>> {
     const page = metadata?.page ?? 1;
     const kaganeMetadata = await getKaganeMetadata();
     const meta = normalizeMetadata(query.metadata);
+    const directId = parseSeriesUrl(query.title?.trim() ?? "");
+    if (directId && page === 1) {
+      try {
+        const detail = await fetchJSON<KaganeSeriesDetailsResponse>({
+          url: new URL(getBaseUrl())
+            .addPathComponent("api/v2/series")
+            .addPathComponent(directId)
+            .toString(),
+          method: "GET",
+          headers: apiHeaders(),
+        });
+        if (detail.title && detail.series_covers?.[0]?.image_id) {
+          const sourceMap = new Map(
+            kaganeMetadata.sources.map((source) => [source.source_id, source.title]),
+          );
+          const item = mapSearchResult(
+            {
+              ...detail,
+              series_id: directId,
+              cover_image_id: detail.series_covers[0].image_id,
+              genres: detail.genres?.flatMap((genre) => (genre.genre_id ? [genre.genre_id] : [])),
+              tags: detail.tags?.flatMap((tag) => (tag.tag_id ? [tag.tag_id] : [])),
+            },
+            sourceMap,
+            getShowSource(),
+          );
+          return { items: item ? [item] : [] };
+        }
+      } catch (error) {
+        if (error instanceof CloudflareError) throw error;
+        // An unresolved pasted link falls through to ordinary text search.
+      }
+    }
     const searchBody = await buildSearchBody(query.title, meta);
     // A trending chip carries the window whose sort to apply; otherwise use
     // the reader's sorting option.
     const rangeSort = RANGE_OPTIONS.find((range) => range.id === meta.range)?.sort;
-    const sort = rangeSort ?? sortingOption?.id ?? (query.title?.trim() ? "relevance" : "total_views,desc");
+    const sort =
+      rangeSort ?? sortingOption?.id ?? (query.title?.trim() ? "relevance" : "total_views,desc");
 
-    const url = new URL(API_URL)
+    const url = new URL(getBaseUrl())
       .addPathComponent("api")
       .addPathComponent("v2")
       .addPathComponent("search")
@@ -271,50 +342,24 @@ export class SearchProvider {
     const showSource = getShowSource();
 
     const items = (data.content ?? [])
-      .filter((book) => isKaganeRatingAllowed(book, getContentRatingSelections()))
+      .filter((book) =>
+        isKaganeRatingAllowed(
+          book,
+          meta.ratings?.length ? meta.ratings : getContentRatingSelections(),
+        ),
+      )
       .map((book) => mapSearchResult(book, sourceMap, showSource))
       .filter((item): item is SearchResultItem => item != undefined);
 
     return {
       items,
-      metadata: data.last === false && items.length > 0 ? { page: page + 1 } : undefined,
+      metadata: data.last === false ? { page: page + 1 } : undefined,
     };
   }
 }
 
 // Translate the 0.8-compat filter array (or an already-normalized object from
 // a saved query) into the internal metadata shape.
-function normalizeMetadata(
-  raw: SearchFilterValue[] | KaganeSearchMetadata | undefined,
-): KaganeSearchMetadata {
-  if (Array.isArray(raw)) {
-    const filters = raw;
-    const range = readDropdownFilter(filters, "range", "none");
-    return {
-      range: range !== "none" ? range : undefined,
-      formats: readMultiselectIncluded(filters, "formats"),
-      statuses: readMultiselectIncluded(filters, "statuses"),
-      languages: readMultiselectIncluded(filters, "languages"),
-      sourceTypes: readMultiselectIncluded(filters, "source_types"),
-      sources: readMultiselectIncluded(filters, "sources"),
-      yearFrom: readInputFilter(filters, "year_from"),
-      yearTo: readInputFilter(filters, "year_to"),
-      genres: readMultiselectRecord(filters, "genres"),
-      genresMatchAll: readDropdownFilter(filters, "genres_match_all", "true") === "true",
-      tags: readMultiselectRecord(filters, "tags"),
-      tagsMatchAll: readDropdownFilter(filters, "tags_match_all", "true") === "true",
-      typedTags: readInputFilter(filters, "tags_text"),
-    };
-  }
-  return raw && typeof raw === "object" ? raw : {};
-}
-
-function readMultiselectIncluded(filters: SearchFilterValue[], filterId: string): string[] {
-  return Object.entries(readMultiselectRecord(filters, filterId) ?? {})
-    .filter(([, state]) => state === "included")
-    .map(([id]) => id);
-}
-
 function pickTriState(
   record: Record<string, "included" | "excluded"> | undefined,
   state: "included" | "excluded",
@@ -332,14 +377,20 @@ export async function buildSearchBody(
   const displayMode = getSourceDisplayMode();
   const sourceTypes = meta.sourceTypes ?? [];
   const languages = meta.languages ?? [];
-  const ratings = getContentRatingSelections();
-  const ageRatings = [...new Set(ratings.map((rating) =>
-    rating === "safe" ? "Safe" : rating === "suggestive" ? "FifteenPlus" : "EighteenPlus"
-  ))];
+  const ratings = meta.ratings?.length ? meta.ratings : getContentRatingSelections();
+  const ageRatings = [
+    ...new Set(
+      ratings.map((rating) =>
+        rating === "safe" ? "Safe" : rating === "suggestive" ? "FifteenPlus" : "EighteenPlus",
+      ),
+    ),
+  ];
   const body: Record<string, unknown> = {
     age_rating: ageRatings,
     ...(ratings.includes("pornographic")
-      ? ratings.length === 1 ? { is_pornographic: true } : {}
+      ? ratings.length === 1
+        ? { is_pornographic: true }
+        : {}
       : { is_pornographic: false }),
     source_type:
       sourceTypes.length > 0
@@ -357,14 +408,18 @@ export async function buildSearchBody(
     body.title = trimmedTitle;
   }
 
-  const yearFrom = Number.parseInt(meta.yearFrom ?? "", 10);
-  const yearTo = Number.parseInt(meta.yearTo ?? "", 10);
-  if (Number.isFinite(yearFrom) || Number.isFinite(yearTo)) {
-    body.start_year = {
-      ...(Number.isFinite(yearFrom) ? { min: yearFrom } : {}),
-      ...(Number.isFinite(yearTo) ? { max: yearTo } : {}),
-    };
-  }
+  const yearRange = parseRange(meta.yearFrom, meta.yearTo, "Release year");
+  if (yearRange) body.start_year = yearRange;
+  const chapterRange = parseRange(meta.chaptersFrom, meta.chaptersTo, "Chapter count");
+  if (chapterRange) body.current_books = chapterRange;
+  if (meta.publicationStatuses?.length) body.publication_status = meta.publicationStatuses;
+  if (meta.disturbing === "only") body.is_disturbing = true;
+  else if (meta.disturbing === "exclude" || (meta.disturbing !== "include" && getHideDisturbing()))
+    body.is_disturbing = false;
+  if (meta.creator?.trim())
+    body.staff = { values: [await resolvePersonOrGroup("staff", meta.creator.trim())] };
+  if (meta.group?.trim())
+    body.groups = { values: [await resolvePersonOrGroup("groups", meta.group.trim())] };
 
   // An explicit Format selection wins; otherwise apply the hide-list by
   // sending every format that is not hidden.
@@ -422,7 +477,12 @@ export async function buildSearchBody(
 }
 
 function resolveTagIds(names: string[], tagIds: Record<string, string>): string[] {
-  return names.map((name) => tagIds[name.toLowerCase()]).filter((id): id is string => Boolean(id));
+  const unknown = names.filter((name) => !tagIds[name.toLowerCase()]);
+  if (unknown.length)
+    throw new Error(
+      `Unknown Kagane tag${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. Enter exact tag names.`,
+    );
+  return names.map((name) => tagIds[name.toLowerCase()]);
 }
 
 function buildCompoundFilter(

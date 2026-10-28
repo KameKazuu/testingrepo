@@ -3,7 +3,7 @@
 
 import { ContentRating, URL } from "@paperback/types";
 
-import { API_URL } from "./models";
+import { getBaseUrl } from "./parsers";
 
 // Quality is now selected by the is_datasaver query rather than a path segment.
 export function buildPageUrl(
@@ -43,7 +43,7 @@ export function applyMixins(derivedCtor: Constructor, constructors: Constructor[
 type Constructor = new (...args: never[]) => unknown;
 
 export function buildImageUrl(imageId?: string | null): string {
-  return imageId ? `${API_URL}/api/v2/image/${imageId}` : "";
+  return imageId ? `${getBaseUrl()}/api/v2/image/${imageId}` : "";
 }
 
 export function titleCase(value: string): string {
@@ -66,9 +66,12 @@ export function getKaganeRating(book: {
   }
   const legacy = book.content_rating?.toLowerCase();
   if (
-    legacy === "safe" || legacy === "suggestive" ||
-    legacy === "erotica" || legacy === "pornographic"
-  ) return legacy;
+    legacy === "safe" ||
+    legacy === "suggestive" ||
+    legacy === "erotica" ||
+    legacy === "pornographic"
+  )
+    return legacy;
   return undefined;
 }
 

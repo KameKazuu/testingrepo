@@ -12,12 +12,12 @@ import {
 } from "../../services/network";
 import { getChapterTitleMode, getContentLanguages, getDataSaver } from "../settings-form/main";
 import {
-  API_URL,
   DEFAULT_CACHE_URL,
   type KaganeSeriesDetailsResponse,
   type ChapterIndexDto,
   type SourceDto,
 } from "../shared/models";
+import { getBaseUrl } from "../shared/parsers";
 import { buildPageUrl } from "../shared/utils";
 import { parseChapterIndex, parseChapterList } from "./parsers";
 
@@ -43,7 +43,13 @@ export class ChapterProvider {
     // language preference so chapters are tagged with what they actually are.
     const langCode = data.translated_language ?? getContentLanguages()[0] ?? "en";
 
-    return parseChapterList({ ...data, series_books: books }, sourceManga, getChapterTitleMode(), langCode, sources);
+    return parseChapterList(
+      { ...data, series_books: books },
+      sourceManga,
+      getChapterTitleMode(),
+      langCode,
+      sources,
+    );
   }
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
@@ -83,7 +89,7 @@ export class ChapterProvider {
 }
 
 function seriesUrl(seriesId: string): string {
-  return new URL(API_URL)
+  return new URL(getBaseUrl())
     .addPathComponent("api")
     .addPathComponent("v2")
     .addPathComponent("series")

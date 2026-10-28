@@ -3,7 +3,8 @@
 
 import type { SourceManga, TagSection } from "@paperback/types";
 
-import { BASE_URL, type KaganeSeriesDetailsResponse, type KaganeMetadata } from "../shared/models";
+import type { KaganeSeriesDetailsResponse, KaganeMetadata } from "../shared/models";
+import { getBaseUrl } from "../shared/parsers";
 import {
   buildImageUrl,
   joinUnique,
@@ -50,9 +51,13 @@ export function parseMangaDetails(
       artist: joinUnique(artists),
       status: mapPublicationStatus(data.publication_status ?? data.upload_status),
       rating: ratingFraction(pickRating(data.average_rating, data.bayesian_rating)),
-      contentRating: mapItemContentRating(data.content_rating, data.age_rating, data.is_pornographic),
+      contentRating: mapItemContentRating(
+        data.content_rating,
+        data.age_rating,
+        data.is_pornographic,
+      ),
       tagGroups,
-      shareUrl: `${BASE_URL}/series/${mangaId}`,
+      shareUrl: `${getBaseUrl()}/series/${mangaId}`,
     },
   };
 }
@@ -80,7 +85,7 @@ function buildSynopsis(data: KaganeSeriesDetailsResponse, sourceName: string | u
   }
 
   if (sourceName && data.source_id) {
-    lines.push(`Source: ${sourceName} (${BASE_URL}/sources/${data.source_id})`);
+    lines.push(`Source: ${sourceName} (${getBaseUrl()}/sources/${data.source_id})`);
   }
 
   const alternateTitles = (data.series_alternate_titles ?? [])

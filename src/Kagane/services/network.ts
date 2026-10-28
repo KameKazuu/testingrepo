@@ -5,9 +5,9 @@ import type { Request, Response } from "@paperback/types";
 import { CloudflareError, PaperbackInterceptor, URL } from "@paperback/types";
 
 import {
-  API_URL,
-  BASE_URL,
   DATA_SAVER_KEY,
+  DOMAIN_KEY,
+  DOMAIN_OPTIONS,
   DEFAULT_CACHE_URL,
   INTEGRITY_EXP_KEY,
   INTEGRITY_TOKEN_KEY,
@@ -16,6 +16,8 @@ import {
   METADATA_CACHE_TTL_SECONDS,
   TAGS_CACHE_DATE_KEY,
   TAGS_CACHE_KEY,
+  TRENDING_LIMIT,
+  type KaganeTrendingResponse,
   type ChallengeDto,
   type GenreDto,
   type IntegrityDto,
@@ -23,6 +25,7 @@ import {
   type SourcesDto,
   type TagDto,
 } from "../implementations/shared/models";
+import { getBaseUrl } from "../implementations/shared/parsers";
 import { buildPageUrl } from "../implementations/shared/utils";
 
 let integrityTokenPromise: Promise<string> | undefined;
@@ -31,12 +34,16 @@ let metadataPromise: Promise<KaganeMetadata> | undefined;
 
 export class KaganeInterceptor extends PaperbackInterceptor {
   async interceptRequest(request: Request): Promise<Request> {
+    const requestHost = new URL(request.url).hostname;
+    const origin = DOMAIN_OPTIONS.some((domain) => domain.id === requestHost)
+      ? `https://${requestHost}`
+      : getBaseUrl();
     return {
       ...request,
       headers: {
         ...request.headers,
-        origin: BASE_URL,
-        referer: `${BASE_URL}/`,
+        origin,
+        referer: `${origin}/`,
         "user-agent": await Application.getDefaultUserAgent(),
       },
     };
@@ -53,7 +60,7 @@ export class KaganeInterceptor extends PaperbackInterceptor {
       // cf_clearance, and identical bypass requests collapse into one prompt
       // instead of one per challenged section on a cold discover load.
       throw new CloudflareError({
-        url: `${BASE_URL}/`,
+        url: `https://${new URL(request.url).hostname}/`,
         method: "GET",
         headers: {
           "user-agent": await Application.getDefaultUserAgent(),
@@ -87,7 +94,7 @@ async function isCloudflareChallenge(
   response: Response,
   data: ArrayBuffer,
 ): Promise<boolean> {
-  if (!request.url.startsWith(BASE_URL)) {
+  if (!DOMAIN_OPTIONS.some((domain) => domain.id === new URL(request.url).hostname)) {
     return false;
   }
 
@@ -212,6 +219,7 @@ async function loadChallengeResponse(
   try {
     return await requestChallengeResponse(chapterId, integrityToken);
   } catch (error) {
+    if (error instanceof CloudflareError) throw error;
     clearIntegrityToken();
     const refreshedToken = await getIntegrityToken(true);
     try {
@@ -226,7 +234,7 @@ async function requestChallengeResponse(
   chapterId: string,
   integrityToken: string,
 ): Promise<ChallengeDto> {
-  const url = new URL(API_URL)
+  const url = new URL(getBaseUrl())
     .addPathComponent("api")
     .addPathComponent("v2")
     .addPathComponent("books")
@@ -267,13 +275,13 @@ function getIntegrityToken(forceRefresh = false): Promise<string> {
 
 async function refreshIntegrityToken(): Promise<string> {
   await scheduleWithRetry({
-    url: `${BASE_URL}/`,
+    url: `${getBaseUrl()}/`,
     method: "GET",
     headers: browserHeaders(),
   });
 
   const integrity = await fetchJSON<IntegrityDto>({
-    url: `${BASE_URL}/api/integrity`,
+    url: `${getBaseUrl()}/api/integrity`,
     method: "POST",
     headers: apiHeaders(),
     body: "",
@@ -294,8 +302,8 @@ export function apiHeaders(extra?: Record<string, string>): Record<string, strin
   return {
     accept: "application/json",
     "content-type": "application/json",
-    origin: BASE_URL,
-    referer: `${BASE_URL}/`,
+    origin: getBaseUrl(),
+    referer: `${getBaseUrl()}/`,
     ...extra,
   };
 }
@@ -303,7 +311,7 @@ export function apiHeaders(extra?: Record<string, string>): Record<string, strin
 export function browserHeaders(extra?: Record<string, string>): Record<string, string> {
   return {
     accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    referer: `${BASE_URL}/`,
+    referer: `${getBaseUrl()}/`,
     ...extra,
   };
 }
@@ -395,12 +403,12 @@ async function loadKaganeMetadata(): Promise<KaganeMetadata> {
   // Keep the two vocabulary requests sequential so the first can clear a real
   // challenge. Every provider shares this one in-flight operation.
   const genres = await fetchJSON<GenreDto[]>({
-    url: `${API_URL}/api/v2/genres/list`,
+    url: `${getBaseUrl()}/api/v2/genres/list`,
     method: "GET",
     headers: apiHeaders(),
   });
   const sources = await fetchJSON<SourcesDto>({
-    url: `${API_URL}/api/v2/sources/list`,
+    url: `${getBaseUrl()}/api/v2/sources/list`,
     method: "POST",
     headers: apiHeaders(),
     body: JSON.stringify({ source_types: null }),
@@ -461,7 +469,7 @@ export async function getKaganeTagEntries(): Promise<TagDto[]> {
   }
 
   const tags = await fetchJSON<TagDto[]>({
-    url: `${API_URL}/api/v2/tags/list`,
+    url: `${getBaseUrl()}/api/v2/tags/list`,
     method: "GET",
     headers: apiHeaders(),
   });
@@ -499,3 +507,90 @@ export async function getKaganeTags(): Promise<Record<string, string>> {
   }
   return map;
 }
+
+export const resolvePersonOrGroup = async (
+  kind: "staff" | "groups",
+  name: string,
+): Promise<string> => {
+  if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(name)) return name;
+  const candidates =
+    kind === "staff"
+      ? (
+          await fetchJSON<{ content: Array<{ staff_id: string; name: string }> }>({
+            url: `${getBaseUrl()}/api/v2/search/staff?size=8`,
+            method: "POST",
+            headers: apiHeaders(),
+            body: JSON.stringify({ name }),
+          })
+        ).content.map((person) => ({ id: person.staff_id, name: person.name }))
+      : (
+          await fetchJSON<{ items: Array<{ group_id: string; title: string }> }>({
+            url: new URL(getBaseUrl())
+              .addPathComponent("api/v2/groups/search")
+              .setQueryItem("q", name)
+              .setQueryItem("limit", "8")
+              .toString(),
+            method: "GET",
+            headers: apiHeaders(),
+          })
+        ).items.map((group) => ({ id: group.group_id, name: group.title }));
+  const exact = candidates.filter(
+    (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
+  );
+  const matches = exact.length ? exact : candidates;
+  if (matches.length === 1) return matches[0].id;
+  throw new Error(
+    matches.length
+      ? `Several matches for ${name}. Enter the full name or ID.`
+      : `No matches for ${name}.`,
+  );
+};
+
+export const setKaganeDomain = async (host: string): Promise<void> => {
+  if (!DOMAIN_OPTIONS.some((option) => option.id === host))
+    throw new Error("Choose a listed Kagane domain.");
+  const genres = await fetchJSON<unknown>({
+    url: `https://${host}/api/v2/genres/list`,
+    method: "GET",
+    headers: apiHeaders(),
+  });
+  if (
+    !Array.isArray(genres) ||
+    !genres.length ||
+    !genres.every(
+      (genre: unknown) =>
+        typeof genre === "object" &&
+        genre !== null &&
+        "id" in genre &&
+        typeof genre.id === "string" &&
+        "genre_name" in genre &&
+        typeof genre.genre_name === "string",
+    )
+  )
+    throw new Error(`${host} is not currently serving Kagane's API. Your domain was not changed.`);
+  Application.setState(host, DOMAIN_KEY);
+  clearIntegrityToken();
+  integrityTokenPromise = undefined;
+  challengePromises.clear();
+  metadataPromise = undefined;
+  Application.invalidateDiscoverSections();
+};
+
+export const fetchTrendingChart = async (
+  body: Record<string, unknown>,
+): Promise<KaganeTrendingResponse> => {
+  const url = new URL(getBaseUrl())
+    .addPathComponent("api/v2/series/trending")
+    .setQueryItem("limit", String(TRENDING_LIMIT))
+    .setQueryItem("age_rating", (body.age_rating as string[]).join(","));
+  url.setQueryItem("source_type", (body.source_type as string[]).join(","));
+  const languages = body.content_lang as string[];
+  if (languages.length && languages.length <= 5) url.setQueryItem("lang", languages.join(","));
+  for (const flag of ["is_pornographic", "is_disturbing"])
+    if (typeof body[flag] === "boolean") url.setQueryItem(flag, String(body[flag]));
+  return fetchJSON<KaganeTrendingResponse>({
+    url: url.toString(),
+    method: "GET",
+    headers: apiHeaders(),
+  });
+};

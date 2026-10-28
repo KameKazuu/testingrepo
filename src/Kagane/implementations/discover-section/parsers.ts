@@ -4,12 +4,7 @@
 import type { DiscoverSectionItem } from "@paperback/types";
 
 import { getShowSource } from "../settings-form/main";
-import type {
-  KaganeSeriesDetailsResponse,
-  KaganeMetadata,
-  KaganeSearchSeries,
-  LatestChapter,
-} from "../shared/models";
+import type { KaganeMetadata, KaganeSearchSeries, LatestChapter } from "../shared/models";
 import {
   buildImageUrl,
   formatViews,
@@ -35,20 +30,8 @@ function displayTitle(book: KaganeSearchSeries, metadata: KaganeMetadata): strin
 type InfoItem = { symbol: string; text: string };
 
 function statusLabel(book: KaganeSearchSeries): string | undefined {
-  const status = mapPublicationStatus(book.publication_status ?? "");
+  const status = mapPublicationStatus(book.publication_status ?? book.upload_status ?? "");
   return status !== "Unknown" ? status : undefined;
-}
-
-function detailRating(detail: KaganeSeriesDetailsResponse | undefined): string | undefined {
-  return starRating(pickRating(detail?.average_rating, detail?.bayesian_rating));
-}
-
-function authorNames(detail: KaganeSeriesDetailsResponse | undefined): string | undefined {
-  return joinUnique(
-    (detail?.series_staff ?? [])
-      .filter((person) => /author|story/i.test(person.role))
-      .map((person) => person.name),
-  );
 }
 
 // A short "Manga • Romance, Fantasy" descriptor for a card subtitle, built
@@ -56,7 +39,12 @@ function authorNames(detail: KaganeSeriesDetailsResponse | undefined): string | 
 function descriptor(book: KaganeSearchSeries, metadata: KaganeMetadata): string | undefined {
   const bits = [
     book.format?.trim() && book.format.toLowerCase() !== "other" ? book.format : undefined,
-    resolveGenreNames(book.genres, metadata.genres, 2).join(", ") || undefined,
+    (
+      book.genre_list?.map((genre) => genre.name) ??
+      resolveGenreNames(book.genres, metadata.genres, 2)
+    )
+      .slice(0, 2)
+      .join(", ") || undefined,
   ].filter((bit): bit is string => Boolean(bit));
   return bits.length > 0 ? bits.join(" • ") : undefined;
 }
@@ -70,14 +58,13 @@ function cardImageUrl(book: KaganeSearchSeries): string | undefined {
 // star rating + view count as the info chips.
 export function mapFeaturedItem(
   book: KaganeSearchSeries,
-  detail: KaganeSeriesDetailsResponse | undefined,
   metadata: KaganeMetadata,
 ): DiscoverSectionItem | undefined {
   const imageUrl = cardImageUrl(book);
   if (imageUrl == undefined) return undefined;
 
-  const rating = detailRating(detail);
-  const views = formatViews(detail?.total_views);
+  const rating = starRating(pickRating(book.rating));
+  const views = formatViews(book.total_views);
   const status = statusLabel(book);
 
   // infoItems is a 1- or 2-element tuple; prefer rating + views, then status.
@@ -99,8 +86,12 @@ export function mapFeaturedItem(
     title: displayTitle(book, metadata),
     imageUrl,
     contentRating: mapItemContentRating(book.content_rating, book.age_rating, book.is_pornographic),
-    supertitle: authorNames(detail),
-    summary: detail?.description?.trim() || descriptor(book, metadata) || "",
+    supertitle: joinUnique(
+      (book.staff_list ?? [])
+        .filter((person) => /author|story/i.test(person.role))
+        .map((person) => person.name),
+    ),
+    summary: book.description?.trim() || descriptor(book, metadata) || "",
     infoItems,
   };
 }
