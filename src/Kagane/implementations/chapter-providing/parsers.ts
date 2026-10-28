@@ -33,14 +33,14 @@ export function parseChapterList(
     ? sources.find((source) => source.source_id === data.source_id)
     : undefined;
 
-  return books.map((book, index) =>
+  return books.map((book) =>
     mapChapter(
       book,
       sourceManga,
       chapterTitleMode,
       langCode,
       useSourceChapterNumber,
-      index,
+      book.sort_no,
       seriesSource,
     ),
   );
