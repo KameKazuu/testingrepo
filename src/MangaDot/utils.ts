@@ -99,14 +99,15 @@ export function defaultMetadata(filterItem: string = ""): SearchMetadata {
 }
 
 export function getFilters(): GenreFilters {
-  const filters = Application.getState("search_filter") as string | undefined;
-  if (filters === undefined)
-    return { demographic: [], genre: [], more: [], themeAndContent: [], language: [] };
-  try {
-    return JSON.parse(filters) as GenreFilters;
-  } catch {
-    return { demographic: [], genre: [], more: [], themeAndContent: [], language: [] };
-  }
+  return (
+    (Application.getState("mangadot_filters") as GenreFilters | undefined) ?? {
+      demographic: [],
+      genre: [],
+      more: [],
+      themeAndContent: [],
+      language: [],
+    }
+  );
 }
 
 type GenreCategory = "Demographic" | "Genre" | "Theme & content" | "More";

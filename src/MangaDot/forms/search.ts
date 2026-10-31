@@ -166,8 +166,9 @@ class MangaDotAdvancedSearchForm extends AdvancedSearchForm {
       Section({ id: "language", header: "Language" }, [
         SelectRow("language", {
           title: "Language",
+          layout: "list",
           value: this.searchMetadata.language ?? [""],
-          options: getFilters().language,
+          items: getFilters().language,
           minItemCount: 1,
           maxItemCount: 1,
           onValueChange: Application.Selector(this as MangaDotAdvancedSearchForm, "handleLanguage"),

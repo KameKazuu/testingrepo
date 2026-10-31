@@ -61,7 +61,7 @@ export class MangaDotExtension implements ExtensionImpl<typeof MangaDotConfig> {
   async getSettingsForm(): Promise<Form> {
     await this.loadFilters();
     return new SettingsForm(async () => {
-      Application.setState(undefined, "search_filter");
+      Application.setState(undefined, "mangadot_filters");
       Application.setState(undefined, "mangadot_tags");
       this.filtersPromise = undefined;
       this.tagsPromise = undefined;

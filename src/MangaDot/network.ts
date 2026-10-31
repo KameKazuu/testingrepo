@@ -359,14 +359,14 @@ export class MangaDotApi {
 }
 
 export const fetchFilters = async (api: MangaDotApi): Promise<void> => {
-  if (Application.getState("search_filter") !== undefined) return;
+  if (Application.getState("mangadot_filters") !== undefined) return;
   const [genres, languages] = await Promise.all([api.getFilters(), api.getLanguages()]);
   const filters = groupGenres(genres.toSorted((a, b) => a.localeCompare(b)));
   filters.language = [
     { id: "", title: "All" },
     ...languages.languages.map((language) => ({ id: language.code, title: language.name })),
   ];
-  Application.setState(JSON.stringify(filters), "search_filter");
+  Application.setState(filters, "mangadot_filters");
 };
 
 export const fetchTags = async (api: MangaDotApi): Promise<void> => {
