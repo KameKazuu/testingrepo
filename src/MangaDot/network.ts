@@ -1,0 +1,381 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Inkdex */
+
+import {
+  CloudflareError,
+  ContentRating,
+  PaperbackInterceptor,
+  URL,
+  type DiscoverSectionItem,
+  type PagedResults,
+  type Request,
+  type Response,
+  type SearchQuery,
+  type SearchResultItem,
+  type SortingOption,
+  type Tag,
+} from "@paperback/types";
+
+import {
+  DOMAIN,
+  RANGE,
+  type ApiRequestConfig,
+  type ChapterListResponse,
+  type ChapterPagesResponse,
+  type MangaDataResponse,
+  type MangaSection,
+  type SearchMetadata,
+  type SearchResponse,
+  type SearchSuggestionsResponse,
+  type Volumes,
+  type Languages,
+  type CategorizedTagsResponse,
+} from "./models";
+import {
+  defaultMetadata,
+  deNormalizeId,
+  getDemographicHidden,
+  getEnglishOnly,
+  getFilters,
+  getGenresHidden,
+  getMultipageStatus,
+  getSectionContentTypes,
+  getShowAdultStatus,
+  getThemesHidden,
+  groupGenres,
+} from "./utils";
+
+export class MangaDotInterceptor extends PaperbackInterceptor {
+  override async interceptRequest(request: Request): Promise<Request> {
+    return {
+      ...request,
+      headers: {
+        "user-agent": await Application.getDefaultUserAgent(),
+        ...request.headers,
+      },
+    };
+  }
+
+  override async interceptResponse(
+    request: Request,
+    response: Response,
+    data: ArrayBuffer,
+  ): Promise<ArrayBuffer> {
+    const cfMitigated = response.headers?.["cf-mitigated"];
+    if (cfMitigated === "challenge") {
+      throw new CloudflareError({
+        url: `${DOMAIN}/`,
+        method: request.method ?? "GET",
+        headers: {
+          "user-agent": await Application.getDefaultUserAgent(),
+        },
+      });
+    }
+
+    return data;
+  }
+}
+
+export class MangaDotApi {
+  private async fetchApi<T>(request: Request): Promise<T> {
+    const [, data] = await Application.scheduleRequest(request);
+
+    try {
+      return JSON.parse(Application.arrayBufferToUTF8String(data)) as T;
+    } catch {
+      throw new Error(`Failed to fetch data from ${request.url} (Invalid response)`);
+    }
+  }
+
+  private async buildApiRequest<T>(api: ApiRequestConfig): Promise<T> {
+    const url = new URL(DOMAIN);
+    const paths = Array.isArray(api.path) ? api.path : [api.path];
+    paths.forEach((p) => url.addPathComponent(p));
+    if (api.query) {
+      for (const [key, value] of Object.entries(api.query)) {
+        url.setQueryItem(key, value);
+      }
+    }
+    const request: Request = { url: url.toString(), method: "GET" };
+    if (api.headers !== undefined) {
+      request.headers = api.headers;
+    }
+    return this.fetchApi<T>(request);
+  }
+
+  private buildTagSection(tags: Tag[], hiddenIds: string[]): PagedResults<DiscoverSectionItem> {
+    return {
+      items: tags
+        .filter((tag) => !hiddenIds.includes(tag.id))
+        .map((tag): DiscoverSectionItem => ({
+          type: "genresCarouselItem",
+          searchQuery: {
+            title: "",
+            metadata: defaultMetadata(tag.id),
+          },
+          name: tag.title,
+          contentRating: ContentRating.EVERYONE,
+        })),
+    };
+  }
+
+  async getRangeSection(section: string): Promise<PagedResults<DiscoverSectionItem>> {
+    return {
+      items: RANGE.map((tag): DiscoverSectionItem => ({
+        type: "genresCarouselItem",
+        searchQuery: {
+          title: "",
+          metadata: { range: tag.id, sectionName: section },
+        },
+        name: tag.title,
+        contentRating: ContentRating.EVERYONE,
+      })),
+    };
+  }
+
+  async getGenreSection(): Promise<PagedResults<DiscoverSectionItem>> {
+    return this.buildTagSection(getFilters().genre, getGenresHidden());
+  }
+
+  async getDemographicSection(): Promise<PagedResults<DiscoverSectionItem>> {
+    return this.buildTagSection(getFilters().demographic, getDemographicHidden());
+  }
+
+  async getThemesSection(): Promise<PagedResults<DiscoverSectionItem>> {
+    return this.buildTagSection(getFilters().themeAndContent, getThemesHidden());
+  }
+  async getSection(section: string, page: number): Promise<SearchResponse | MangaSection> {
+    if (section === "most_viewed") {
+      return this.getMostViewed(page);
+    }
+    if (section === "latest_updates") {
+      return this.getLatestUpdateSection(page);
+    }
+    return this.getAllTimesSection(section, page);
+  }
+  async getAllTimesSection(section: string, page: number): Promise<SearchResponse> {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", "section", section.replaceAll("_", "-")],
+      query: {
+        origin: getSectionContentTypes().join(",").replaceAll("&", ","),
+        adult: getShowAdultStatus(),
+        page: page.toString(),
+      },
+    };
+    return this.buildApiRequest<SearchResponse>(params);
+  }
+
+  getMostViewed(page: number): Promise<SearchResponse> {
+    const params: ApiRequestConfig = {
+      path: ["api", "search"],
+      query: {
+        page: page.toString(),
+        origin: getSectionContentTypes().join(",").replaceAll("&", ","),
+        sortBy: "views",
+        sortOrder: "desc",
+        adult: getShowAdultStatus(),
+      },
+    };
+    return this.buildApiRequest<SearchResponse>(params);
+  }
+
+  async getLatestUpdateSection(page: number): Promise<MangaSection | SearchResponse> {
+    if (getMultipageStatus()) {
+      const params: ApiRequestConfig = {
+        path: ["api", "manga", "section", "latest-updates"],
+        query: {
+          origin: getSectionContentTypes().join(",").replaceAll("&", ","),
+          adult: getShowAdultStatus(),
+          page: page.toString(),
+        },
+      };
+      return this.buildApiRequest<SearchResponse>(params);
+    } else {
+      const params: ApiRequestConfig = {
+        path: ["api", "manga", "section"],
+        query: {
+          id: "latest_updates",
+          origin: getSectionContentTypes().join(",").replaceAll("&", ","),
+          adult: getShowAdultStatus(),
+          limit: "100",
+        },
+      };
+      return this.buildApiRequest<MangaSection>(params);
+    }
+  }
+
+  async getMangaData(mangaId: string) {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", mangaId],
+    };
+    return this.buildApiRequest<MangaDataResponse>(params);
+  }
+
+  async getChapterList(mangaId: string) {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", mangaId, "chapters", "list"],
+      query: getEnglishOnly() ? { lang: "en" } : {},
+    };
+    return this.buildApiRequest<ChapterListResponse[]>(params);
+  }
+
+  async getVolumes(mangaId: string) {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", mangaId, "volumes"],
+    };
+    return this.buildApiRequest<Volumes[]>(params);
+  }
+
+  async getSearch(query: SearchQuery<SearchMetadata>, page: number, sorting: SortingOption) {
+    const genres = {
+      ...query.metadata?.genres,
+      ...query.metadata?.demographic,
+      ...query.metadata?.more,
+      ...query.metadata?.themes,
+    };
+    const tags = {
+      ...query.metadata?.tag,
+    };
+    const formattedGenres = Object.entries(genres).map(([genre, state]) => {
+      const normalized = deNormalizeId(genre);
+      return state === "excluded" ? `-${normalized}` : normalized;
+    });
+    const formattedTags = Object.entries(tags).map(([genre, state]) => {
+      const normalized = deNormalizeId(genre);
+      return state === "excluded" ? `-${normalized}` : normalized;
+    });
+    const [sort, order] = sorting.id.split("$");
+    const params: ApiRequestConfig = {
+      path: ["api", "search"],
+      query: {
+        ...(query.title && { search: query.title }),
+        page: page.toString(),
+        ...(formattedGenres.length && { genres: formattedGenres.join(",") }),
+        ...(formattedTags.length && { tags: formattedTags.join(",") }),
+        ...(query.metadata?.origin?.length && {
+          origin: (query.metadata?.origin ?? []).join(",").replaceAll("&", ","),
+        }),
+        ...(query.metadata?.status?.length && {
+          status: (query.metadata?.status ?? []).join(","),
+        }),
+        ...(query.metadata?.author?.length && {
+          author: (query.metadata?.author ?? []).join(","),
+        }),
+        ...(query.metadata?.artist?.length && {
+          artist: (query.metadata?.artist ?? []).join(","),
+        }),
+        sortBy: sort,
+        sortOrder: order ? order : "",
+        content_rating: query.metadata?.contentRating ?? "",
+        min_rating: query.metadata?.rating ?? "",
+        lang: query.metadata?.language ?? "",
+        volumes: query.metadata?.volume ?? "",
+        min_chapters: query.metadata?.chapters ?? "",
+        adult: query.metadata?.adult ?? getShowAdultStatus(),
+      },
+    };
+    return this.buildApiRequest<SearchResponse>(params);
+  }
+
+  async getChapterPages(chapterId: string, mangaId: string, upload: string | undefined) {
+    const chapPath = upload === "trusted" ? "uploads" : "chapters";
+    const params: ApiRequestConfig = {
+      path: ["api", chapPath, chapterId, "images"],
+      headers: { referer: `${DOMAIN}/manga/${mangaId}` },
+    };
+    return this.buildApiRequest<ChapterPagesResponse>(params);
+  }
+
+  async getFilters() {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", "genres"],
+    };
+    return this.buildApiRequest<string[]>(params);
+  }
+
+  async getLanguages() {
+    const params: ApiRequestConfig = {
+      path: ["api", "languages"],
+    };
+    return this.buildApiRequest<Languages>(params);
+  }
+
+  async getAuthor(value: string) {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", "people-suggest"],
+      query: {
+        kind: "author",
+        q: value,
+      },
+    };
+    return this.buildApiRequest<SearchSuggestionsResponse>(params);
+  }
+
+  async getArtist(value: string) {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", "people-suggest"],
+      query: {
+        kind: "artist",
+        q: value,
+      },
+    };
+    return this.buildApiRequest<SearchSuggestionsResponse>(params);
+  }
+
+  async MangaSectionRequestToSearchResponse(
+    section: string,
+    range: string,
+  ): Promise<PagedResults<SearchResultItem>> {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", "section"],
+      query: {
+        id: section,
+        origin: getSectionContentTypes().join(",").replaceAll("&", ","),
+        adult: getShowAdultStatus(),
+        range: range,
+        limit: "100",
+      },
+    };
+    const mangas = await this.buildApiRequest<MangaSection>(params);
+    return {
+      items: mangas.items.map((manga) => ({
+        mangaId: manga.id.toString(),
+        title: manga.title,
+        subtitle: `Ch. ${manga.chapter_count} | ★ ${manga.avg_rating}`,
+        imageUrl: `${DOMAIN}${manga.photo}`,
+        contentRating: manga.is_blurworthy ? ContentRating.ADULT : ContentRating.EVERYONE,
+      })),
+      metadata: undefined,
+    };
+  }
+
+  async getTagsList() {
+    const params: ApiRequestConfig = {
+      path: ["api", "manga", "tags"],
+      query: { in_use: "1" },
+    };
+    return this.buildApiRequest<CategorizedTagsResponse>(params);
+  }
+}
+
+export const fetchFilters = async (api: MangaDotApi): Promise<void> => {
+  if (Application.getState("search_filter") !== undefined) return;
+  const [genres, languages] = await Promise.all([api.getFilters(), api.getLanguages()]);
+  const filters = groupGenres(genres.toSorted((a, b) => a.localeCompare(b)));
+  filters.language = [
+    { id: "", title: "All" },
+    ...languages.languages.map((language) => ({ id: language.code, title: language.name })),
+  ];
+  Application.setState(JSON.stringify(filters), "search_filter");
+};
+
+export const fetchTags = async (api: MangaDotApi): Promise<void> => {
+  if (Application.getState("mangadot_tags") !== undefined) return;
+  const { categories } = await api.getTagsList();
+  Application.setState(
+    Object.fromEntries(
+      categories.map(({ category, tags }) => [category, tags.map(({ name }) => name)]),
+    ),
+    "mangadot_tags",
+  );
+};

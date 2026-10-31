@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-10-28T09:36:58.261Z",
+  "buildTime": "2026-10-31T11:33:04.313Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -145,6 +145,29 @@
         }
       ],
       "id": "MangaBaka"
+    },
+    {
+      "name": "MangaDot",
+      "description": "Extension that pulls content from MangaDot.net",
+      "version": "1.0.0-alpha.8",
+      "icon": "icon.png",
+      "language": "en",
+      "contentRating": "SAFE",
+      "capabilities": [
+        1,
+        16,
+        4,
+        64,
+        32
+      ],
+      "badges": [],
+      "developers": [
+        {
+          "name": "Catta1997",
+          "github": "https://github.com/Catta1997"
+        }
+      ],
+      "id": "MangaDot"
     },
     {
       "name": "Mangago",
