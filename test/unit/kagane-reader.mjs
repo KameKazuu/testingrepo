@@ -49,6 +49,10 @@ try {
   const { KaganeInterceptor } = await import(pathToFileURL(path.join(temporary, "network.mjs")));
   const { getBaseUrl } = await import(pathToFileURL(path.join(temporary, "parsers.mjs")));
   assert.equal(getBaseUrl(), "https://kagane.moe");
+  for (const host of ["kagane.cx", "kagane.si", "kagane.net"]) {
+    state.set("kagane-domain", host);
+    assert.equal(getBaseUrl(), "https://kagane.moe");
+  }
   state.set("kagane-domain", "kagane.org");
   assert.equal(getBaseUrl(), "https://kagane.org");
   const interceptor = new KaganeInterceptor("test");
