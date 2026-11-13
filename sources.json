@@ -27,12 +27,12 @@
     {
       "id": "Kagane",
       "name": "Kagane",
-      "description": "Extension that pulls content from kagane.to.",
-      "website": "https://kagane.to",
+      "description": "Extension that pulls content from kagane.moe.",
+      "website": "https://kagane.moe",
       "author": "KameKazuu",
       "contentRating": "MATURE",
       "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Kagane/static/kagane.png",
-      "version": "1.0.0-alpha.42",
+      "version": "1.0.0-alpha.50",
       "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Kagane",
       "repository": "https://github.com/KameKazuu/testingrepo"
     },

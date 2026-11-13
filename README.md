@@ -6,7 +6,7 @@ Paperback extensions for websites with unique, non-generic themes.
 
 - [AllManga](https://allmanga.to)
 - [HiveToons](https://hivetoons.org)
-- [Kagane](https://kagane.to)
+- [Kagane](https://kagane.moe)
 - [MangaBaka](https://mangabaka.org)
 - [MangaDot](https://mangadot.net)
 - [Mangago](https://mangago.me)

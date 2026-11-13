@@ -10,3 +10,11 @@ Checked 2026-11-13 against Keiyoushi `all/kagane` and Aidoku Community `multi.ka
 - New defaults use kagane.moe. kagane.org and existing mirrors remain selectable; explicit saved choices are preserved.
 
 Never store a live access token in source or fixtures.
+
+## Catalog and health reports
+
+The root `sources.json` is separate from the generated `bundles/versioning.json`; keep Kagane’s version and domain synchronized with `pbconfig.ts` when updating it. The root catalog still advertised alpha.42 and kagane.to after alpha.50 was deployed.
+
+The health report checked on 2026-11-13 for book `01a0017a-7314-70e8-b5b4-1d8cb9a99c08` belongs to pirate.vodka’s Kagane `0.0.1-alpha.19`, tested at 08:04 UTC. Its URLs omit the quality path. KameKazuu’s alpha.50 was separately verified in its published bundle with the quality segment present. The health service’s current state does not list KameKazuu’s repository.
+
+Keiyoushi’s current book request uses `intent=Read` instead of `is_datasaver`. Both request forms returned the reported book’s 13-page manifest on kagane.org, but both still produced CDN `404 {"error": -7}` here, including quality-specific paths. Adding that argument alone was not a verified fix and was not shipped.
