@@ -153,14 +153,14 @@ async function buildPageRetryRequest(request: Request): Promise<Request | undefi
   // on its own if it's actually stale. Forcing a refresh here meant every
   // failed prefetched page kicked off its own homepage + integrity + challenge
   // round-trip, flooding the API when a whole batch expired at once.
-  const challenge = await getChallengeResponse(parts.chapterId);
+  const challenge = await getChallengeResponse(parts.chapterId, false, parts.dataSaver);
   const cacheUrl = challenge.cache_url || DEFAULT_CACHE_URL;
   const retryUrl = buildPageUrl(
     cacheUrl,
     parts.chapterId,
     parts.fileName,
     challenge.access_token,
-    getDataSaver(),
+    parts.dataSaver,
   );
 
   return {
@@ -174,16 +174,21 @@ async function buildPageRetryRequest(request: Request): Promise<Request | undefi
   };
 }
 
-function getPageRequestParts(url: string): { chapterId: string; fileName: string } | undefined {
-  // Tolerate the optional data-saver path segment: /page/[datasaver/]{id}/{file}
-  const match = url.match(/\/api\/v2\/books\/page\/(?:datasaver\/)?([^/?#]+)\/([^/?#]+)/);
-  if (!match?.[1] || !match[2]) {
+function getPageRequestParts(
+  url: string,
+): { chapterId: string; fileName: string; dataSaver: boolean } | undefined {
+  // Accept saved URLs from before quality became a required path segment.
+  const match = url.match(
+    /\/api\/v2\/books\/page\/(?:(original|datasaver)\/)?([^/?#]+)\/([^/?#]+)/,
+  );
+  if (!match?.[2] || !match[3]) {
     return undefined;
   }
 
   return {
-    chapterId: decodeURIComponent(match[1]),
-    fileName: decodeURIComponent(match[2]),
+    chapterId: decodeURIComponent(match[2]),
+    fileName: decodeURIComponent(match[3]),
+    dataSaver: match[1] ? match[1] === "datasaver" : /[?&]is_datasaver=true(?:&|$)/.test(url),
   };
 }
 
@@ -194,18 +199,20 @@ function getDataSaver(): boolean {
 export function getChallengeResponse(
   chapterId: string,
   forceRefresh = false,
+  dataSaver = getDataSaver(),
 ): Promise<ChallengeDto> {
-  const existing = challengePromises.get(chapterId);
+  const key = `${chapterId}:${dataSaver}`;
+  const existing = challengePromises.get(key);
   if (existing) return existing;
 
-  const request = loadChallengeResponse(chapterId, forceRefresh);
-  challengePromises.set(chapterId, request);
+  const request = loadChallengeResponse(chapterId, forceRefresh, dataSaver);
+  challengePromises.set(key, request);
   request.then(
     () => {
-      if (challengePromises.get(chapterId) === request) challengePromises.delete(chapterId);
+      if (challengePromises.get(key) === request) challengePromises.delete(key);
     },
     () => {
-      if (challengePromises.get(chapterId) === request) challengePromises.delete(chapterId);
+      if (challengePromises.get(key) === request) challengePromises.delete(key);
     },
   );
   return request;
@@ -214,16 +221,17 @@ export function getChallengeResponse(
 async function loadChallengeResponse(
   chapterId: string,
   forceRefresh: boolean,
+  dataSaver: boolean,
 ): Promise<ChallengeDto> {
   const integrityToken = await getIntegrityToken(forceRefresh);
   try {
-    return await requestChallengeResponse(chapterId, integrityToken);
+    return await requestChallengeResponse(chapterId, integrityToken, dataSaver);
   } catch (error) {
     if (error instanceof CloudflareError) throw error;
     clearIntegrityToken();
     const refreshedToken = await getIntegrityToken(true);
     try {
-      return await requestChallengeResponse(chapterId, refreshedToken);
+      return await requestChallengeResponse(chapterId, refreshedToken, dataSaver);
     } catch (retryError) {
       throw retryError instanceof Error ? retryError : error;
     }
@@ -233,13 +241,14 @@ async function loadChallengeResponse(
 async function requestChallengeResponse(
   chapterId: string,
   integrityToken: string,
+  dataSaver: boolean,
 ): Promise<ChallengeDto> {
   const url = new URL(getBaseUrl())
     .addPathComponent("api")
     .addPathComponent("v2")
     .addPathComponent("books")
     .addPathComponent(chapterId)
-    .setQueryItem("is_datasaver", String(getDataSaver()))
+    .setQueryItem("is_datasaver", String(dataSaver))
     .toString();
 
   return fetchJSON<ChallengeDto>({

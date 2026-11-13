@@ -274,7 +274,7 @@ export class KaganeSettingsForm extends Form {
   }
 
   async handleDomain(value: string[]): Promise<void> {
-    await setKaganeDomain(value[0] ?? "kagane.cx");
+    await setKaganeDomain(value[0] ?? "kagane.moe");
     this.reloadForm();
   }
 

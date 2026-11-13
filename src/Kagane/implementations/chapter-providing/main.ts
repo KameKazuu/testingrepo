@@ -54,7 +54,8 @@ export class ChapterProvider {
 
   async getChapterDetails(chapter: Chapter): Promise<ChapterDetails> {
     const chapterId = chapter.chapterId;
-    const challenge = await getChallengeResponse(chapterId);
+    const dataSaver = getDataSaver();
+    const challenge = await getChallengeResponse(chapterId, false, dataSaver);
     const cacheUrl = challenge.cache_url || DEFAULT_CACHE_URL;
 
     const manifestPages = challenge.manifest?.pages ?? [];
@@ -67,7 +68,6 @@ export class ChapterProvider {
 
     // Paperback's reader preloads upcoming pages itself, so we just hand back
     // the full ordered list of page URLs.
-    const dataSaver = getDataSaver();
     const pages = [...manifestPages]
       .sort((left, right) => left.page_no - right.page_no)
       .map((page) =>

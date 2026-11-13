@@ -5,7 +5,7 @@ import { ContentRating, URL } from "@paperback/types";
 
 import { getBaseUrl } from "./parsers";
 
-// Quality is now selected by the is_datasaver query rather than a path segment.
+// The CDN requires the quality path even though the book API still uses a query.
 export function buildPageUrl(
   cacheUrl: string,
   chapterId: string,
@@ -17,12 +17,12 @@ export function buildPageUrl(
     .addPathComponent("api")
     .addPathComponent("v2")
     .addPathComponent("books")
-    .addPathComponent("page");
+    .addPathComponent("page")
+    .addPathComponent(dataSaver ? "datasaver" : "original");
   return url
     .addPathComponent(chapterId)
     .addPathComponent(fileName)
     .setQueryItem("token", token)
-    .setQueryItem("is_datasaver", String(dataSaver))
     .toString();
 }
 

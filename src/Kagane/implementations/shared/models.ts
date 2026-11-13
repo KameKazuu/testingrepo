@@ -3,14 +3,14 @@
 
 import type { JSONObject, SortingOption } from "@paperback/types";
 
-export const BASE_URL = "https://kagane.cx";
+export const BASE_URL = "https://kagane.moe";
 export const DOMAIN_KEY = "kagane-domain";
 export const DOMAIN_OPTIONS = [
+  "kagane.moe",
+  "kagane.org",
   "kagane.cx",
   "kagane.si",
-  "kagane.moe",
   "kagane.net",
-  "kagane.org",
 ].map((id) => ({ id, title: id }));
 export const HIDE_DISTURBING_KEY = "kagane-hide-disturbing";
 export const DEFAULT_CACHE_URL = "https://kstatic.to";
