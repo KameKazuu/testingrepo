@@ -1,5 +1,5 @@
 {
-  "buildTime": "2026-11-13T09:31:33.975Z",
+  "buildTime": "2026-11-13T10:46:28.122Z",
   "builtWith": {
     "toolchain": "1.0.0-alpha.92",
     "types": "1.0.0-alpha.92"
@@ -31,52 +31,6 @@
         }
       ],
       "id": "AllManga"
-    },
-    {
-      "name": "EHentai",
-      "description": "Extension that pulls content from EHentai.org",
-      "version": "1.1.1",
-      "icon": "icon.png",
-      "contentRating": "ADULT",
-      "capabilities": [
-        16,
-        32,
-        4,
-        64,
-        1,
-        8
-      ],
-      "badges": [],
-      "developers": [
-        {
-          "name": "KameKazuu",
-          "github": "https://github.com/KameKazuu"
-        }
-      ],
-      "id": "EHentai"
-    },
-    {
-      "name": "ExHentai",
-      "description": "Extension that pulls content from ExHentai.org",
-      "version": "1.1.1",
-      "icon": "icon.png",
-      "contentRating": "ADULT",
-      "capabilities": [
-        16,
-        32,
-        4,
-        64,
-        1,
-        8
-      ],
-      "badges": [],
-      "developers": [
-        {
-          "name": "KameKazuu",
-          "github": "https://github.com/KameKazuu"
-        }
-      ],
-      "id": "ExHentai"
     },
     {
       "name": "HiveToons",
@@ -191,52 +145,6 @@
         }
       ],
       "id": "Mangago"
-    },
-    {
-      "name": "oManga",
-      "description": "Extension that pulls content from omanga.to.",
-      "version": "1.0.0-alpha.16",
-      "icon": "omanga.png",
-      "language": "en",
-      "contentRating": "ADULT",
-      "capabilities": [
-        1,
-        16,
-        4,
-        64,
-        32
-      ],
-      "badges": [],
-      "developers": [
-        {
-          "name": "KameKazuu",
-          "github": "https://github.com/KameKazuu"
-        }
-      ],
-      "id": "OManga"
-    },
-    {
-      "name": "OniSaga",
-      "description": "Extension that pulls content from onisaga.com.",
-      "version": "1.0.0-alpha.1",
-      "icon": "icon.png",
-      "language": "multi",
-      "contentRating": "MATURE",
-      "capabilities": [
-        1,
-        16,
-        4,
-        64,
-        32
-      ],
-      "badges": [],
-      "developers": [
-        {
-          "name": "KameKazuu",
-          "github": "https://github.com/KameKazuu"
-        }
-      ],
-      "id": "OniSaga"
     },
     {
       "name": "RokariComics",

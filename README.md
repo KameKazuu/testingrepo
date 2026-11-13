@@ -5,14 +5,11 @@ Paperback extensions for websites with unique, non-generic themes.
 ## Available Extensions
 
 - [AllManga](https://allmanga.to)
-- [EHentai](https://e-hentai.org)
-- [ExHentai](https://exhentai.org)
 - [HiveToons](https://hivetoons.org)
 - [Kagane](https://kagane.to)
 - [MangaBaka](https://mangabaka.org)
 - [MangaDot](https://mangadot.net)
 - [Mangago](https://mangago.me)
-- [oManga](https://omanga.to)
 - [Scans.GG](https://scans.gg)
 
 ## Installation

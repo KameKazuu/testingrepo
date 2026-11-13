@@ -13,30 +13,6 @@
       "repository": "https://github.com/KameKazuu/testingrepo"
     },
     {
-      "id": "EHentai",
-      "name": "EHentai",
-      "description": "Extension that pulls content from e-hentai.org.",
-      "website": "https://e-hentai.org",
-      "author": "KameKazuu",
-      "contentRating": "ADULT",
-      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/EHentai/static/icon.png",
-      "version": "1.1.1",
-      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/EHentai",
-      "repository": "https://github.com/KameKazuu/testingrepo"
-    },
-    {
-      "id": "ExHentai",
-      "name": "ExHentai",
-      "description": "Extension that pulls content from exhentai.org.",
-      "website": "https://exhentai.org",
-      "author": "KameKazuu",
-      "contentRating": "ADULT",
-      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/ExHentai/static/icon.png",
-      "version": "1.1.1",
-      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/ExHentai",
-      "repository": "https://github.com/KameKazuu/testingrepo"
-    },
-    {
       "id": "HiveToons",
       "name": "HiveToons",
       "description": "Extension that pulls content from hivetoons.org.",
@@ -94,18 +70,6 @@
       "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Mangago/static/icon.png",
       "version": "1.0.0-alpha.6",
       "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/Mangago",
-      "repository": "https://github.com/KameKazuu/testingrepo"
-    },
-    {
-      "id": "OManga",
-      "name": "oManga",
-      "description": "Extension that pulls content from omanga.to.",
-      "website": "https://omanga.to",
-      "author": "KameKazuu",
-      "contentRating": "ADULT",
-      "icon": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/OManga/static/omanga.png",
-      "version": "1.0.0-alpha.23",
-      "bundleUrl": "https://raw.githubusercontent.com/KameKazuu/testingrepo/refs/heads/test/bundles/OManga",
       "repository": "https://github.com/KameKazuu/testingrepo"
     },
     {
